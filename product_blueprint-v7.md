@@ -1476,6 +1476,14 @@ Accessed from the left sidebar.
 
 ---
 
+> **📦 Separate Repository Notice**
+> The Testbed Applications described in this section are built **independently** by the team in a separate GitHub repository (`Siddhesh1401/MigrateIQ-Testbed`). They are **not included in the main MigrateIQ monorepo** (`Siddhesh1401/MigrateIQ`). This is a deliberate decision to:
+> - Keep the main app codebase clean and conflict-free.
+> - Allow teammates to work in parallel without impacting the main development track.
+> - Simplify setup for each team member (they only clone the repo relevant to their task).
+
+---
+
 ## What are the Testbed Applications?
 
 The Testbed Applications are **two companion apps** used to demonstrate and test the Migration Planner. They are not part of the tool itself, but they are essential for:

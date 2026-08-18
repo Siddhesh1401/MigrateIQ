@@ -1029,6 +1029,14 @@ Build `SettingsScreen.tsx`:
 
 **Reference:** Product Blueprint — Part 3
 
+> **📦 Separate Repository Notice**
+> The Testbed Applications are **NOT built inside this monorepo**. They are developed independently by the team in a **separate GitHub repository** (`MigrateIQ-Testbed`). This keeps the main MigrateIQ codebase clean and avoids merge conflicts.
+>
+> - **Main App Repo (this one):** `Siddhesh1401/MigrateIQ` — Landing Website + Desktop App
+> - **Testbed Repo (separate):** `Siddhesh1401/MigrateIQ-Testbed` — Testbed App A (MongoDB) + Testbed App B (PostgreSQL) + Seed Scripts + Verification Suite
+>
+> For Phase 16 integration: teammates share their database connection strings → the Migration Planner is run against their live databases → the verification suite confirms the migration was successful.
+
 ---
 
 ## 16.1 — Testbed App A: MongoDB E-Commerce App (`apps/testbed-mongo/`)
