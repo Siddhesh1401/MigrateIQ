@@ -1028,6 +1028,11 @@ SELECT COUNT(*) AS orphans FROM reviews r LEFT JOIN products p ON r.product_id =
 - Sends 100 identical HTTP GET requests to `localhost:3001` (App A) and `localhost:3002` (App B).
 - **Pass:** Identical HTTP status code and matching payload structures.
 
+### Performance Benchmark Module (`verify/tests/performanceBenchmark.js`)
+- Executes 1,000 parallel test queries (PK lookup, category filter, join/aggregation) against both MongoDB and PostgreSQL.
+- Measures average latency (ms), p95 latency, and throughput (queries/sec).
+- Outputs comparative performance data for inclusion in the final Executive Audit Report.
+
 ---
 
 ## Verification Report Generation (JSON + Markdown)

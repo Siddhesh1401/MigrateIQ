@@ -620,7 +620,7 @@ Build `DryRunScreen.tsx`:
 ## 9.1 — Rollback Script Pre-Generation
 Before any rows are inserted:
 1. Generate the full rollback SQL: `DROP TABLE IF EXISTS order_items, orders, users, products, categories CASCADE;`
-2. Write it to a temp file on disk: `C:/Users/[user]/AppData/Roaming/MigrationPlanner/rollback_[timestamp].sql`
+2. Write it to a temp file on disk: `C:/Users/[user]/AppData/Roaming/MigrateIQ/rollback_[timestamp].sql`
 3. Save the temp file path to `electron-store` (so it survives a crash)
 
 ## 9.2 — Topological Sort (Dependency Order)

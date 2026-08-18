@@ -38,7 +38,7 @@ The website has **5 pages**:
 The navigation bar is pinned to the top of the screen and stays visible as the user scrolls.
 
 **Left side:**
-- The product logo — a small database icon followed by the text **"MigrationPlanner"** in bold. Clicking it goes to the Home page (`/`).
+- The product logo — a small database icon followed by the text **"MigrateIQ"** in bold. Clicking it goes to the Home page (`/`).
 
 **Right side (links in order):**
 - **How It Works** → navigates to `/how-it-works`
@@ -326,7 +326,7 @@ A simple card with:
 Four numbered steps:
 1. Click the Download button above
 2. Run the downloaded `.exe` installer
-3. Launch "MigrationPlanner" from your desktop or Start menu
+3. Launch "MigrateIQ" from your desktop or Start menu
 4. Enter your database connection strings and start migrating
 
 ---
