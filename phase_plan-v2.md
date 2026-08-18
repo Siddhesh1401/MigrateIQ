@@ -717,14 +717,14 @@ Create `main/engine/erdGenerator.ts`:
 2. "Open Full Screen" button → opens the ERD in a resizable modal
 3. "🗺️ Download ERD Diagram (.png)" button → saves the PNG to the user's Downloads folder
 
-## 10.4 — Audit Report PDF Generation
+## 10.4 — Executive Audit Report Generation (PDF & HTML)
 Create `main/engine/auditReportGenerator.ts`:
-1. Generates a PDF report using `pdfkit` or `puppeteer` with:
-   - Migration metadata (source, target, direction, date, time)
-   - Summary stats (rows migrated, skipped, time taken)
-   - Skipped row table with reasons
-   - Start and end timestamps (to document the snapshot window)
-2. "📄 Download Audit Report (.pdf)" button → saves to Downloads
+1. Generates an executive-ready PDF & HTML report containing:
+   - Official Migration Certificate with timestamp, duration, source, and target
+   - Summary statistics (tables created, rows transferred, skipped rows breakdown)
+   - Data integrity verification proofs (row count parity, checksum hashes)
+   - Real-time query performance benchmark latency charts
+2. Download buttons for both `.pdf` and `.html` formats saved to the user's Downloads folder
 
 ## 10.5 — Rollback Script Download
 1. "↩️ Download Rollback Script (.sql)" button → moves the temp rollback file to Downloads and opens the save dialog
@@ -741,7 +741,18 @@ Generates a `.zip` file containing 4 files:
 ## 10.7 — Layer 2 Guide Standalone Download
 "📋 Download Layer 2 Guide (.md)" button (only visible if source was PostgreSQL) → saves `layer2-migration-guide.md` directly to Downloads
 
-## 10.8 — "Next steps" message
+## 10.8 — Real-Time Query Performance Benchmark Engine
+Create `main/engine/benchmarkEngine.ts`:
+1. Exposes IPC channel `benchmark:run-comparison`
+2. Executes 1,000 parallel non-mutating test queries across both live source and target databases:
+   - Primary key lookups
+   - Category filtering & sorting
+   - Join / Aggregation lookups
+3. Calculates average latency (ms), p95 latency, and throughput (queries/sec) for both databases
+4. Renders live comparison bar chart and latency breakdown in the UI
+5. Passes benchmark data to the audit report generator
+
+## 10.9 — "Next steps" message
 At the bottom: "Your migration is complete. If you are using a Node.js backend, use the schema.prisma file in the Refactoring Kit to connect your app to the new PostgreSQL database."
 "← Go to Dashboard" button → returns to Home Dashboard, clears wizard state
 
@@ -749,9 +760,10 @@ At the bottom: "Your migration is complete. If you are using a Node.js backend, 
 
 **✅ Phase 10 is DONE when:**
 - After a successful migration, the completion screen shows correct stats
+- Real-time benchmark button runs 1,000 queries and renders live latency comparison chart
 - ERD preview renders and the PNG downloads correctly
 - Refactoring Kit `.zip` contains all 4 files and they are non-empty
-- Audit Report PDF downloads and opens correctly
+- Executive Audit Report (PDF & HTML) downloads and opens correctly with embedded verification data
 - Layer 2 Guide download button is only visible when source was PostgreSQL
 
 ---

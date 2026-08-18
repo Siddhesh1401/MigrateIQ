@@ -1092,13 +1092,34 @@ Migration Summary
 📅  Completed: August 15, 2026 at 10:45 PM
 ```
 
+**⚡ Real-Time Query Performance Benchmark Card:**
+Directly below the Migration Summary, an interactive performance benchmark card allows the user to immediately measure and prove query speed improvements:
+```
+⚡ Real-Time Query Performance Benchmark
+─────────────────────────────────────────────────────────────
+Compare live query execution speeds between MongoDB and PostgreSQL:
+[ ▶ Run 1,000 Query Benchmark ]
+
+Benchmark Results (1,000 parallel lookups):
+  MongoDB (Source):      18.4 ms avg latency  (████████████████████)
+  PostgreSQL (Target):    6.2 ms avg latency  (███████░░░░░░░░░░░░)  ⚡ 2.9x Faster
+
+  Query Type Breakdown:
+  • Primary Key Lookup:   Mongo: 4.1ms  | Postgres: 1.2ms (3.4x faster)
+  • Category Filter:      Mongo: 14.8ms | Postgres: 5.9ms (2.5x faster)
+  • Aggregate / Join:     Mongo: 36.2ms | Postgres: 11.4ms (3.2x faster)
+─────────────────────────────────────────────────────────────
+```
+* The benchmark runs safely against both live databases using non-mutating `SELECT` / `.find()` operations.
+* Results are automatically included in the downloadable Executive Audit Report.
+
 **Error log section** (only if rows were skipped):
 - A collapsible section: **"⚠️ 12 rows were skipped"**
 - Inside: a small table showing each skipped row:
   - Document ID | Collection | Reason
 
 **Download buttons (five):**
-- **"📄 Download Audit Report (.pdf)"** — Full migration report with row counts and checksums
+- **"📄 Download Executive Audit Report (.pdf / .html)"** — Official branded migration report with row count reconciliations, MD5 checksum verification proofs, and query benchmark charts
 - **"↩️ Download Rollback Script (.sql)"** — The SQL to undo the entire migration
 - **"📦 Download Refactoring Kit (.zip)"** — See full contents below
 - **"🗺️ Download ERD Diagram (.png)"** — Visual Entity Relationship Diagram of the migrated schema
