@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🗄️ MigrateIQ
+<img src="./assets/logo.png" alt="MigrateIQ Logo" width="450" />
+
+# MigrateIQ
 
 ### Intelligent Database Migration Planner
 
