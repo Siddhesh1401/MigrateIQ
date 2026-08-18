@@ -173,7 +173,7 @@ Phase-by-phase technical documentation is generated automatically after each pha
 
 ## 👨‍💻 About
 
-MigrateIQ was built as a **Final Year Project** by a team of four Computer Science students. The goal was to solve a real-world pain point — database migrations — by combining AI schema understanding, guided risk analysis, and automatic rollback into a single desktop tool.
+MigrateIQ was built as a **Final Year Project** by a team of four Information Technology students. The goal was to solve a real-world pain point — database migrations — by combining AI schema understanding, guided risk analysis, and automatic rollback into a single desktop tool.
 
 > *"Every existing tool either requires you to be an expert, locks you into an ecosystem, or moves data without helping you understand what changed or how to undo it. MigrateIQ is the only tool that combines all of these in one guided wizard."*
 
