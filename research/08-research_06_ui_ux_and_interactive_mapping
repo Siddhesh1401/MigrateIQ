@@ -1,0 +1,63 @@
+# Deep Research: Area 6 — Interactive Mapping UI & User Experience
+
+---
+
+## 1. Interactive Visual Schema Mapping Architecture
+
+The **Visual Mapping Component** is the central interactive feature where users review, customize, and approve AI-generated database mappings.
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                INTERACTIVE SCHEMA MAPPER                               │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                        │
+│  SOURCE (MongoDB: "users")         MAPPING CONTROLS        TARGET (PostgreSQL: "users")│
+│  ─────────────────────────         ────────────────        ─────────────────────────── │
+│  [✓] _id (ObjectId)             ───[ 1:1 ID ]─────────►    id          [BIGSERIAL PK ▼]│
+│  [✓] name (String)              ───[ Direct ]─────────►    name        [VARCHAR(255) ▼]│
+│  [✓] email (String, 98%)        ───[ Nullable ]───────►    email       [VARCHAR(255) ▼]│
+│  [✓] address.city (String)      ───[ Flattened ]──────►    city        [VARCHAR(100) ▼]│
+│  [✓] address.zip (String)       ───[ Flattened ]──────►    pincode     [VARCHAR(10)  ▼]│
+│  [✓] createdAt (Date)           ───[ UTC Cast ]───────►    created_at  [TIMESTAMPTZ  ▼]│
+│  [ ] legacyNotes (String)       ───[ Excluded ✕ ]─────►    (Skipped)                   │
+│                                                                                        │
+│  SOURCE (MongoDB: "orders")                                TARGET (PostgreSQL: "orders")│
+│  ──────────────────────────                                ────────────────────────────│
+│  [✓] _id (ObjectId)             ───[ 1:1 ID ]─────────►    id          [BIGSERIAL PK ▼]│
+│  [✓] userId (ObjectId)          ───[ Foreign Key ]────►    user_id     [INT -> users ▼]│
+│  [✓] items (Array<Object>)      ───[ 1:N Split ]──────►    ► Creates "order_items" table│
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key UI Features:
+1. **Interactive Dropdowns:** Change target data types on the fly (e.g. swap `VARCHAR(255)` to `TEXT` or `JSONB`).
+2. **Field Exclusion Toggles:** Uncheck unnecessary or legacy fields to skip them during migration.
+3. **Special Badges:** Visual indicators for `[⚠️ Flattened Object]`, `[🔗 Extracted 1:N Table]`, and `[🤖 AI Confidence: High]`.
+
+---
+
+## 2. Risk Report Visual Hierarchy
+
+Risks are categorized into collapsible accordion cards with immediate visual clarity:
+
+* 🔴 **Critical Issues (Red):** Blocks execution until fixed or explicitly acknowledged.
+  * *Example:* "Orders collection has nested array of objects without normalized table mapping."
+  * *Action Button:* `[Auto-Fix: Create order_items table]`
+* 🟡 **Warnings (Amber):** Cautions about potential table locks or application-layer code updates.
+  * *Example:* "Nested address object flattened into address_city and address_pincode columns."
+* ℹ️ **Informational (Blue):** Informs about successful safe patterns and reversibility.
+  * *Example:* "Rollback script verified: changes are 100% reversible."
+
+---
+
+## 3. 8-Step Wizard Navigation State Machine
+
+```
+[1. Direction] ──► [2. Source DB] ──► [3. Target DB] ──► [4. AI Mapping]
+                                                              │
+[8. Done/Report] ◄── [7. Execution] ◄── [6. Dry Run] ◄── [5. Risk Report]
+```
+
+* **State Persistence:** Wizard state is preserved in client state so users can navigate backwards and forwards to refine mappings without losing input.
+* **Syntax Highlighted Previews:** Monospace code editors with one-click **Copy Script**, **Download .sql / .js**, and **Run Dry Run**.

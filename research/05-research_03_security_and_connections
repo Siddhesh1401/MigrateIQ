@@ -1,0 +1,99 @@
+# Deep Research: Area 3 — Security, Connections & Cloud Database Safety
+
+---
+
+## 1. Credential Security & Password Masking
+
+### 1.1 In-Memory Ephemeral Sessions (No Hardcoded Secrets)
+* **Risk:** Storing user database credentials or connection strings in plain text or permanent databases poses extreme security vulnerabilities.
+* **Architecture Standard:**
+  * Credentials exist **only in server memory** associated with an ephemeral `sessionId` (UUID v4) stored in a short-lived cache (TTL $\approx 30-60$ minutes).
+  * Once the migration session finishes or times out, all connection pools and memory references are destroyed.
+
+### 1.2 Deterministic Password Masking (Logs & UI)
+* Connection URIs must **never** appear in backend logs, API responses, or error traces with raw passwords.
+* **Masking Algorithm:**
+  ```javascript
+  function maskUri(uri) {
+    try {
+      const parsed = new URL(uri);
+      if (parsed.password) parsed.password = '••••••••';
+      return parsed.toString();
+    } catch {
+      return uri.replace(/(:\/\/[^:]+:)([^@]+)(@)/, '$1••••••••$3');
+    }
+  }
+  ```
+  * Example: `postgres://admin:supersecret@db.supabase.co:5432/prod` $\longrightarrow$ `postgres://admin:••••••••@db.supabase.co:5432/prod`
+
+---
+
+## 2. Cloud Database SSL/TLS Configurations
+
+Modern cloud-hosted databases (MongoDB Atlas, Supabase, Neon, AWS RDS, Railway, Render) require specific TLS/SSL options.
+
+### 2.1 MongoDB Atlas (`mongodb+srv://`)
+* MongoDB Atlas mandates TLS 1.2+ encryption.
+* **Driver Configuration:**
+  ```javascript
+  const mongoClient = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 10000,
+    maxPoolSize: 5
+  });
+  ```
+
+### 2.2 PostgreSQL Cloud Providers (Supabase, Neon, AWS RDS, Railway)
+* Cloud providers use pooled endpoints that require SSL negotiation.
+* **Node `pg` Driver Configuration:**
+  ```javascript
+  const pool = new Pool({
+    connectionString: pgUri,
+    ssl: pgUri.includes('localhost') ? false : { rejectUnauthorized: false },
+    max: 5,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 5000
+  });
+  ```
+
+---
+
+## 3. Connection Lifecycle & Preventing Resource Leaks
+
+### Strict `try ... finally` Resource Disposal Pattern
+A common failure in long-running tools is exhausting the target database's connection pool.
+
+```javascript
+export async function withPgClient(connectionString, callback) {
+  const client = new Client({ connectionString, ssl: getSslConfig(connectionString) });
+  await client.connect();
+  try {
+    return await callback(client);
+  } finally {
+    await client.end().catch(() => {}); // Guaranteed cleanup
+  }
+}
+```
+
+---
+
+## 4. Pre-Flight Permissions Check (Readiness Validation)
+
+Before running migrations, the backend performs a pre-flight sanity check:
+
+### 4.1 Target PostgreSQL Permission Check
+Verify the target user has permission to create tables, indexes, and insert data:
+```sql
+-- Check schema create permission (DDL)
+SELECT has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_tables;
+
+-- Check lock timeout support
+SET lock_timeout = '5s';
+```
+
+### 4.2 Source MongoDB Permission Check
+Verify source user has read privileges:
+```javascript
+await db.command({ ping: 1 });
+await db.listCollections().toArray();
+```

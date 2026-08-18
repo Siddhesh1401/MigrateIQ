@@ -1,0 +1,74 @@
+# Deep Research: Application-Layer Code Help (MQL $\rightarrow$ SQL)
+
+---
+
+## 1. The Day After Migration (The Developer's Dilemma)
+
+When the Intelligent Database Migration Planner successfully transfers 10GB of data from MongoDB to PostgreSQL, the database is pristine, but **the user's application is now broken**. 
+
+The backend Node.js, Python, or Java code is still full of MongoDB Query Language (MQL) commands (e.g., `db.users.findOne({ email: "test@test.com" })`). These commands will crash immediately when attempting to connect to PostgreSQL.
+
+To make our tool truly exceptional, it shouldn't just stop at the database layer. It should offer **Application-Layer Refactoring Assistance**.
+
+---
+
+## 2. Refactoring Assistance Strategies
+
+### 2.1 Auto-Generating a `schema.prisma` File
+If the developer decides to use an ORM (Object-Relational Mapper) to talk to PostgreSQL, **Prisma** is the industry standard for TypeScript/Node.js.
+
+Instead of making the developer hand-write the new schema, our tool can generate a `.prisma` file directly from the AI Mapping output.
+
+* **How it works:**
+  If the AI maps MongoDB `users` to PostgreSQL `users` with an `id` and `email`, the tool generates and provides this exact file for download:
+  ```prisma
+  generator client {
+    provider = "prisma-client-js"
+  }
+  datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+  }
+  model users {
+    id        String   @id @default(uuid())
+    email     String   @unique
+    createdAt DateTime @default(now())
+    orders    orders[] // Auto-mapped 1:N relationship
+  }
+  model orders {
+    id      String @id @default(uuid())
+    userId  String
+    user    users  @relation(fields: [userId], references: [id])
+    total   Float
+  }
+  ```
+
+### 2.2 The "MQL to SQL" AI Cheat Sheet
+For developers who prefer writing raw SQL (e.g., using `pg` or `slonik`), our tool can generate a personalized cheat sheet based on their specific schema mapping.
+
+* **How it works:**
+  We pass the final schema mapping to Gemini with a prompt: *"Generate a cheat sheet showing the developer how to rewrite their most common MongoDB queries for their new PostgreSQL tables."*
+
+* **Output Example:**
+  ```markdown
+  ### Basic Lookups
+  **Old (MongoDB):** `db.users.find({ status: 'active' })`
+  **New (SQL):** `SELECT * FROM users WHERE status = 'active';`
+
+  ### Nested Array Queries (The 1:N Split)
+  **Old (MongoDB):** `db.orders.find({ "items.productId": "123" })`
+  **New (SQL):** 
+  ```sql
+  SELECT o.* FROM orders o
+  JOIN order_items oi ON o.id = oi.order_id
+  WHERE oi.product_id = '123';
+  ```
+  ```
+
+---
+
+## 3. Implementation in Our Tool
+During **Step 8 (Summary & Download)** of the wizard, we can provide three download buttons:
+1. `[Download Post-Migration Audit Report]`
+2. `[Download Rollback.sql]`
+3. `[Download Application Refactoring Kit]` (Contains the `schema.prisma` and the personalized MQL $\rightarrow$ SQL cheat sheet).

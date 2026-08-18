@@ -1,0 +1,130 @@
+# Deep Research: Area 4 — Resilient AI Engineering & Fallback Rule Engine
+
+---
+
+## 1. Structured JSON Generation via Gemini API
+
+### 1.1 The Challenge of LLM Hallucinations in Database Migrations
+In database migrations, an unconstrained LLM response (e.g. returning markdown commentary, missing fields, or invalid SQL types like `STRING` instead of `VARCHAR(255)`) can crash the frontend parser or corrupt the target database schema.
+
+### 1.2 The Solution: Strict Schema Enforcement (`response_schema`)
+By utilizing the Gemini API's native `response_mime_type: "application/json"` and `response_schema`, the model is mathematically constrained to generate valid, parseable JSON conforming to our TypeScript interfaces.
+
+* **Schema Definition Schema (OpenAPI / Gemini format):**
+```json
+{
+  "type": "OBJECT",
+  "properties": {
+    "tables": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "name": { "type": "STRING" },
+          "description": { "type": "STRING" },
+          "columns": {
+            "type": "ARRAY",
+            "items": {
+              "type": "OBJECT",
+              "properties": {
+                "name": { "type": "STRING" },
+                "sourceField": { "type": "STRING" },
+                "dataType": { "type": "STRING" },
+                "isNullable": { "type": "BOOLEAN" },
+                "isPrimaryKey": { "type": "BOOLEAN" },
+                "foreignKey": {
+                  "type": "OBJECT",
+                  "properties": {
+                    "referencesTable": { "type": "STRING" },
+                    "referencesColumn": { "type": "STRING" }
+                  }
+                },
+                "transformation": { "type": "STRING" }
+              },
+              "required": ["name", "sourceField", "dataType", "isNullable", "isPrimaryKey"]
+            }
+          }
+        },
+        "required": ["name", "columns"]
+      }
+    },
+    "risks": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "severity": { "type": "STRING", "enum": ["CRITICAL", "WARNING", "INFO"] },
+          "title": { "type": "STRING" },
+          "description": { "type": "STRING" },
+          "suggestedFix": { "type": "STRING" }
+        },
+        "required": ["severity", "title", "description", "suggestedFix"]
+      }
+    }
+  },
+  "required": ["tables", "risks"]
+}
+```
+
+---
+
+## 2. Prompt Engineering Architecture
+
+The prompt supplies sanitized, structural metadata (field names, sampled types, presence ratios, sample values) without leaking sensitive user data:
+
+```
+You are an expert Principal Database Architect and Migration Engineer.
+Task: Convert the provided MongoDB schema metadata into a robust, normalized PostgreSQL relational schema.
+
+Context:
+Source Collections:
+- "users": { _id: ObjectId, name: String, email: String (98% present), address: { city: String, pincode: String } }
+- "orders": { _id: ObjectId, userId: ObjectId, items: Array<Object{ productId: ObjectId, qty: Number, price: Number }>, totalAmount: Number }
+
+Rules:
+1. Normalize names to snake_case for PostgreSQL tables and columns.
+2. For embedded arrays of objects (e.g. orders.items), extract into a normalized child table (e.g. order_items) with a foreign key referencing the parent table.
+3. For nested 1:1 objects (e.g. address), flatten into prefixed columns (e.g. address_city, address_pincode).
+4. Evaluate potential schema risks (sparse fields, missing nullability, type mismatches) and return them in the "risks" array with plain English explanations and actionable fixes.
+```
+
+---
+
+## 3. The Deterministic Rule-Engine Fallback (Zero Failure Guarantee)
+
+If the Gemini API key is not provided, rate limits occur (HTTP 429), or the network is disconnected, the system **must gracefully fall back** to an embedded rule-based mapping engine:
+
+```
+                   ┌─────────────────────────────┐
+                   │  Source Schema Extracted    │
+                   └──────────────┬──────────────┘
+                                  │
+                                  ▼
+                     Is Gemini API Available?
+                                  │
+                ┌─────────────────┴─────────────────┐
+                │ YES                               │ NO / Rate-Limited
+                ▼                                   ▼
+┌───────────────────────────────┐   ┌───────────────────────────────┐
+│ Gemini AI Engine              │   │ Deterministic Rule Engine     │
+│ - Semantic column matching    │   │ - Type Dictionary (BSON->SQL) │
+│ - AI reasoning & risk nuances │   │ - AST Normalizer & Flattener  │
+│ - Complex 1:N splitting       │   │ - Rule-based risk checks      │
+└───────────────┬───────────────┘   └───────────────┬───────────────┘
+                │                                   │
+                └─────────────────┬─────────────────┘
+                                  ▼
+┌───────────────────────────────────────────────────────────────────┐
+│ Unified Mapping Object (Displayed in Visual Interactive UI)      │
+│ Badge: [🤖 AI Suggested] OR [⚡ Auto Rule-Mapped]                 │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+* **Fallback Rules:**
+  * `ObjectId` $\longrightarrow$ `VARCHAR(24)` / `BIGSERIAL PRIMARY KEY`
+  * `String` $\longrightarrow$ `VARCHAR(255)` (or `TEXT` if average length $>255$)
+  * `Double` / `Number` with decimal $\longrightarrow$ `DECIMAL(10,2)`
+  * `Integer` $\longrightarrow$ `INTEGER`
+  * `Date` $\longrightarrow$ `TIMESTAMPTZ`
+  * `Array of Objects` $\longrightarrow$ Child table `[collection]_[field]`
+  * `Nested Object` $\longrightarrow$ `[object]_[field]` flattened columns

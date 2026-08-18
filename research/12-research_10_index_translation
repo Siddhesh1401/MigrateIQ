@@ -1,0 +1,45 @@
+# Deep Research: Index Translation (MongoDB to Postgres)
+
+---
+
+## 1. The Challenge of Index Translation
+When migrating data from MongoDB to PostgreSQL, moving the raw data is only half the battle. If indexes are not migrated correctly, queries that took milliseconds in MongoDB will trigger full table scans in PostgreSQL, crippling the application's performance.
+
+MongoDB and PostgreSQL index structures fundamentally differ when handling nested documents and arrays.
+
+---
+
+## 2. Translation Matrix
+
+| MongoDB Index Type | PostgreSQL Index Type | Scenario & Example |
+| :--- | :--- | :--- |
+| **Standard Index (Single Field)**<br>`{ email: 1 }` | **B-Tree (Default)** | Perfect for direct lookups, equality, and sorting on standard columns (VARCHAR, INT).<br>`CREATE INDEX idx_email ON users(email);` |
+| **Compound Index**<br>`{ status: 1, created_at: -1 }` | **Compound B-Tree** | Mapped 1:1. Order matters heavily in both databases.<br>`CREATE INDEX idx_status_created ON orders(status, created_at DESC);` |
+| **Unique Index**<br>`{ username: 1 }, { unique: true }` | **Unique Constraint** | Mapped to a UNIQUE constraint (which inherently creates a unique B-Tree index).<br>`ALTER TABLE users ADD CONSTRAINT unique_username UNIQUE(username);` |
+| **Text Index**<br>`{ bio: "text" }` | **GIN / GiST with TSVECTOR** | Requires converting text columns into `tsvector` for Full-Text Search.<br>`CREATE INDEX idx_bio_fts ON users USING GIN (to_tsvector('english', bio));` |
+| **Multikey Index (Array Field)**<br>`{ tags: 1 }` | **GIN (Generalized Inverted Index)** | If the array is stored as a PostgreSQL Array (`TEXT[]`), use a GIN index to support `ANY()` or `@>` queries.<br>`CREATE INDEX idx_tags ON articles USING GIN(tags);` |
+| **Nested Field Index**<br>`{ "address.city": 1 }` | **B-Tree (if flattened)** or **GIN (if JSONB)** | If flattened: standard B-Tree on `address_city`. If kept as JSONB, use GIN.<br>`CREATE INDEX idx_json_city ON users USING GIN (address jsonb_path_ops);` |
+
+---
+
+## 3. The `JSONB` Indexing Hazard
+If the migration system decides to map unstructured MongoDB data into a PostgreSQL `JSONB` column, standard indexing fails.
+
+* **MongoDB** natively indexes nested paths (e.g. `{ "meta.clickCount": 1 }`).
+* **PostgreSQL** requires a **GIN (Generalized Inverted Index)** to look inside a JSON blob.
+
+### The Write-Performance Penalty
+While GIN indexes are extremely fast for reads, they are significantly slower to update than standard B-Trees because inserting a single JSON document requires parsing and updating the index for *every* key-value pair inside that document.
+* **Our Tool's Logic:** The risk engine should issue a 🟡 **Warning** if a user applies a generic GIN index to a highly volatile (write-heavy) JSONB column.
+
+---
+
+## 4. How Our System Will Implement Index Translation
+During the "Schema Introspection" phase (Phase 1), our Node.js backend will call `db.collection.indexes()` on MongoDB to read all existing indexes.
+
+Our translation engine will automatically propose the PostgreSQL equivalents in the visual UI, and when generating the SQL script, it will always append **`CONCURRENTLY`** to ensure the migration doesn't lock production tables:
+
+```sql
+-- AI-Generated Translation
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON users (email);
+```

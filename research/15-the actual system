@@ -1,0 +1,69 @@
+# Deep Research: The Ecosystem Architecture
+
+---
+
+## 1. Project Ecosystem Overview
+
+The **Intelligent Database Migration Planner** is not just a single script; it is a full enterprise-grade software ecosystem divided into two distinct products. This split architecture demonstrates advanced software engineering principles and provides the perfect user experience.
+
+```mermaid
+graph TD
+    A[Public Marketing] --> B(Next.js Landing Site)
+    B -->|User Clicks Download| C[IntelligentMigrator.exe]
+    C --> D(Windows Desktop Application)
+    D --> E(Electron Browser UI - React/Vite)
+    D --> F(Node.js Local Backend)
+    
+    %% Local Security Connections
+    F -->|Secure Local Access| G[(Localhost MongoDB)]
+    F -->|Secure Local Access| H[(Localhost PostgreSQL)]
+    F -->|Saves Settings locally| J[Local JSON File PC Storage]
+    
+    %% Cloud Connections
+    F -->|Internet Request| I["Free-Tier AI API (e.g., Groq/OpenRouter)"]
+```
+
+---
+
+## 2. Component 1: The Landing Website (Next.js)
+
+The landing website serves as the "Storefront" for the project. 
+
+* **Tech Stack:** Next.js (React), Tailwind CSS, Framer Motion.
+* **The User Journey:** The user visits this website purely to learn about the product and see beautiful screenshots. **They do not migrate databases on the website.**
+* **The Goal:** The only goal of this website is to get the user to click the big **"Download for Windows"** button to get the `.exe` file.
+
+---
+
+## 3. Component 2: The Windows Application (Electron + React)
+
+This is the core software where all the actual database work happens. It is built exactly like **VS Code**, **Slack**, or **Discord**—using a framework called **Electron**.
+
+### Why an Electron Windows App? (The VS Code Model)
+When the user installs the `.exe`, they get a native Windows Application that provides the best of both worlds:
+
+1. **Local Security & Speed:** The application runs on the user's PC. This means it can connect directly to their local databases (like `mongodb://localhost:27017`) without sending their production passwords to a cloud server. When transferring gigabytes of data, it happens instantly across their hard drive, avoiding massive cloud bandwidth bottlenecks.
+2. **Internet-Powered Features:** Just like how VS Code connects to the internet to download extensions or use AI (GitHub Copilot), our Windows app connects to the internet to utilize the **best available Free-Tier AI APIs (e.g., Groq, OpenRouter, or Google AI Studio)**.
+3. **Local Storage (No Extra Installs):** We want to save the user's migration history and database connection strings, but we don't want them to have to install a SQL database just to use our app. Instead, the app uses `electron-store` to silently save everything to a secure, hidden `.json` file directly on their PC.
+
+---
+
+## 4. The Two Halves of the Windows Application
+
+Under the hood, the `.exe` contains two separate systems talking to each other:
+
+#### A. The Frontend (The UI)
+* **Tech Stack:** React, Vite, Tailwind CSS.
+* **Responsibility:** Drawing the User Interface. It displays the interactive 8-step wizard, the beautiful glassmorphism buttons, and the visual schema mapper. It feels like a website, but it's running inside a desktop window.
+
+#### B. The Backend (The Engine)
+* **Tech Stack:** Node.js (bundled inside Electron).
+* **Responsibility:** Doing the actual heavy lifting. When the user clicks "Start Migration" in the React UI, a message is sent to the Node backend. The backend executes the high-speed Batch ETL streams, writes to the local `.json` file, and sends secure API requests to our chosen Free-Tier AI model over the internet.
+
+---
+
+## 5. Summary of Finalized Decisions
+* **App Type:** Windows Desktop Application (`.exe`).
+* **Framework:** React + Vite wrapped in Electron.
+* **AI Model:** Flexible Free-Tier Models (We will utilize APIs like Groq's Llama 3 or OpenRouter which offer blazing fast, free-tier access for JSON structured outputs).
+* **Data Storage:** 100% Local PC storage via hidden JSON files. No cloud databases required.

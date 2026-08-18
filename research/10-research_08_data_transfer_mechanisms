@@ -1,0 +1,66 @@
+# Deep Research: Area 8 — Data Transfer Mechanisms & ETL Pipelines
+
+---
+
+## 1. How Data is Actually Transferred (The Mechanisms)
+
+Transferring data from a NoSQL document store (MongoDB) to a Relational database (PostgreSQL) requires a pipeline that extracts, transforms, and loads (ETL) the data. In the industry, there are two primary mechanisms:
+
+### A. Snapshot Migration (Batch Load)
+* **What it is:** A "point-in-time" copy of the database. The system reads the source database from beginning to end and writes it to the destination.
+* **When it's used:** For one-time migrations, staging environments, or applications that can tolerate a "maintenance window" (downtime).
+* **How our tool will do this:**
+  1. **Cursor Streaming:** The Node.js backend opens a MongoDB cursor (`db.collection.find()`) and reads documents in batches of 500–1000.
+  2. **In-Memory Transformation:** Each batch is processed through the mapping rules (flattening objects, converting `ObjectId`s, sanitizing types).
+  3. **Bulk Ingestion:** The sanitized batch is inserted into PostgreSQL using a parameterized multi-row `INSERT` statement or `pg-copy-streams`.
+
+### B. Change Data Capture (CDC) / Real-Time Sync
+* **What it is:** A continuous streaming mechanism that captures every single `INSERT`, `UPDATE`, or `DELETE` that happens in MongoDB *after* the initial snapshot is taken, and replays it on PostgreSQL.
+* **When it's used:** For "Zero-Downtime" migrations on massive enterprise applications.
+* **How the industry does this:** Uses heavy infrastructure tools like **Debezium**, **Apache Kafka**, or **AWS Database Migration Service (DMS)** that read MongoDB's "Oplog" (operations log) or Change Streams.
+* **Note for our project:** Setting up a full CDC/Kafka pipeline is usually beyond the scope of a 3-month standalone tool. Our project will focus on building a **highly optimized, resilient Snapshot Batch Engine** with dry-run capabilities.
+
+---
+
+## 2. The ETL Pipeline Architecture for Our Tool
+
+To transfer the existing data successfully, our Node.js server will act as the "ETL Engine". Here is the step-by-step data journey:
+
+### Step 1: Extraction (Read from MongoDB)
+* We do not load the whole database into memory (which would crash the server).
+* Instead, we use `Cursor.batchSize()`. This pulls down a chunk of documents, processes them, and then requests the next chunk, keeping server memory extremely low ($<20$MB) regardless of whether the database is 1GB or 100GB.
+
+### Step 2: Transformation (Apply AI / Manual Rules)
+As each document passes through the Node.js memory buffer, it is transformed:
+* `_id: ObjectId("5f1...")` $\rightarrow$ `id: "5f1..."` (UUID/String for Postgres)
+* `createdAt: ISODate("...")` $\rightarrow$ `created_at: 2026-08-15 10:00:00+00`
+* `address: { city: "NY" }` $\rightarrow$ `address_city: "NY"`
+* Any document that violates the schema (e.g., trying to put a string in an integer field) is caught here. The system can auto-cast it (if safe) or flag the row as an error.
+
+### Step 3: Loading (Write to PostgreSQL)
+* Instead of running 1,000 separate `INSERT` queries (which is very slow), we construct a single **Bulk Insert** query:
+  ```sql
+  INSERT INTO users (id, name, email) VALUES 
+  ('1', 'Alice', 'a@a.com'), 
+  ('2', 'Bob', 'b@b.com'),
+  ...
+  ON CONFLICT DO NOTHING;
+  ```
+* This achieves thousands of rows per second in throughput.
+
+---
+
+## 4. Summary of Data Transfer Flow
+
+```mermaid
+graph TD
+    A[MongoDB Database] -->|Cursor Stream (500 docs/batch)| B(Node.js Extraction Layer)
+    B --> C(Transformation Layer)
+    C -->|Flattens Objects| C
+    C -->|Converts Data Types| C
+    C --> D{Is Data Valid?}
+    D -- Yes --> E(Batch Buffer)
+    D -- No --> F[Error Log/Skip]
+    E -->|When full (500 rows)| G(Bulk SQL INSERT)
+    G --> H[PostgreSQL Database]
+```

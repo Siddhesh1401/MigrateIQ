@@ -1,0 +1,74 @@
+# Deep Research: Area 5 — Real-Time Progress Tracking & Audit Reporting
+
+---
+
+## 1. Real-Time Streaming Architecture: Server-Sent Events (SSE)
+
+### Why Server-Sent Events (SSE) over WebSockets?
+| Feature | Server-Sent Events (SSE) | WebSockets |
+| :--- | :--- | :--- |
+| **Protocol** | Standard HTTP/HTTPS (`text/event-stream`) | Full-duplex TCP upgrade (`ws://`) |
+| **Directionality** | Server-to-Client (ideal for progress reporting) | Bi-directional (unnecessary overhead) |
+| **Reconnection** | Native automatic browser reconnection | Requires manual ping/pong & reconnection logic |
+| **Proxy / Next.js Support**| Works seamlessly across proxies, Next.js API routes, and cloud hosts | Requires specialized socket servers or sticky sessions |
+| **Payload** | UTF-8 JSON events | Binary / Text frames |
+
+---
+
+## 2. Real-Time Event Payload Lifecycle
+
+```
+[MIGRATION STARTED]
+        │
+        ├── event: "phase_change"  --> { phase: "CREATING_TABLES", progress: 10% }
+        │
+        ├── event: "table_start"   --> { table: "users", totalDocs: 1240 }
+        │
+        ├── event: "table_progress"--> { table: "users", migrated: 600, total: 1240, percent: 48.4% }
+        │
+        ├── event: "row_warning"   --> { table: "users", docId: "64a...", error: "Invalid email syntax" }
+        │
+        ├── event: "table_complete"--> { table: "users", inserted: 1239, skipped: 1 }
+        │
+        └── event: "complete"      --> { summary: { totalTables: 3, totalRows: 14233, durationMs: 3840 } }
+```
+
+### Backend SSE Endpoint Pattern (Express / Next.js API):
+```javascript
+export async function handleMigrationStream(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  const sendEvent = (eventType, data) => {
+    res.write(`event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Run migration and broadcast updates
+  await executeMigration(plan, {
+    onProgress: (table, migrated, total) => {
+      sendEvent('table_progress', { table, migrated, total, percent: Math.round((migrated / total) * 100) });
+    },
+    onError: (table, docId, error) => {
+      sendEvent('row_error', { table, docId, error });
+    }
+  });
+
+  sendEvent('complete', { success: true, timestamp: new Date().toISOString() });
+  res.end();
+}
+```
+
+---
+
+## 3. Comprehensive Migration Audit Report (Downloadable Artifact)
+
+Upon completion, the user can download a complete **Migration Summary Report** (JSON and Markdown formats) containing:
+
+1. **Header Metadata:** Execution timestamp, source URI (masked), target URI (masked), execution time ($ms$).
+2. **Schema Creation Summary:** Tables created, indexes generated, foreign keys established.
+3. **Data Ingestion Statistics:** Table-by-table metrics (Source Count, Migrated Count, Skipped Count).
+4. **Error Log Appendix:** Exact document IDs and reasons for any skipped rows.
+5. **Rollback SQL Script:** Fully formatted, ready-to-run undo script.

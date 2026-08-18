@@ -1,0 +1,61 @@
+# Deep Research: AI-Assisted Engineering Context, Rules & Quality Safeguards
+
+---
+
+## 1. What is "Vibe Coding" vs. "Structured AI Engineering"?
+
+Online, people often talk about **"Vibe Coding"**—where a developer tells an AI: *"Build me a full database migration app!"* and expects working, production-grade software in one prompt.
+
+### Why "Vibe Coding" Fails:
+* ❌ **Context Amnesia:** As the project grows, the AI forgets decisions made earlier and begins overwriting working code.
+* ❌ **Spaghetti Architecture:** The AI creates massive 1,000-line files with circular dependencies and conflicting state logic.
+* ❌ **Silent Failures:** Generates code with `try { ... } catch (e) { /* ignore */ }` that hides fatal database bugs.
+* ❌ **Type Laziness:** Spams `any` types in TypeScript, removing type safety and causing runtime crashes during ETL.
+
+### The Solution: Structured AI Engineering
+We create explicit **Context Files, System Rules, and Architecture Boundaries** in the workspace so the AI (and any developer) operates under strict engineering constraints.
+
+---
+
+## 2. Essential Context & Rules Files to Establish
+
+In modern AI-assisted engineering (Cursor, Antigravity, Copilot), we set up dedicated context files that act as the project's **Permanent Brain**:
+
+```mermaid
+graph TD
+    A[Project Root] --> B[GEMINI.md / AGENTS.md<br/>Coding Rules & Architecture Constraints]
+    A --> C[docs/ARCHITECTURE.md<br/>Folder Structure & Data Flow]
+    A --> D[docs/API_CONTRACTS.md<br/>IPC Channel Names & JSON Schemas]
+    A --> E[src/types/migration.ts<br/>Single Source of Truth TypeScript Interfaces]
+```
+
+### 1. `AGENTS.md` / `GEMINI.md` (The AI Rulebook)
+* **What it contains:**
+  * Strict TypeScript rules (e.g., `noImplicitAny: true`, never use `any`).
+  * File size limits (no single file should exceed 200–300 lines; break into modular hooks and components).
+  * State management rules (React state vs. Context vs. Electron IPC).
+  * Security rules (Never log raw database connection strings with passwords).
+
+### 2. `docs/ARCHITECTURE.md` (System Boundaries)
+* **What it contains:**
+  * Clean separation between Electron **Main Process** (Node.js backend) and **Renderer Process** (React frontend).
+  * Explicit list of IPC channels (`db:test-connection`, `db:sample-schema`, `ai:generate-mapping`, `etl:start-stream`).
+
+### 3. `src/types/migration.ts` (The Single Source of Truth)
+* **What it contains:**
+  * Strict TypeScript interfaces for MongoDB collections, PostgreSQL tables, column mappings, and risk levels.
+  * Every component, AI prompt, and ETL stream must import from this shared types file.
+
+---
+
+## 3. The 5 Quality Commandments for Building This Project
+
+To ensure the codebase is clean, maintainable, and impressive to academic evaluators:
+
+| Principle | Rule | Why It Matters |
+| :--- | :--- | :--- |
+| **1. Contract-First** | Define TypeScript interfaces *before* writing UI or backend code. | Guarantees frontend and backend never fall out of sync. |
+| **2. Modular Isolation** | Separate database logic, AI prompts, IPC handlers, and React UI into dedicated directories. | Prevents monolithic files that break when edited. |
+| **3. Fail-Loud Logging** | Never write empty `catch` blocks. All database errors must be piped to the UI log viewer. | Makes debugging instant and transparent. |
+| **4. Step-by-Step Verification** | Build and test Phase 1 before starting Phase 2. Run real database tests at each milestone. | Guarantees zero cumulative bugs. |
+| **5. Defense-in-Depth AI** | Validate all AI JSON responses against a Zod / Joi schema validator before using them. | Prevents invalid SQL syntax from reaching the database. |

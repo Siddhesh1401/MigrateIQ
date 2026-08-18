@@ -1,0 +1,1161 @@
+# Intelligent Database Migration Planner
+## Phase-Wise Development Plan (AI-Assisted Build Guide)
+
+> **How to use this document:**
+> This is your step-by-step build guide. Work through each Phase in order. Complete and test each Phase fully before moving to the next. Each Phase has a clear list of what to build, how to test it, and what "Done" means. Give this Phase to your AI coder along with the relevant section of the Product Blueprint when starting each one.
+
+---
+
+## Project Structure Overview
+
+```
+Int_DB_Migration/
+├── apps/
+│   ├── web/              ← Landing Website (Next.js)
+│   ├── desktop/          ← Windows Application (Electron + React)
+│   │   ├── main/         ← Electron Main Process (Node.js backend)
+│   │   └── renderer/     ← React UI (frontend inside Electron)
+│   ├── testbed-mongo/    ← Testbed App A (MongoDB e-commerce)
+│   └── testbed-postgres/ ← Testbed App B (PostgreSQL e-commerce)
+├── packages/
+│   └── shared/           ← Shared TypeScript types used by both apps
+└── package.json          ← Monorepo root
+```
+
+**Tech Stack:**
+| Layer | Technology |
+|---|---|
+| Landing Website | Next.js 14 + Vanilla CSS |
+| Desktop App UI | Electron 28 + React 18 + TypeScript |
+| Desktop App Backend | Node.js (inside Electron Main Process) |
+| MongoDB Driver | `mongodb` npm package |
+| PostgreSQL Driver | `pg` (node-postgres) |
+| AI Integration | Google Gemini API (`@google/generative-ai`) + Groq fallback |
+| App State Persistence | `electron-store` |
+| ERD Generation | `mermaid` or custom Canvas renderer |
+| Desktop Bundling | `electron-builder` |
+| Testbed Apps | Next.js + Express |
+
+---
+
+---
+
+# PHASE 0 — Project Setup & Monorepo Foundation
+
+**Goal:** Create the base folder structure, install all dependencies, and verify that both the landing website and the Electron app can start without errors. No features yet — just the skeleton.
+
+---
+
+## 0.1 — Monorepo Root Setup
+1. Create the root `package.json` with npm workspaces pointing to `apps/*` and `packages/*`
+2. Create a root `.gitignore` (node_modules, dist, .next, out, build)
+3. Create a root `README.md` with a one-paragraph project description
+
+## 0.2 — Shared TypeScript Types Package
+Create `packages/shared/` with:
+1. `package.json` (name: `@migration-planner/shared`)
+2. `tsconfig.json`
+3. `src/types.ts` — Define these base TypeScript interfaces (empty bodies for now):
+   - `ConnectionConfig` (host, port, username, password, dbName, type: 'mongodb' | 'postgresql')
+   - `SourceSchema` (collectionName, fields: FieldDefinition[])
+   - `FieldDefinition` (name, bsonType, isNullable, isArray, nestedFields?)
+   - `FieldMapping` (sourceField, targetColumn, targetType, include, isChildTable?)
+   - `RiskItem` (severity: 'critical'|'warning'|'info', title, description, autoFixAvailable)
+   - `ProgressEvent` (phase, tableName, rowsDone, rowsTotal, rowsPerSec, etaSeconds)
+   - `MigrationResult` (tablesCreated, rowsMigrated, rowsSkipped, durationMs, errors)
+
+## 0.3 — Landing Website Scaffold
+1. Create `apps/web/` using `create-next-app` with TypeScript and App Router
+2. Set up folder structure: `app/`, `components/`, `styles/`
+3. Install dependencies: nothing extra needed beyond defaults
+4. Verify: `npm run dev` starts at `localhost:3000` with the default Next.js page
+
+## 0.4 — Desktop App Scaffold
+1. Create `apps/desktop/` with:
+   - `package.json` (Electron + React + TypeScript + electron-builder)
+   - `tsconfig.json`
+   - `main/` folder (Electron Main Process entry file: `main.ts`)
+   - `renderer/` folder (React app: `index.html`, `src/App.tsx`, `src/main.tsx`)
+2. Configure Vite (or webpack) to build the renderer
+3. Configure `electron-builder` for Windows `.exe` output
+4. Verify: `npm start` opens an Electron window showing a blank white React app
+
+## 0.5 — Shared Types Integration
+1. Add `@migration-planner/shared` as a dependency in both `apps/web` and `apps/desktop`
+2. Import and use one type from the shared package in each app to verify it works
+
+---
+
+**✅ Phase 0 is DONE when:**
+- `cd apps/web && npm run dev` → landing website loads at localhost:3000
+- `cd apps/desktop && npm start` → Electron window opens with a blank React app
+- No TypeScript errors in any package
+
+---
+---
+
+# PHASE 1 — Landing Website (All 5 Pages)
+
+**Goal:** Build the complete, fully-styled public-facing landing website. This phase is 100% frontend — no backend, no database, no Electron. Purely HTML + CSS + Next.js.
+
+**Reference:** Product Blueprint — Part 1 (pages 1–5)
+
+---
+
+## 1.1 — Design System & Global Styles
+1. Create `apps/web/styles/globals.css` with:
+   - CSS custom properties (color tokens, font sizes, spacing scale)
+   - Google Font import (e.g., Inter or Outfit)
+   - Base reset styles
+   - Dark-mode first color scheme (dark background, light text)
+   - Utility classes for containers, flex/grid layouts
+
+## 1.2 — Shared Components
+Create these reusable components in `apps/web/components/`:
+1. `Navbar.tsx` — Logo left + navigation links right + highlighted Download button
+2. `Footer.tsx` — Product name, center links, "Built with" text
+3. `Button.tsx` — Primary (filled) and Secondary (outlined) button variants
+
+## 1.3 — Page 1: Home (`/`)
+Build all 6 sections:
+1. **Hero Section** — Headline, subtitle, two buttons, "Free. No account required" note, app mockup image/placeholder
+2. **Problem Statement** — Heading + 3 pain point cards (🔴 icons)
+3. **Feature Cards Grid** — 12 feature cards in a 3-column grid with icons and descriptions
+4. **How It Works Preview** — 4-step horizontal flow with arrows: Connect → Review → Simulate → Migrate
+5. **Download CTA Banner** — Full-width accent background, big download button
+6. **Footer** — (reuse `Footer` component)
+
+## 1.4 — Page 2: How It Works (`/how-it-works`)
+1. Page header with heading and subtitle
+2. Tab toggle: "Database Migration" / "Schema Update"
+3. Migration view: 8 step cards displayed vertically, each with step number, title, description, and icon
+4. Schema Update view: 6 step cards (shown when tab is toggled)
+
+## 1.5 — Page 3: Features (`/features`)
+1. Page header
+2. 12 feature sections (one per feature) — each with name, icon, description paragraph, "What you'll see" preview box, "Why it matters" bullets
+3. Comparison table at bottom: Migration Planner vs Flyway vs Prisma vs Liquibase vs Bytebase vs AWS DMS
+
+## 1.6 — Page 4: Download (`/download`)
+1. Download hero with large "⬇ Download for Windows" button
+2. System requirements card
+3. 4-step installation instructions
+4. 3-question FAQ accordion
+5. SmartScreen bypass note (collapsible)
+
+## 1.7 — Page 5: About (`/about`)
+1. Project description paragraph
+2. 4 team member cards with name, role, and avatar placeholder
+
+## 1.8 — Responsive & Polish
+1. All pages must be responsive (mobile, tablet, desktop)
+2. Smooth hover effects on all cards and buttons
+3. Active state on nav links based on current route
+4. Page titles and meta descriptions for all 5 pages (SEO)
+
+---
+
+**✅ Phase 1 is DONE when:**
+- All 5 pages load without errors
+- All 12 features are visible on the Features page
+- The comparison table renders correctly
+- The site is responsive on mobile
+- No broken links between pages
+- `npm run build` completes without errors
+
+---
+---
+
+# PHASE 2 — Desktop App Shell
+
+**Goal:** Build the persistent Electron app shell — the outer frame that stays on screen at all times. This includes the sidebar navigation and the main content area. No features yet — just the navigation skeleton with placeholder screens for each route.
+
+**Reference:** Product Blueprint — Part 2 → "The App Shell"
+
+---
+
+## 2.1 — Electron Main Process Setup
+1. Create `apps/desktop/main/main.ts`:
+   - Creates the `BrowserWindow` (1280×800, frameless or standard frame)
+   - Loads the renderer (React app)
+   - Sets up `contextBridge` to expose a safe `window.electronAPI` object to the renderer
+2. Set up `preload.ts` — defines the `contextBridge` API shape (empty for now):
+   - `window.electronAPI.send(channel, data)` — renderer → main
+   - `window.electronAPI.invoke(channel, data)` — renderer → main (with response)
+   - `window.electronAPI.on(channel, callback)` — main → renderer
+
+## 2.2 — React App Setup (Renderer)
+1. Set up React Router (or a simple custom route state) for in-app navigation
+2. Define the 8 app routes:
+   - `/` → Home Dashboard
+   - `/migrate` → Migration Wizard
+   - `/schema-update` → Schema Update Wizard
+   - `/history` → History screen
+   - `/schema-history` → Schema Version History screen
+   - `/connections` → Saved Connections screen
+   - `/settings` → Settings screen
+
+## 2.3 — App Shell Layout Component
+Create `AppShell.tsx` — a layout wrapper with two columns:
+1. **Left Column: `Sidebar.tsx`**
+   - App logo at top
+   - 7 nav items: Home, New Migration, New Schema Update, History, Schema History, Connections, Settings
+   - Each nav item has an icon + label
+   - Active item is highlighted
+   - App version `v1.0.0` pinned at the very bottom
+2. **Right Column: `MainContent.tsx`**
+   - Renders the current route's screen component
+
+## 2.4 — Placeholder Screens
+Create placeholder components for all 8 routes — each just shows the screen name as a heading:
+- `HomeDashboard.tsx` → renders `<h1>Home Dashboard</h1>`
+- `MigrationWizard.tsx` → renders `<h1>Migration Wizard</h1>`
+- `SchemaUpdateWizard.tsx` → renders `<h1>Schema Update Wizard</h1>`
+- `HistoryScreen.tsx` → renders `<h1>History</h1>`
+- `SchemaHistoryScreen.tsx` → renders `<h1>Schema History</h1>`
+- `ConnectionsScreen.tsx` → renders `<h1>Saved Connections</h1>`
+- `SettingsScreen.tsx` → renders `<h1>Settings</h1>`
+
+## 2.5 — Global App Styles
+1. Create `renderer/styles/app.css`:
+   - Same design system tokens as the landing website (consistent colors)
+   - Sidebar width, background colors, font styles
+   - Dark theme for the desktop app
+2. Apply styles to the shell layout
+
+---
+
+**✅ Phase 2 is DONE when:**
+- Electron app opens with the sidebar visible on the left
+- Clicking each sidebar item navigates to the correct placeholder screen
+- The active sidebar item is visually highlighted
+- The app looks styled (not plain white)
+- No console errors
+
+---
+---
+
+# PHASE 3 — Home Dashboard
+
+**Goal:** Build the full Home Dashboard screen — the first screen the user sees after opening the app. This includes the three entry cards and the Recent Migrations table.
+
+**Reference:** Product Blueprint — Part 2 → "Screen 1 — Home Dashboard"
+
+---
+
+## 3.1 — Three Entry Cards
+Replace the `HomeDashboard.tsx` placeholder with the real screen:
+1. **Welcome heading:** "Welcome to Migration Planner"
+2. **Card A — Migrate My Database:**
+   - Icon: two database cylinders with arrows
+   - Description text
+   - Button: "Start Migration →" → navigates to `/migrate`
+3. **Card B — Update My Database:**
+   - Icon: pencil over database cylinder
+   - Description text
+   - Button: "Start Schema Update →" → navigates to `/schema-update`
+4. **Card C — 🎮 Try with Sample Data:**
+   - Different accent background color (purple/teal)
+   - Description text
+   - Button: "Launch Demo →" → navigates to `/migrate` in Demo Mode (flag to be implemented in Phase 11)
+   - Badge: "No setup required"
+
+## 3.2 — Recent Migrations Table
+1. Heading: "Recent Migrations"
+2. Table with columns: Date & Time | Direction | Status | Action
+3. Status badge variants: ✅ Completed / ⚠️ Completed with warnings / ❌ Failed
+4. "View Report" link in Action column (clicking opens a placeholder modal for now)
+5. Empty state message when no migrations exist: "No migrations yet. Start your first one above."
+6. Data sourced from `electron-store` (read whatever is saved — empty on first run)
+
+## 3.3 — Resume Banner (if unfinished migration exists)
+1. A blue info banner at the top of the dashboard: "📋 You have an unfinished migration. [Resume →]"
+2. Show only when `electron-store` has a saved wizard state with status: 'in-progress'
+3. "Resume →" navigates to the Migration Wizard at the saved step (logic completed in Phase 9)
+
+---
+
+**✅ Phase 3 is DONE when:**
+- Three cards render with correct icons, text, and navigation
+- "Start Migration" → navigates to the Migration Wizard placeholder
+- Recent Migrations table shows the empty state on first run
+- The layout is visually styled and consistent with the design system
+
+---
+---
+
+# PHASE 4 — Database Connectivity (Steps 2 & 3)
+
+**Goal:** Build the database connection infrastructure — both the backend (Node.js IPC handlers) and the frontend (connection forms). This phase is the foundation everything else depends on.
+
+**Reference:** Product Blueprint — Part 2 → Steps 2 & 3
+
+---
+
+## 4.1 — Electron Main: MongoDB Connection Handler
+Create `main/handlers/db.ts`:
+1. `ipcMain.handle('db:connect-mongodb', async (event, config: ConnectionConfig) => {...})`
+   - Uses the `mongodb` package to test the connection
+   - If success: reads and returns the full schema (collection names, field names, BSON types, sample counts)
+   - If failure: returns `{ success: false, error: exactErrorMessage }`
+2. Schema reading logic: `db.listCollections()` + sampling 100 documents per collection to infer field types
+
+## 4.2 — Electron Main: PostgreSQL Connection Handler
+1. `ipcMain.handle('db:connect-postgresql', async (event, config: ConnectionConfig) => {...})`
+   - Uses `pg` package to test the connection
+   - If success: reads and returns schema from `information_schema.columns` and `pg_indexes`
+   - Also checks permissions: `HAS_TABLE_PRIVILEGE` for CREATE, `HAS_SCHEMA_PRIVILEGE` for INSERT
+   - If failure: returns `{ success: false, error: exactErrorMessage }` — detect SRV errors and Supabase pooler patterns and enrich the error message in plain English
+2. Layer 2 scan (PG only): read `pg_catalog` to detect stored procedures, functions, triggers, views, check constraints, enum types, composite PKs — returns counts + names
+
+## 4.3 — Migration Wizard Step 1 — Choose Direction
+Build the real Step 1 screen:
+1. Step Progress Bar at top (8 dots, step 1 highlighted)
+2. Large heading: "Step 1 of 8 — Choose Direction"
+3. Two clickable cards: "MongoDB → PostgreSQL" and "PostgreSQL → MongoDB"
+4. Selected card gets highlighted blue border
+5. "Next →" button appears after selection
+6. Saves chosen direction to wizard state
+
+## 4.4 — Migration Wizard Step 2 — Connect Source
+Build the real Step 2 screen:
+1. Sub-heading: "Step 2 of 8 — Connect Source Database"
+2. Two tabs: "Connection String" and "Individual Fields"
+3. Eye icon toggle to show/hide password in connection string
+4. "Use a Saved Connection" dropdown (reads from `electron-store`)
+5. "Test Connection & Read Schema" button
+6. **Loading state:** button shows spinner with "Connecting…"
+7. **Error state:** red error card with exact error message (plain-English for SRV/pooler errors)
+8. **Success state:**
+   - Green "✅ Connected!" banner
+   - "Found N collections: …" list
+   - Collapsible schema preview per collection
+   - "🗺️ View ERD Diagram" button (ERD built in Phase 5)
+9. "💾 Save this connection for future use" checkbox + name field
+10. "Next →" button
+
+## 4.5 — AI Schema Health Score (Step 2 add-on)
+1. After connection succeeds, silently call `ipcMain.handle('ai:health-score', schema)` in the background
+2. While waiting: show a subtle 3-second loading card below the schema preview
+3. On response: render the Health Score card (0–100, list of deductions with emoji flags, tip)
+4. If AI unavailable or fails: skip silently — do not show any error to the user
+
+## 4.6 — Migration Wizard Step 3 — Connect Target
+1. Mirror of Step 2 but for the target database (opposite type from source)
+2. Button says "Test Connection" (not "Read Schema" — target is only tested here)
+3. Success shows permission check results: ✅ Can create tables / ✅ Can insert data
+4. If permission missing: red card with exact `GRANT` SQL to fix it
+5. Supabase/Neon detection: if domain pattern matches, show blue info banner about direct URL
+6. "Next →" button
+
+## 4.7 — Wizard State Management
+1. Create a Zustand store (or React Context) for wizard state:
+   - `direction`, `sourceConfig`, `sourceSchema`, `targetConfig`, `layer2Features`, `wizardStep`
+2. Auto-save wizard state to `electron-store` after every step completion
+3. Clear wizard state when migration completes or user explicitly cancels
+
+---
+
+> **⚠️ Known Challenges to Handle in This Phase** *(Read Blueprint → Part 4 for full details)*
+> - **Challenge 6 — MongoDB Atlas & Supabase/Neon Connection Quirks:** Atlas `mongodb+srv://` URLs require a DNS SRV lookup that can fail on university/corporate networks. Supabase/Neon connections fail when using the pooler URL for DDL. → Detect SRV errors and Supabase domain patterns and show a plain-English banner guiding the user to the correct URL.
+> - **Challenge 7 — Wizard State Lost if App is Closed Mid-Way:** If the user finishes Step 2 and closes the app, they lose all connection configs and must start again. → Auto-save wizard state to `electron-store` after every step. Show a "Resume →" banner on the Home Dashboard when an in-progress migration is detected.
+
+**✅ Phase 4 is DONE when:**
+- Entering a real MongoDB connection string and clicking "Test Connection" shows the found collections
+- Entering a wrong password shows a clear error message
+- Entering a Supabase pooler URL shows the direct URL warning banner
+- Connecting a real PostgreSQL DB shows the permission check results
+- The chosen direction and connection configs are preserved when navigating to Step 3
+- Wizard state is saved to `electron-store` (can be verified by inspecting the store file)
+
+---
+---
+
+# PHASE 5 — Schema Mapper UI (Step 4)
+
+**Goal:** Build the interactive visual schema mapper — the most complex UI component in the entire app. The user sees their MongoDB schema on the left and the proposed PostgreSQL schema on the right, and can interactively edit the mapping.
+
+**Reference:** Product Blueprint — Part 2 → Step 4 (AI Schema Mapping)
+
+---
+
+## 5.1 — Schema Mapper Table Component
+Create `SchemaMapperTable.tsx`:
+1. For each collection, render a section heading and a table:
+   - Columns: MongoDB Field | Type | → | PostgreSQL Column | Data Type ▼ | Nullable | Include?
+2. **Editable column name:** Click on the PostgreSQL column name to edit it inline
+3. **Data type dropdown:** A dropdown list with all 16 supported PostgreSQL types
+4. **Nullable toggle:** Yes/No toggle
+5. **Include checkbox:** Unchecking crosses out the row
+6. **Field badges:** `⚠️ Was Nested`, `🔗 Foreign Key`, `📋 Creates child table`
+7. **Array of Objects row:** Shows "Creates child table: order_items [View Details]" → clicking expands the child table mapping sub-section
+
+## 5.2 — Data Type Reference Panel
+1. A collapsible section below the mapper
+2. A full 16-row reference table: MongoDB BSON type → PostgreSQL type → Notes
+3. Read-only (for reference only)
+
+## 5.3 — Index Translation Section
+For each collection, after the field mapper:
+1. A separate "Indexes" sub-section
+2. Table: MongoDB Index | Type | → | PostgreSQL Equivalent SQL | Notes
+3. All generated SQL includes `CONCURRENTLY` keyword
+4. Include/Exclude checkbox for each index
+5. Special ⚠️ warning badge on GIN indexes
+
+## 5.4 — Step 4 Loading State
+While AI is working (before mapper appears):
+1. Center card: "🤖 AI is analyzing your MongoDB schema…"
+2. Animated spinner/pulse
+3. Live updating text log: "Reading users… ✅", "Sending to AI… ✅", "Generating mapping… ⏳"
+
+## 5.5 — Bottom Controls
+1. "✅ This Looks Good, Continue →" primary button
+2. "← Back to Connection" secondary button
+3. Badge showing whether mapping was AI-generated (`[🤖 AI Suggested]`) or rule-engine-generated (`[⚡ Auto Rule-Mapped]`)
+
+---
+
+**✅ Phase 5 is DONE when:**
+- Given a fake/hardcoded schema object, the mapper renders all fields in the table
+- Column names are editable (click to edit inline)
+- Data type dropdown works and updates the value
+- Include checkbox crosses out the row when unchecked
+- Child table expansion shows the nested table mapping
+- Index section renders all indexes with the CONCURRENTLY SQL
+- The reference panel collapses and expands
+
+---
+---
+
+# PHASE 6 — AI Integration & Rule Engine (Step 4 Backend)
+
+**Goal:** Wire up the real AI backend so the Schema Mapper is populated by actual AI suggestions, not hardcoded data. Also build the fallback rule engine for when AI is unavailable.
+
+**Reference:** Product Blueprint — Part 2 → Step 4 (AI backend), Part 4 → Challenge 10
+
+---
+
+## 6.1 — AI Schema Mapping Handler
+Create `main/handlers/ai.ts`:
+1. `ipcMain.handle('ai:generate-mapping', async (event, schema: SourceSchema[]) => {...})`
+2. Reads the AI provider and API key from `electron-store` settings
+3. Constructs the system prompt:
+   ```
+   You are a database migration expert. Given a MongoDB schema (as JSON), generate a PostgreSQL mapping.
+   Return ONLY valid JSON matching this exact schema: [FieldMapping[] type definition]
+   Rules: ObjectId → VARCHAR(24), ISODate → TIMESTAMPTZ, Nested object (1-2 levels) → flatten with underscore,
+   Array of objects → separate child table with FK, Array of primitives → PostgreSQL array type, etc.
+   ```
+4. Sends to Gemini API (`gemini-1.5-flash` — free tier)
+5. Validates the response JSON against the `FieldMapping[]` Zod schema
+6. If token limit exceeded: split schema into batches of 5 collections and merge results
+7. Returns the validated mapping
+
+## 6.2 — Fallback Rule Engine
+Create `main/engine/ruleEngine.ts`:
+A pure TypeScript function `generateMappingByRules(schema: SourceSchema[]): FieldMapping[]`:
+- ObjectId → VARCHAR(24)
+- String → TEXT
+- Number (int range) → INTEGER
+- Number (large) → BIGINT
+- Number (float) → DOUBLE PRECISION
+- Decimal128 → NUMERIC(18,4)
+- Boolean → BOOLEAN
+- Date → TIMESTAMPTZ
+- Array of strings → TEXT[]
+- Array of objects → flag as child table
+- Nested object (≤2 levels deep) → flatten with `_` separator
+- Nested object (>2 levels deep) → JSONB
+- Binary → BYTEA
+- Null/missing → mark column as nullable
+
+## 6.3 — AI Failure Handling
+1. If AI call fails (network, API key invalid, rate limit): automatically use the rule engine
+2. The mapper shows badge: `[⚡ Auto Rule-Mapped]` instead of `[🤖 AI Suggested]`
+3. No error is shown to the user — the experience is seamless
+
+## 6.4 — Health Score AI Handler
+1. `ipcMain.handle('ai:health-score', async (event, schema: SourceSchema[]) => {...})`
+2. Send schema to AI with prompt: *"Analyze this MongoDB schema. Identify data quality issues (type inconsistencies, missing fields, no indexes). Return a health score 0–100 and a list of deduction reasons as JSON."*
+3. Parse and return the score + reasons list
+4. If fails: return null silently
+
+---
+
+> **⚠️ Known Challenges to Handle in This Phase** *(Read Blueprint → Part 4 for full details)*
+> - **Challenge 10 — AI Token Limits for Very Large Schemas:** For schemas with 30+ collections, the schema payload may exceed Gemini/Groq's per-request token limit. → Measure payload size before sending. If over the limit, split into batches of 5–6 collections, send each batch separately, then merge the results. Show "Processing in N batches…" in the loading screen.
+> - **Challenge 14 — Free AI Rate Limits:** Heavy usage may trigger a 429 rate-limit error from the AI provider. → If the AI call fails for any reason (rate limit, bad key, network), silently fall back to the rule engine. Show `[⚡ Auto Rule-Mapped]` badge instead of an error.
+
+**✅ Phase 6 is DONE when:**
+- Connecting a real MongoDB DB populates the Schema Mapper with AI-generated suggestions
+- Renaming the AI API key to something invalid causes the rule engine to kick in and the `[⚡ Auto Rule-Mapped]` badge appears
+- The Health Score card appears after connection (or does not appear if AI fails)
+- A schema with 30+ collections triggers batch processing and still returns a complete mapping
+
+---
+---
+
+# PHASE 7 — Risk Report (Step 5)
+
+**Goal:** Build the complete Risk Report screen — the pre-migration analysis that shows critical issues, warnings, and info cards. Also build the Layer 2 section for PostgreSQL → MongoDB migrations.
+
+**Reference:** Product Blueprint — Part 2 → Step 5 (Risk Report)
+
+---
+
+## 7.1 — Risk Analysis Engine
+Create `main/engine/riskAnalyzer.ts`:
+A function `analyzeRisks(schema: SourceSchema[], mapping: FieldMapping[]): RiskItem[]` that checks:
+1. **🔴 Critical:** Array-of-objects field NOT mapped to a child table → flag it
+2. **🔴 Critical:** NOT NULL column with documents missing that field → count the missing docs and flag
+3. **🔴 Critical:** Circular FK dependency detected (run cycle detection on FK graph)
+4. **🟡 Warning:** Column marked NOT NULL where ≥5% of documents are missing the field
+5. **🟡 Warning:** `phone` or similar field has mixed types (string + integer)
+6. **🟡 Warning:** Target PostgreSQL DB already has existing tables with the same names
+7. **🟡 Warning:** Large binary fields detected (average doc size > 100KB) → flag + auto-reduce batch size
+8. **ℹ️ Info:** Nested object was flattened (safe, but app code must be updated)
+9. **ℹ️ Info:** GIN index will be created (note: slower updates)
+
+## 7.2 — Risk Report UI
+Create `RiskReport.tsx`:
+1. Banner at top: severity summary ("1 Critical Issue and 2 Warnings Found. Please review.")
+2. Expandable accordion cards per risk item:
+   - **🔴 Red Card:** title, description, suggested fix, "Mark as Acknowledged" + "Go Back to Fix Mapping" buttons
+   - **🟡 Amber Card:** title, description, suggested fix, "Auto-Fix" button (if auto-fix available), "Ignore Warning" button
+   - **ℹ️ Blue Card:** title, description only
+3. "Auto-Fix" buttons must actually update the wizard mapping state (e.g., "Auto-Fix: Set email to Nullable" updates the mapping in the Zustand store)
+4. "Continue to Dry Run →" button — disabled until all 🔴 Critical items are acknowledged or fixed
+5. "← Go Back to Mapping" button
+
+## 7.3 — Layer 2 Section (PostgreSQL → MongoDB only)
+When source is PostgreSQL, add a separate labelled section at the bottom of the risk report:
+1. Header: "LAYER 2 — APPLICATION LOGIC FEATURES (Manual action required)"
+2. Principle box: "💡 Historical data transfers 100% safely. Only future writes need the Layer 2 Guide."
+3. Collapsible cards for each detected feature:
+   - Stored Procedures (one card per procedure)
+   - Functions (one card per function)
+   - Triggers (one card per trigger)
+   - Views (one card per view)
+   - ENUM Types (one card per enum)
+   - Composite Primary Keys (one card per composite PK — these show as "Auto-Applied ✅")
+4. Each card shows: what it does, why it can't be auto-migrated, what to do (with code example)
+5. "Mark as Understood" button on each card
+6. Counter at bottom: "3 of 11 features acknowledged"
+7. "Continue to Dry Run" is active regardless of Layer 2 acknowledgements (non-blocking)
+
+---
+
+> **⚠️ Known Challenges to Handle in This Phase** *(Read Blueprint → Part 4 for full details)*
+> - **Challenge 8 — Large Binary Data (BYTEA) Memory Spikes:** If a MongoDB collection contains large binary fields (e.g., images stored as BSON Binary), loading 500 at once can spike memory. → During schema introspection, detect Binary fields. If average document size exceeds 100KB, auto-reduce batch size to 50 for that collection and add a 🟡 Warning in the Risk Report.
+> - **Challenge 16 — Stored Procedures, Triggers & Future Data Consistency:** The Layer 2 section must clarify that historical data transfers 100% safely because it copies the final executed state. The concern is only about future writes after cutover. → Show the Layer 2 guide with replacement code (Mongoose hooks for triggers, service functions for procedures) and the principle box explaining zero data corruption.
+
+**✅ Phase 7 is DONE when:**
+- Using the testbed MongoDB schema, the Risk Report shows at least 2 critical issues and 2 warnings
+- Clicking "Auto-Fix: Set email to Nullable" updates the mapper (visible if you go back to Step 4)
+- "Continue to Dry Run" button is greyed out until critical issues are acknowledged
+- When source is PostgreSQL, the Layer 2 section appears with detected stored procedures and triggers
+- "Mark as Understood" updates the counter
+
+---
+---
+
+# PHASE 8 — Dry Run (Step 6)
+
+**Goal:** Build the Dry Run simulation — a safe test of the migration schema and sample data without making any permanent changes.
+
+**Reference:** Product Blueprint — Part 2 → Step 6
+
+---
+
+## 8.1 — Dry Run Engine
+Create `main/engine/dryRun.ts`:
+1. `ipcMain.handle('migration:dry-run', async (event, { mapping, sourceConfig, targetConfig }) => {...})`
+2. Opens a PostgreSQL transaction with `BEGIN`
+3. Executes all `CREATE TABLE` statements inside the transaction
+4. Reads 500 sample documents from each MongoDB collection
+5. Attempts to transform and `INSERT` them into PostgreSQL inside the same transaction
+6. Issues `ROLLBACK` at the end — no permanent changes
+7. Returns: which tables passed, which failed, how many rows passed vs failed per table, exact error messages for failed rows
+
+## 8.2 — Dry Run UI Screen
+Build `DryRunScreen.tsx`:
+1. Explanation card: "A Dry Run simulates your migration without making any permanent changes."
+2. "▶ Run Simulation" button (large, centered)
+3. **While running:** live progress log showing each table's result:
+   ```
+   ✅ Schema check: CREATE TABLE users — Valid
+   ⏳ Testing data batch: users (500 sample rows)...
+   ✅ 498 rows passed
+   ⚠️  2 rows failed: missing required field "name"
+   ```
+4. **Results card after completion:**
+   - "DRY RUN COMPLETE — Nothing was changed in your database"
+   - Per-table would-migrate counts
+   - Per-table would-skip counts with "View affected rows" link
+5. "✅ Dry Run Passed — Run Real Migration →" primary button
+6. "← Go Back to Risk Report" secondary button
+7. "Skip Dry Run and migrate directly" small grey text link
+
+---
+
+**✅ Phase 8 is DONE when:**
+- Clicking "Run Simulation" executes and shows the live progress log
+- Results card shows correct row counts for the testbed schema
+- Skipped rows are shown with their reason
+- After completion, clicking "Run Real Migration" navigates to Step 7
+- If PostgreSQL connection is wrong, the dry run fails gracefully with an error message
+
+---
+---
+
+# PHASE 9 — Live Migration Engine (Step 7) — THE CORE
+
+**Goal:** Build the heart of the application — the actual ETL (Extract, Transform, Load) engine that streams data from MongoDB to PostgreSQL with live progress reporting.
+
+**Reference:** Product Blueprint — Part 2 → Step 7, Part 4 → Challenges 1, 2, 4, 5
+
+---
+
+## 9.1 — Rollback Script Pre-Generation
+Before any rows are inserted:
+1. Generate the full rollback SQL: `DROP TABLE IF EXISTS order_items, orders, users, products, categories CASCADE;`
+2. Write it to a temp file on disk: `C:/Users/[user]/AppData/Roaming/MigrationPlanner/rollback_[timestamp].sql`
+3. Save the temp file path to `electron-store` (so it survives a crash)
+
+## 9.2 — Topological Sort (Dependency Order)
+Create `main/engine/topologicalSort.ts`:
+1. Build a directed graph of FK dependencies from the mapping
+2. Run Kahn's algorithm to produce a safe table creation order (e.g., categories → users → products → orders → order_items)
+3. **Circular FK detection:** If the graph has a cycle, detect it and flag the involved tables
+4. For circular FK tables: create without FK constraints first, insert data, then add FK constraints using `NOT VALID` → `VALIDATE`
+
+## 9.3 — ETL Streaming Engine
+Create `main/engine/etlEngine.ts`:
+1. `ipcMain.handle('migration:start', async (event, payload) => {...})`
+2. For each table (in topological order):
+   a. Execute `CREATE TABLE ...` with all columns and indexes
+   b. Open a MongoDB cursor on the source collection with batch size 500
+   c. For each batch of 500 documents:
+      - Transform each document (flatten nested objects, split arrays, convert types)
+      - Execute a batched `INSERT INTO ... VALUES ($1,$2), ($2,$3), ...`
+      - If the batch INSERT fails: retry row-by-row (chunk-level error isolation)
+      - Log each good row to the success count, each bad row to the error log with document ID + reason
+      - Emit a `ProgressEvent` via `ipcMain.emit('migration:progress', event)` after every batch
+3. After all rows inserted: create FK constraints (deferred ones via `NOT VALID` → `VALIDATE`)
+4. After completion: save migration result to `electron-store` history
+
+## 9.4 — Live Progress UI (Step 7 Screen)
+Build `MigrationProgressScreen.tsx`:
+1. Warning confirmation modal first (shown before migration starts)
+2. **Overall progress bar** with percentage + ETA + rows/sec:
+   ```
+   [████████████░░░░░░░░░░░░░] 48%
+   ⏱️  Estimated time remaining: ~2 min 15 sec
+   🚀 Speed: 2,340 rows/sec
+   ```
+3. ETA calculation: `(totalRows - rowsDone) / rowsPerSec` — recalculated every 3 seconds
+4. **Per-table mini progress bars** (one per table)
+5. **Live scrolling event log** — receives events via `window.electronAPI.on('migration:progress', callback)` — IPC events from the Main Process
+6. **Password masking** in all log lines (replace passwords with `••••••••`)
+7. **"Cancel Migration"** button — stops the engine, shows "Run Rollback to Clean Up" button
+
+## 9.5 — Crash Recovery
+1. After each table completes, update `electron-store` with `{ lastCompletedTable: 'users', status: 'in-progress' }`
+2. If the app is reopened and an `in-progress` migration is found:
+   - Home Dashboard shows: "📋 You have an interrupted migration. [Clean Up →]"
+   - "Clean Up" runs the rollback script from the temp file
+
+---
+
+> **⚠️ Known Challenges to Handle in This Phase** *(Read Blueprint → Part 4 for full details)*
+> - **Challenge 1 — Real-Time Progress in Electron (IPC vs SSE):** SSE (Server-Sent Events) does not work natively between Electron's Main and Renderer processes. → Use native Electron IPC events (`ipcMain.emit` / `window.electronAPI.on`) to push `ProgressEvent` objects. Do NOT use SSE or a localhost HTTP server.
+> - **Challenge 2 — App Crash Mid-Migration:** If the laptop dies at row 8,000, the migration is in an unknown partial state. → Write the rollback SQL to disk **before** inserting the first row. Save `{ lastCompletedTable, status: 'in-progress' }` to `electron-store` after each table completes. On next app open, show "Clean Up →" banner.
+> - **Challenge 4 — Circular Foreign Key Dependencies:** The topological sort algorithm fails when two tables have mutual FK references (e.g., `users → organizations → users`). → Run cycle detection on the FK graph. If a cycle is found, flag it as 🔴 Critical in the Risk Report. Create all cycle tables WITHOUT FK constraints first, insert all data, then add constraints using `ALTER TABLE ... ADD CONSTRAINT ... NOT VALID` → `VALIDATE CONSTRAINT`.
+> - **Challenge 5 — "Stop the World" Snapshot Limitation:** New data written to MongoDB after migration starts will NOT appear in PostgreSQL. → Show a confirmation dialog before Step 7 starts, warning the user that this is a point-in-time snapshot. Record exact start and end timestamps in the Audit Report.
+> - **Challenge 9 — Child Table Row Ordering (Array → Table Split):** When `orders.items` (array of 5 objects) is split into 5 rows in `order_items`, the original order is lost. → When AI/rule engine creates the child table mapping, automatically add a `sort_order INTEGER` column. Insert each array element with its 0-based index. Show this auto-added column in the Schema Mapper.
+
+**✅ Phase 9 is DONE when:**
+- Running a real migration on the testbed MongoDB database migrates all 20,000+ documents to PostgreSQL
+- The live progress bar updates in real time
+- The ETA is shown and updates every 3 seconds
+- A single corrupted document in a batch does not abort the migration (chunk isolation works)
+- Passwords are masked in the log
+- Killing the app mid-migration and reopening shows the "Clean Up" banner on the Home Dashboard
+
+---
+---
+
+# PHASE 10 — Completion, Downloads & ERD (Step 8)
+
+**Goal:** Build the migration completion screen, generate all downloadable outputs, and build the ERD diagram viewer.
+
+**Reference:** Product Blueprint — Part 2 → Step 8
+
+---
+
+## 10.1 — Migration Summary Screen
+Build `MigrationCompleteScreen.tsx`:
+1. 🎉 "Migration Complete!" banner with confetti animation (use `canvas-confetti` library)
+2. Summary card: tables created, rows migrated, rows skipped, total time, completion timestamp
+3. Skipped rows collapsible section: table with Document ID | Collection | Reason
+
+## 10.2 — ERD Generation
+Create `main/engine/erdGenerator.ts`:
+1. Takes the final PostgreSQL schema (tables + FK relationships) as input
+2. Generates a Mermaid.js `erDiagram` string:
+   ```
+   erDiagram
+     users ||--o{ orders : "user_id"
+     orders ||--o{ order_items : "order_id"
+   ```
+3. Renders it to a PNG using `mermaid` CLI or a headless renderer
+4. Returns both the Mermaid string and the PNG binary
+
+## 10.3 — ERD Inline Preview
+1. Show a scrollable ERD preview on the completion screen
+2. "Open Full Screen" button → opens the ERD in a resizable modal
+3. "🗺️ Download ERD Diagram (.png)" button → saves the PNG to the user's Downloads folder
+
+## 10.4 — Audit Report PDF Generation
+Create `main/engine/auditReportGenerator.ts`:
+1. Generates a PDF report using `pdfkit` or `puppeteer` with:
+   - Migration metadata (source, target, direction, date, time)
+   - Summary stats (rows migrated, skipped, time taken)
+   - Skipped row table with reasons
+   - Start and end timestamps (to document the snapshot window)
+2. "📄 Download Audit Report (.pdf)" button → saves to Downloads
+
+## 10.5 — Rollback Script Download
+1. "↩️ Download Rollback Script (.sql)" button → moves the temp rollback file to Downloads and opens the save dialog
+
+## 10.6 — Refactoring Kit Generation
+Create `main/engine/refactoringKitGenerator.ts`:
+Generates a `.zip` file containing 4 files:
+1. **`schema.prisma`** — Prisma schema generated from the final PostgreSQL table structures
+2. **`mql-sql-cheatsheet.md`** — Static markdown cheat sheet of MQL → SQL conversions
+3. **`layer2-migration-guide.md`** — Dynamically generated (per-procedure, per-trigger, per-JOIN with code templates). Only has content if source was PostgreSQL.
+4. **`compatibility-report.md`** — Generated summary of what was migrated vs skipped and why
+"📦 Download Refactoring Kit (.zip)" button → saves to Downloads
+
+## 10.7 — Layer 2 Guide Standalone Download
+"📋 Download Layer 2 Guide (.md)" button (only visible if source was PostgreSQL) → saves `layer2-migration-guide.md` directly to Downloads
+
+## 10.8 — "Next steps" message
+At the bottom: "Your migration is complete. If you are using a Node.js backend, use the schema.prisma file in the Refactoring Kit to connect your app to the new PostgreSQL database."
+"← Go to Dashboard" button → returns to Home Dashboard, clears wizard state
+
+---
+
+**✅ Phase 10 is DONE when:**
+- After a successful migration, the completion screen shows correct stats
+- ERD preview renders and the PNG downloads correctly
+- Refactoring Kit `.zip` contains all 4 files and they are non-empty
+- Audit Report PDF downloads and opens correctly
+- Layer 2 Guide download button is only visible when source was PostgreSQL
+
+---
+---
+
+# PHASE 11 — Schema Update Assistant (Workflow C)
+
+**Goal:** Build the complete 6-step Schema Update wizard for safely altering an existing database schema.
+
+**Reference:** Product Blueprint — Part 2 → Workflow C (Schema Update Assistant)
+
+---
+
+## 11.1 — Step 1: Choose Database Type
+1. "What type of database do you want to update?"
+2. Two cards: PostgreSQL and MongoDB
+3. "Next →" button
+
+## 11.2 — Step 2: Connect & Read Schema
+1. Same connection form as Migration Wizard
+2. "Connect & Read Schema" button
+3. On success: full schema panel showing all tables, columns, types, indexes, and row counts per table
+
+## 11.3 — Step 3: Describe the Change (Two Modes)
+
+**Mode A — Form:**
+1. Dropdown: Add Column / Drop Column / Rename Column / Rename Table / Change Column Type / Add Index / Remove Index / Add Foreign Key
+2. Dynamic form fields based on selection (e.g., "Add Column" shows table selector, column name, data type, allow null, default value)
+
+**Mode B — Plain English (AI-Powered NL2DDL):**
+1. Text area with example placeholder: "Add an optional phone number column to the users table, maximum 15 characters"
+2. "🤖 Let AI Interpret This" button → calls AI → populates Mode A fields automatically
+3. AI prompt: *"Convert this plain-English database change description to structured fields for a DDL form. Return JSON: { operation, table, columnName, dataType, allowNull, defaultValue }. Description: [user text]"*
+4. User can review and edit the auto-filled form before continuing
+
+## 11.4 — Step 4: Risk Report (Schema Update)
+1. Same visual style as Migration Risk Report
+2. Checks:
+   - Adding NOT NULL without a default to a table with existing rows → 🔴 Critical
+   - Dropping a column (data loss warning) → 🟡 Warning
+   - Type change that may truncate data → 🟡 Warning
+   - Change is reversible → ℹ️ Info
+3. "Reviewed — Show Me the Script →" button
+
+## 11.5 — Step 5: Preview Script
+1. Read-only syntax-highlighted SQL code panel showing exact DDL with `SET lock_timeout = '5s'; BEGIN; ... COMMIT;`
+2. Below: second panel showing the rollback SQL
+3. "📋 Copy Forward Script" and "📋 Copy Rollback Script" buttons
+4. "⬇ Download Both Scripts (.sql)" button
+5. "▶ Apply This Change →" primary button
+6. "← Go Back" secondary button
+
+## 11.6 — Step 6: Result Screen
+**On success:**
+- "✅ Change Applied Successfully!"
+- Show what changed (e.g., "Column 'phone' (VARCHAR 15, nullable) has been added to the 'users' table")
+- Time taken
+- "📋 Copy Rollback Script" button
+- "← Make Another Change" and "🏠 Go to Dashboard" buttons
+- **Save to Schema Version History in `electron-store`**
+
+**On failure:**
+- "❌ Change Failed"
+- Exact error with plain-English explanation
+- "← Fix and Retry" button
+
+---
+
+**✅ Phase 11 is DONE when:**
+- Form mode works end-to-end: select "Add Column", fill form, see generated SQL, apply it to a real test PostgreSQL DB, change appears in the DB
+- AI mode: type "Add a phone number field to users" → AI fills the form correctly
+- Failed change (e.g., adding NOT NULL without default to non-empty table) shows the correct error
+- Every applied change is saved to Schema Version History
+
+---
+---
+
+# PHASE 12 — PostgreSQL → MongoDB Direction (Workflow B)
+
+**Goal:** Build the reverse migration direction — migrating FROM PostgreSQL TO MongoDB. This is harder than Workflow A (denormalization vs normalization).
+
+**Reference:** Product Blueprint — Part 2 → Workflow B
+
+---
+
+## 12.1 — Reverse Schema Introspection
+1. Extend `db:connect-postgresql` handler to also return FK relationships between tables (from `information_schema.referential_constraints`)
+2. Build a denormalization suggestion engine: if `order_items.order_id` FK → `orders.id`, suggest embedding `order_items` as `orders.items` array
+
+## 12.2 — Reverse AI Mapping
+1. Update the AI prompt for the PG→Mongo direction:
+   - "Given this PostgreSQL schema with FK relationships, suggest a MongoDB collection structure. Where possible, embed child tables as arrays inside parent documents. Return JSON as: `{ collectionName, sourceTable, embeddings: [{ childTable, embedAsField }] }`"
+
+## 12.3 — Reverse Mapper UI
+1. Same mapper UI layout but reversed: PostgreSQL Table → MongoDB Collection
+2. Shows embedding suggestions: "order_items → embed as orders.items (Array of Objects)"
+3. User can change embedding to "Separate collection" if preferred
+
+## 12.4 — Reverse ETL Engine
+1. For each MongoDB collection to create:
+   - Read PostgreSQL rows with appropriate `SELECT ... JOIN ...` queries (Node.js layer)
+   - Reconstruct the embedded document structure
+   - Insert into MongoDB using `insertMany`
+2. Rollback: `db.dropCollection()` set for each created collection
+
+## 12.5 — Layer 2 Scan & Guide (PG→Mongo specific)
+1. Already built in Phase 4 (Layer 2 scan) and Phase 7 (Layer 2 risk section)
+2. In Step 8: Refactoring Kit contains `mongoose-schema.js` instead of `schema.prisma`
+
+---
+
+> **⚠️ Known Challenges to Handle in This Phase** *(Read Blueprint → Part 4 for full details)*
+> - **Challenge 13 — PG→MongoDB Workflow B Complexity:** Reconstructing embedded documents from normalized SQL JOIN relationships is significantly harder than the forward direction. → For the FYP scope, implement only verified 1:N relationships as embedded arrays. Many-to-many and self-referencing tables can be migrated as separate collections rather than fully embedded.
+
+**✅ Phase 12 is DONE when:**
+- Connecting the testbed PostgreSQL database and running PG→Mongo migration creates correct MongoDB collections with embedded documents
+- The `orders` collection in MongoDB has an `items` array embedded from the `order_items` table
+- The Layer 2 section appears in the Risk Report for this direction
+
+---
+---
+
+# PHASE 13 — Demo Mode
+
+**Goal:** Build the self-contained Demo Mode that lets anyone experience a full migration without installing a database.
+
+**Reference:** Product Blueprint — Part 2 → "Demo Mode — How It Works"
+
+---
+
+## 13.1 — Bundled Sample Data
+1. Create `apps/desktop/main/demo/sampleData.ts` — a TypeScript module that exports the e-commerce sample data as hardcoded JavaScript objects (7 collections, ~500 documents total for fast demo):
+   - `users` (50 docs, with mixed phone types, nested address)
+   - `products` (20 docs, with polymorphic specs)
+   - `categories` (5 docs, self-referencing)
+   - `orders` (100 docs, with embedded items arrays)
+   - `reviews` (50 docs)
+   - `inventory_logs` (100 docs)
+   - `coupons` (10 docs)
+2. This data lives entirely in memory — no database required
+
+## 13.2 — Demo Mode Flag in Wizard State
+1. Add `isDemoMode: boolean` to the wizard state
+2. When `isDemoMode: true`:
+   - Step 2 shows the "🎮 DEMO MODE" banner instead of the connection form
+   - Source schema is loaded from `sampleData.ts` (not from a real DB)
+   - Step 3 target is an in-memory SQLite store (use `better-sqlite3` or a simple JS object store)
+   - All other steps run identically
+
+## 13.3 — Demo Mode Banner Component
+1. Blue banner with "🎮 DEMO MODE — Using built-in sample e-commerce database" message
+2. "Source: Sample MongoDB — 7 collections, 500 documents"
+3. "This demo runs entirely in memory. No real database is needed."
+4. "Exit Demo Mode" button → returns to Home Dashboard
+
+## 13.4 — In-Memory Target Store
+1. For the demo, instead of a real PostgreSQL connection, implement a lightweight in-memory store
+2. During dry run and live migration, data is "inserted" into this store
+3. Row counts and progress events are real
+4. ERD and audit report are generated from the in-memory store
+
+---
+
+**✅ Phase 13 is DONE when:**
+- Clicking "Launch Demo →" on the Home Dashboard starts the wizard with the demo banner visible
+- The full 8-step wizard completes using only the bundled sample data
+- No MongoDB or PostgreSQL installation is required
+- The audit report and ERD are generated at the end of the demo
+- "Exit Demo Mode" returns to the Home Dashboard
+
+---
+---
+
+# PHASE 14 — Auxiliary Screens
+
+**Goal:** Build the remaining supporting screens — History, Schema Version History, Saved Connections, and Settings.
+
+**Reference:** Product Blueprint — Part 2 → "Screen — Schema Version History", "Screen — History", "Screen — Saved Connections", "Screen — Settings"
+
+---
+
+## 14.1 — Schema Version History Screen
+Build `SchemaHistoryScreen.tsx`:
+1. Filter bar: All Databases | PostgreSQL | MongoDB + search box
+2. Timeline view of all schema changes from `electron-store`:
+   - Date & Time, operation type, table, database connection (password masked)
+   - [View Script ▼] → expands to show the SQL
+   - [Download Rollback .sql] → saves the undo script
+3. Failed change entries shown in red with [View Error Details ▼]
+4. "Export Full History" button → downloads Markdown changelog
+
+## 14.2 — History Screen
+Build `HistoryScreen.tsx`:
+1. Filter bar: All | Migrations | Schema Updates | Completed | Failed
+2. History list from `electron-store`:
+   - Date, operation, status badge, connection (password masked)
+   - "View Full Report" → opens the audit report in a modal
+   - "Download Rollback Script" → saves the rollback SQL
+
+## 14.3 — Saved Connections Screen
+Build `ConnectionsScreen.tsx`:
+1. List of all saved connections from `electron-store`
+2. Each card: name, type, host, database name
+3. "Test Connection" → pings the database, shows ✅ or ❌
+4. "Edit" → opens an edit form
+5. "Delete" → removes with a confirmation dialog
+6. "+ Add New Connection" → opens the connection form
+
+## 14.4 — Settings Screen
+Build `SettingsScreen.tsx`:
+1. **Section A — AI Configuration:**
+   - AI Provider dropdown: Gemini / Groq / Rule Engine Only
+   - API Key field (masked)
+   - "Test API Key" button
+2. **Section B — Migration Defaults:**
+   - Batch size (number input, default 500)
+   - Lock timeout (number input, default 5 seconds)
+3. **Section C — Data & Privacy:**
+   - "Clear All Saved Connections" (red, confirmation dialog)
+   - "Clear Migration History" (red, confirmation dialog)
+   - "Export Settings" and "Import Settings" buttons
+4. Warning note: "Saved credentials are stored locally and unencrypted. Do not save production credentials on a shared PC."
+
+---
+
+> **⚠️ Known Challenges to Handle in This Phase** *(Read Blueprint → Part 4 for full details)*
+> - **Challenge 11 — electron-store Not Encrypted:** Connection strings with passwords are stored in a plain JSON file on the user's disk. → In the Settings screen, show this exact warning: *"Saved credentials are stored locally and unencrypted. Do not save production credentials on a shared PC."* No further action is needed; this is a known, documented limitation.
+
+**✅ Phase 14 is DONE when:**
+- Schema Version History shows all past schema changes with correct SQL
+- Rollback scripts download correctly from the History screen
+- Saved Connections shows all saved connections, Test Connection works
+- Settings saves to `electron-store` and persists after app restart
+- API Key test button confirms the key works with the AI provider
+
+---
+---
+
+# PHASE 15 — Partial Migration Feature
+
+**Goal:** Add the optional Partial Migration selector to Step 2 — allowing users to choose specific collections and/or a date range, instead of migrating the entire database.
+
+**Reference:** Product Blueprint — Part 2 → Step 2 → "🔍 Partial Migration Selector"
+
+---
+
+## 15.1 — Partial Migration UI (Step 2 Add-On)
+1. Collapsible section below the Health Score card: "⚙️ Advanced: Migrate only part of this database"
+2. Collapsed by default — the full database migrates by default
+3. On expand:
+   - **Collection Checkboxes:** All collections listed with a checkbox (all ticked by default) and document count
+   - "Select All" / "Deselect All" links
+   - **Date Filter toggle:** Off by default. When toggled ON: two date pickers (From date, To date)
+   - Live preview: "Estimated documents matching filter: ~1,240 out of 5,000 orders"
+
+## 15.2 — Partial Migration in ETL Engine
+1. If partial migration is active, modify the MongoDB cursor query to:
+   - Skip collections that are unchecked
+   - Add a `createdAt: { $gte: fromDate, $lte: toDate }` filter to the query for date-filtered collections
+2. The rest of the ETL engine runs identically
+
+---
+
+**✅ Phase 15 is DONE when:**
+- Unchecking "inventory_logs" and running migration skips that collection in the ETL log
+- Adding a date filter reduces the document count shown in the preview
+- The migration runs correctly with partial settings active
+
+---
+---
+
+# PHASE 16 — Testbed Applications
+
+**Goal:** Build the two testbed e-commerce applications used to demonstrate and verify the Migration Planner.
+
+**Reference:** Product Blueprint — Part 3
+
+---
+
+## 16.1 — Testbed App A: MongoDB E-Commerce App (`apps/testbed-mongo/`)
+Build a working e-commerce site with Next.js + Express + Mongoose:
+1. **Pages:** Storefront, Product Detail, Cart, Order History, Admin Inventory Dashboard
+2. **Collections:** users, products, categories, orders, reviews, inventory_logs, coupons
+3. **Seed Script** (`seed-mongodb.js`):
+   - `seedUsers.js` — 2,000 users (mixed phone types, nested addresses)
+   - `seedProducts.js` — 500 products (polymorphic specs: electronics vs clothing)
+   - `seedOrders.js` — 5,000 orders (with embedded items arrays, 1–20 items each)
+   - `seedDates.js` — mixed date formats (ISODate, Unix timestamp, ISO string)
+   - `seedDeepNest.js` — users with `address.billing.coordinates` 3 levels deep
+4. Run: `node seed-mongodb.js` — takes ~30 seconds, creates ~20,000 documents
+
+## 16.2 — Testbed App B: PostgreSQL E-Commerce App (`apps/testbed-postgres/`)
+Identical UI to App A, but backend uses `pg` (node-postgres) and SQL queries:
+1. Same pages as App A
+2. Schema uses normalized tables: users, products, categories, orders, order_items, reviews, inventory_logs, coupons
+3. The point: after running the Migration Planner, App A should connect to PostgreSQL and work identically
+
+## 16.3 — Automated Verification Test Suite
+Create `apps/testbed-postgres/verify.js`:
+A Node.js script that runs 5 tests after migration and outputs a report:
+1. **Row Count Audit:** `COUNT(postgres.users) == COUNT(mongo.users)` → must match exactly
+2. **Sum Reconciliation:** `SUM(postgres.total_amount) == SUM(mongo.totalAmount)` → must match exactly
+3. **MD5 Checksum Sample:** Pick 500 random records from both DBs, hash them, compare → must be 100% match
+4. **Foreign Key Integrity:** `SELECT COUNT(*) FROM order_items WHERE order_id NOT IN (SELECT id FROM orders)` → must be 0
+5. **API Latency Benchmark:** Run 1,000 parallel lookups on both DBs, report average response time in ms
+Outputs: `verification-report.json` + `verification-report.md`
+
+---
+
+**✅ Phase 16 is DONE when:**
+- `node seed-mongodb.js` completes and creates ~20,000 documents
+- The MongoDB testbed website loads and shows products, orders, and reviews
+- After running the Migration Planner on the testbed, `node verify.js` shows:
+  - ✅ Row Count: PASS
+  - ✅ Sum Reconciliation: PASS
+  - ✅ MD5 Checksum: PASS (100%)
+  - ✅ FK Integrity: PASS
+  - ✅ API Latency: Report generated
+
+---
+---
+
+# PHASE 17 — Final Polish, Integration Testing & Build
+
+**Goal:** Test the complete application end-to-end, fix remaining bugs, and produce the final distributable Windows `.exe`.
+
+---
+
+## 17.1 — End-to-End Integration Test
+Run the full workflow manually with the testbed apps:
+1. Open the Desktop App
+2. Connect to testbed MongoDB (App A)
+3. Review the AI mapping — make 2–3 manual edits to confirm edits persist
+4. Review the Risk Report — acknowledge all critical items
+5. Run the Dry Run — verify results match expected counts
+6. Run the real migration
+7. Run `verify.js` — all 5 tests must pass
+8. Download all outputs (Audit PDF, Rollback SQL, Refactoring Kit, ERD PNG, Layer 2 Guide)
+9. Verify the Rollback script successfully rolls back the migration
+10. Run the migration again using Demo Mode — verify it works without any database
+
+## 17.2 — Bug Fixes & Edge Cases
+Test and fix:
+- App crash mid-migration (force-kill the process) → reopen and verify Clean Up banner appears
+- Invalid API key in Settings → verify rule engine kicks in seamlessly
+- Very long collection name (>63 chars) → PostgreSQL table names are truncated to 63 chars safely
+- Empty collection (0 documents) → migration handles it gracefully
+- All-null column → column is created as nullable, 0 rows fail
+
+## 17.3 — Performance Check
+- Run migration on full 20,000-document testbed
+- Should complete in under 5 minutes
+- Memory usage should not exceed 300 MB during migration
+
+## 17.4 — Windows `.exe` Build
+1. Run `electron-builder --win`
+2. Verify the installer `.exe` works on a clean Windows machine
+3. Verify Windows SmartScreen warning appears and the "Run anyway" bypass works
+4. Verify the app starts, all screens load, no console errors
+
+## 17.5 — Landing Website Production Build & Deploy
+1. Run `npm run build` in `apps/web`
+2. Deploy to Vercel or Netlify
+3. Verify all 5 pages load, all links work, the download button triggers the `.exe` download
+4. Verify meta descriptions are correct (SEO check)
+
+---
+
+> **⚠️ Known Challenges to Handle in This Phase** *(Read Blueprint → Part 4 for full details)*
+> - **Challenge 3 — Windows SmartScreen / Antivirus Blocking the .exe:** Because the `.exe` is unsigned, Windows Defender will show a "Windows protected your PC" warning on first run. → This is a known limitation for FYP context. Ensure the Download page on the landing website includes clear bypass instructions: *"Click 'More info' → 'Run anyway'. This is safe — the source code is on GitHub."* Link to the GitHub repo from the About page.
+> - **Challenge 15 — Windows Defender / Code Signing:** A proper EV Code Signing Certificate costs $200–$500/year and is out of scope for the FYP. → Document this on the Download page. For the final demo, run the installation on a trusted machine where you can click through the SmartScreen prompt in advance.
+
+**✅ Phase 17 is DONE when:**
+- The full migration workflow passes all 5 verification tests
+- The `.exe` installs and runs on a clean Windows machine
+- The landing website is live at a public URL
+- All download buttons on the landing website point to the correct `.exe` file
+
+---
+---
+
+# Summary — All Phases at a Glance
+
+| Phase | What You Build | Testable After? |
+|---|---|---|
+| **0** | Project skeleton, shared types, app scaffolds | ✅ Both apps start |
+| **1** | Complete 5-page landing website | ✅ All pages load |
+| **2** | Electron app shell + sidebar navigation | ✅ Navigation works |
+| **3** | Home Dashboard (3 cards + recent table) | ✅ Cards navigate correctly |
+| **4** | DB connectivity (forms, connection test, schema reading) | ✅ Real DB connects |
+| **5** | Schema Mapper UI (interactive table, dropdowns, badges) | ✅ UI works with fake data |
+| **6** | AI integration + fallback rule engine | ✅ AI populates mapper |
+| **7** | Risk Report (🔴/🟡/ℹ️ cards + Layer 2 section) | ✅ Risks detected from testbed |
+| **8** | Dry Run engine + UI | ✅ Dry run completes, no DB change |
+| **9** | Live Migration ETL engine + progress UI | ✅ 20K docs migrate successfully |
+| **10** | Completion screen, all 5 downloads, ERD, PDF | ✅ All downloads work |
+| **11** | Schema Update Assistant (6 steps + NL2DDL) | ✅ ADD COLUMN works end-to-end |
+| **12** | PostgreSQL → MongoDB reverse direction | ✅ Embedded docs created correctly |
+| **13** | Demo Mode (bundled sample data, in-memory) | ✅ Full demo with no DB needed |
+| **14** | History, Schema History, Connections, Settings | ✅ All screens work |
+| **15** | Partial Migration (collection + date filter) | ✅ Partial run skips collections |
+| **16** | Testbed apps + seed scripts + verification suite | ✅ All 5 verify tests pass |
+| **17** | Integration testing, final build, deploy | ✅ .exe works on clean Windows |
+
+---
+
+*Total estimated phases: 17 | Build order: sequential (each phase depends on the previous)*

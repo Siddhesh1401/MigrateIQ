@@ -1,0 +1,51 @@
+# Deep Research: Core Features of the Windows Application
+
+---
+
+## 1. Overview of the Migration Workflow
+
+To make this Windows Application truly intelligent and competitive with enterprise tools, it cannot just be a "copy-paste" script. It needs to guide the developer through a safe, predictable, and highly automated workflow. 
+
+Based on industry research of modern ETL and AI-assisted migration tools, here are the **8 Core Features** our Desktop App will offer.
+
+---
+
+## 2. The 8 Core Features
+
+### 🔌 Feature 1: The Secure Connection Manager
+* **What it does:** Allows the user to enter their `MongoDB URI` and `PostgreSQL URI`. 
+* **The Intelligence:** It instantly pings both databases to verify the connection. It also features a "Save Connection" button which securely stores the URIs locally in the `electron-store` JSON file so the user doesn't have to re-type passwords every time they open the app.
+
+### 🕵️ Feature 2: Automated Introspection Engine
+* **What it does:** Once connected, the app doesn't just ask what to migrate. It actively reads the MongoDB database, lists all collections, and randomly samples 100 documents from each collection.
+* **The Intelligence:** It detects the data types automatically (e.g., recognizing that a field contains an `ObjectId`, an `ISODate`, or an Array of nested objects).
+
+### 🧠 Feature 3: AI-Powered Schema Proposal
+* **What it does:** This is the magic of the app. It sends the sampled JSON structure to the **Free-Tier AI API** (e.g., Groq / Llama 3) with a highly specific prompt. 
+* **The Intelligence:** The AI returns a proposed PostgreSQL Relational Schema. It intelligently flattens nested MongoDB objects into SQL columns, and breaks out MongoDB arrays into separate, relational SQL tables with Foreign Keys.
+
+### 🎛️ Feature 4: Interactive Visual Mapper (UI)
+* **What it does:** The AI is smart, but the human is the boss. The app displays a side-by-side Visual Mapper UI.
+* **The Intelligence:** On the left, it shows the MongoDB BSON structure. On the right, it shows the proposed PostgreSQL tables. The user can click to edit column names, change data types (e.g., switch `VARCHAR` to `TEXT`), or delete columns they don't want to migrate.
+
+### ⚠️ Feature 5: Real-Time Risk Dashboard
+* **What it does:** Before migration, the app analyzes the user's final mapping.
+* **The Intelligence:** It flags warnings using a color-coded system:
+  * 🔴 **Critical:** Trying to map a MongoDB String to a Postgres Integer. (Will crash).
+  * 🟡 **Warning:** Mapping a dynamic JSON object to a Postgres `JSONB` column (Harder to index).
+  * 🟢 **Safe:** Standard String to `VARCHAR(255)`.
+
+### 🧪 Feature 6: The "Dry-Run" Simulator
+* **What it does:** Before touching production data, the user clicks "Simulate".
+* **The Intelligence:** The Node.js backend opens a PostgreSQL **Transaction**, attempts to create the tables, inserts 500 rows of test data, runs a success check, and then instantly `ROLLBACK`s (deletes) the simulation. It proves the migration will work without leaving a trace.
+
+### 🚀 Feature 7: High-Speed Batch ETL Streaming
+* **What it does:** The actual migration execution. 
+* **The Intelligence:** It uses memory-efficient Cursor Streaming to pull 1,000 documents at a time from MongoDB, transforms them in memory, and pushes them to PostgreSQL using parameterized Bulk Inserts. A live progress bar updates the React UI via IPC bridging.
+
+### 📄 Feature 8: Post-Migration Audit & Refactoring Kit
+* **What it does:** When finished, it proves success and helps the developer update their backend code.
+* **The Intelligence:** It generates a downloadable ZIP file containing:
+  1. A PDF/Markdown **Audit Report** (showing Row Counts and MD5 Checksums proving 0 bytes were lost).
+  2. A generated **`schema.prisma`** file so their Node.js backend can instantly talk to the new Postgres database.
+  3. A **`rollback.sql`** script just in case they change their mind later.

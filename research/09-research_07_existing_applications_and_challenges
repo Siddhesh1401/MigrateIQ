@@ -1,0 +1,51 @@
+# Deep Research: Area 7 — Existing Applications & Migration Challenges
+
+---
+
+## 1. The Competitive Landscape: Database Migration Tools
+
+Understanding existing database migration and schema management tools highlights the exact gaps our **Intelligent Database Migration Planner** will fill. The industry relies heavily on a few primary tools, each with significant trade-offs.
+
+### 1.1 Declarative vs. Imperative Tools
+
+| Tool | Philosophy | Best For | Core Limitations & Challenges |
+| :--- | :--- | :--- | :--- |
+| **Prisma Migrate** | Declarative (ORM) | Node.js / TypeScript teams | Tied entirely to Prisma ORM. Auto-generated SQL can be suboptimal for complex changes. Very weak automated rollback support (often requires manual database intervention if a migration fails). |
+| **Flyway** | Imperative (SQL CLI) | Simple, SQL-heavy teams | Complete manual burden. You write the exact SQL. No automatic safety checks, risk reports, or AI mapping. High risk of developer error causing locks. |
+| **Liquibase** | Imperative (XML/YAML/JSON) | Enterprise / Java ecosystems | Very steep learning curve. Configuration is complex and verbose. Meaningful safety checks are gated behind commercial enterprise licenses. |
+| **Bytebase** | Governance Platform | Large DevOps teams | Requires heavy infrastructure (web GUI, RBAC). Focused on the *approval workflow* of SQL scripts rather than generating or validating the SQL intelligently via AI. |
+| **AWS DMS (Database Migration Service)** | Live Data Replication | Cloud infrastructure | Hard to configure. High latency. Doesn't automatically refactor NoSQL to SQL cleanly—often dumps JSON into a single column requiring massive post-migration ETL. |
+
+---
+
+## 2. The Core Challenges of MongoDB $\rightarrow$ PostgreSQL Migrations
+
+The fundamental challenge isn't just "moving data"—it's resolving the architectural mismatch between a **Schema-less Document DB** and a **Strict Relational DB**. 
+
+### 2.1 Schema Drift & Inconsistent Data (The "Dirty Data" Problem)
+* **The Challenge:** MongoDB allows the same collection to have documents with different structures (e.g., `userA` has `{ age: 25 }`, `userB` has `{ age: "25" }`, `userC` has no age field).
+* **Why Existing Tools Fail:** Standard relational migration tools (like Flyway or Prisma) assume data is already clean. If a script tries to insert "25" (string) into an `INTEGER` column, the entire batch fails and the migration stops.
+* **Our Solution:** The intelligent ETL engine must perform **type sanitization** during streaming, and safely route completely incompatible data into a `JSONB` escape-hatch column.
+
+### 2.2 Query and Application Logic Rewriting
+* **The Challenge:** Moving from MongoDB means abandoning MQL (MongoDB Query Language) and Aggregation Pipelines in favor of SQL `JOIN`s and `GROUP BY`s. 
+* **Why Existing Tools Fail:** AWS DMS moves the data but leaves the application broken. If nested arrays are flattened into separate tables, the application developer has to manually figure out how to write the new `JOIN` queries.
+* **Our Solution:** By providing an explicit, side-by-side **Visual Schema Mapping**, developers understand exactly how their new relational tables map to their old document structures, accelerating their query rewrite process.
+
+### 2.3 The "Stop-the-World" Downtime Problem
+* **The Challenge:** Migrating gigabytes of data can take hours. If the application is live, data added to MongoDB during the migration is lost.
+* **Industry Solutions:** Large enterprises use **CDC (Change Data Capture)** tools like Debezium + Kafka to stream changes in real-time.
+* **Our Scope Limitation:** CDC is generally too complex for a 3-month project. Our tool will focus on a highly optimized, high-throughput batch ETL engine for "maintenance window" migrations, which is standard for small-to-medium businesses.
+
+### 2.4 Unsafe DDL Operations (Table Locks)
+* **The Challenge:** When developers manually write `ALTER TABLE` scripts (e.g., in Flyway), they often accidentally trigger `ACCESS EXCLUSIVE` locks in PostgreSQL, freezing the entire production database.
+* **Why Existing Tools Fail:** Standard tools execute whatever SQL you give them. Only specialized linters (like *Squawk* or *strong_migrations*) catch these errors, and they require complex CI/CD setup.
+* **Our Solution:** Our **Risk Assessment Engine** handles this natively, flagging dangerous operations and automatically injecting `SET lock_timeout` and `CONCURRENTLY` keywords into the generated DDL.
+
+---
+
+## 3. Conclusion: Our Project's Unique Value Proposition
+
+Existing tools are either **too manual** (Flyway/Liquibase), **too heavily tied to an ORM** (Prisma), or **lack intelligence** (AWS DMS). 
+
+Our **Intelligent Database Migration Planner** stands out because it bridges the gap: it uses **AI to bridge the NoSQL-to-SQL paradigm shift**, while using **deterministic safety rules (like Squawk/Bytebase) to prevent database downtime**—all wrapped in an intuitive, visual wizard.

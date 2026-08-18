@@ -1,0 +1,1581 @@
+# Intelligent Database Migration Planner
+## Product Blueprint — v1.3
+
+> **How to read this document:**
+> This document describes the entire project — what it looks like, what every page contains, what every button does, and how a user flows through each part of the system. It is not a technical spec; it is a plain-English description of the complete product.
+
+---
+---
+
+# PART 1 — LANDING WEBSITE
+
+---
+
+## What is the Landing Website?
+
+The Landing Website is a **public-facing marketing website** that anyone can visit in their browser. Its one and only goal is to explain what the Intelligent Database Migration Planner is, make it look impressive and professional, and get the user to click the **"Download for Windows"** button to get the `.exe` file.
+
+The user **does not** migrate any database on this website. It is purely informational.
+
+---
+
+## Pages Overview
+
+The website has **5 pages**:
+
+| # | Page Name | URL | Purpose |
+|---|-----------|-----|---------|
+| 1 | Home | `/` | The main landing page — hero, features overview, call to action |
+| 2 | How It Works | `/how-it-works` | Step-by-step explanation of the migration process |
+| 3 | Features | `/features` | Deep dive into all 6 features |
+| 4 | Download | `/download` | The download page with system requirements |
+| 5 | About | `/about` | Brief about the project and the team |
+
+---
+
+## Navigation Bar (Appears on every page)
+
+The navigation bar is pinned to the top of the screen and stays visible as the user scrolls.
+
+**Left side:**
+- The product logo — a small database icon followed by the text **"MigrationPlanner"** in bold. Clicking it goes to the Home page (`/`).
+
+**Right side (links in order):**
+- **How It Works** → navigates to `/how-it-works`
+- **Features** → navigates to `/features`
+- **About** → navigates to `/about`
+- **Download** → a highlighted button (filled, accent color) → navigates to `/download`
+
+---
+
+## Page 1 — Home (`/`)
+
+This is the main page. It is divided into multiple sections from top to bottom:
+
+---
+
+### Section 1.1 — Hero Section
+
+This is the very first thing the user sees when they land on the website.
+
+**Content:**
+- A large headline: **"Migrate Databases. Safely. Intelligently."**
+- A subtitle below: *"The only tool that combines AI-powered schema mapping, real-time risk detection, and one-click rollback — all running locally on your Windows PC."*
+- Two buttons side by side:
+  - **"Download for Windows"** (primary, large, filled button) → navigates to `/download`
+  - **"See How It Works"** (secondary, outlined button) → navigates to `/how-it-works`
+- Below the buttons: a small note — *"Free. No account required. Runs 100% locally."*
+- A visual on the right side (or below on mobile): a screenshot/mockup of the Windows application showing the schema mapping interface.
+
+---
+
+### Section 1.2 — The Problem Statement
+
+This section explains *why* this product exists in plain language so any developer visiting immediately feels understood.
+
+**Content:**
+- A heading: **"Database migrations are terrifying. They don't have to be."**
+- Three pain point cards side by side, each with an icon, a title, and a short description:
+  1. 🔴 **"One wrong ALTER TABLE can lock your entire database"** — *"Running a schema change without the right safety flags can freeze production queries for minutes."*
+  2. 🔴 **"Moving from MongoDB to PostgreSQL is a nightmare"** — *"Nested objects, arrays, and mixed types don't map cleanly to relational tables."*
+  3. 🔴 **"No easy undo"** — *"Once you run a migration script, there's no built-in way to reverse it if something goes wrong."*
+
+---
+
+### Section 1.3 — The Solution (Feature Cards)
+
+**Heading:** **"Everything you need for a safe migration"**
+
+Ten feature cards arranged in a 3-column grid, each card has:
+- An icon
+- A feature name (bold)
+- A one-line description
+
+| Icon | Feature Name | Description |
+|------|-------------|-------------|
+| 🤖 | AI Schema Mapping | AI analyzes your MongoDB structure and proposes the perfect PostgreSQL schema |
+| ⚠️ | Risk Report | Flags critical issues and warnings before anything runs |
+| 🧪 | Dry Run Mode | Simulate the full migration without touching your real database |
+| ↩️ | Rollback Script | Auto-generated undo script for every migration |
+| 📊 | Live Progress | Watch your data migrate in real time with a live progress bar |
+| 🔒 | Runs Locally | Your database credentials never leave your PC |
+| 🗺️ | ERD Diagram Export | Instantly generate a visual relationship diagram of your entire schema |
+| 🧠 | AI Schema Health Score | Get an AI-scored health report on your schema before migrating |
+| 🔍 | Partial Migration | Choose specific collections or filter by date — or migrate everything by default |
+| 📜 | Schema Version History | Every schema change tracked over time, with rollback available for each |
+
+---
+
+### Section 1.4 — How It Works (Quick Preview)
+
+A simplified 4-step visual showing the flow, with a progress line connecting each step.
+
+**Heading:** **"From connection to completion in minutes"**
+
+Steps (left to right with arrows):
+1. **Connect** — *"Enter your MongoDB and PostgreSQL connection strings"*
+2. **Review** — *"AI generates a schema mapping. You approve or edit it."*
+3. **Simulate** — *"Run a dry run to preview what will happen"*
+4. **Migrate** — *"Execute the migration and download your rollback script"*
+
+Below the steps: a **"See the Full Process →"** text link that navigates to `/how-it-works`.
+
+---
+
+### Section 1.5 — Download CTA (Call to Action)
+
+A full-width banner with a strong background color.
+
+**Content:**
+- Heading: **"Ready to migrate without fear?"**
+- Sub-text: *"Download the free Windows application and run your first migration in under 10 minutes."*
+- One button: **"Download for Windows — Free"** → navigates to `/download`
+- Below the button: *"Windows 10 / 11 · 64-bit · v1.0.0"*
+
+---
+
+### Section 1.6 — Footer
+
+Appears at the bottom of every page.
+
+**Left:** Product name and logo + *"A Final Year Project by [Team Name]"*
+**Center links:** Home · How It Works · Features · Download · About
+**Right:** *"Built with Next.js, Electron, and Google AI"*
+
+---
+
+## Page 2 — How It Works (`/how-it-works`)
+
+This page explains the full step-by-step process of using the Windows app, so a user knows exactly what to expect before downloading.
+
+---
+
+### Section 2.1 — Page Header
+
+- Heading: **"How It Works"**
+- Subtitle: *"A guided, 8-step wizard takes you from connection to a fully migrated database — safely."*
+- A toggle at the top to switch between two views:
+  - **"Database Migration"** (default, highlighted)
+  - **"Schema Update"**
+
+---
+
+### Section 2.2 — Steps Display (Database Migration view)
+
+Eight steps displayed vertically, each step is a card with:
+- A step number (1, 2, 3…)
+- A step title
+- A plain-English description
+- A small illustrative screenshot or icon
+
+| Step | Title | What the user sees / does |
+|------|-------|--------------------------|
+| 1 | Choose Direction | Pick "From MongoDB to PostgreSQL" or the reverse |
+| 2 | Connect Source Database | Enter MongoDB connection string. App instantly tests it and shows found collections |
+| 3 | Connect Target Database | Enter PostgreSQL connection string. App confirms it connects |
+| 4 | AI Reviews Your Schema | The app sends your MongoDB structure to AI. AI proposes a PostgreSQL table layout |
+| 5 | You Review the Mapping | Side-by-side visual mapper. You can change data types, rename columns, exclude fields |
+| 6 | Risk Report | The app shows any warnings. You decide how to handle them |
+| 7 | Dry Run | Simulate the migration to confirm everything will work |
+| 8 | Migrate & Download | Run the real migration. Download your audit report and rollback script |
+
+---
+
+### Section 2.3 — Steps Display (Schema Update view)
+
+Shown when the user clicks "Schema Update" toggle. Six steps:
+
+| Step | Title | Description |
+|------|-------|-------------|
+| 1 | Connect Your Database | Enter your PostgreSQL connection string |
+| 2 | App Reads Current Schema | App shows all your tables, columns, types, and indexes |
+| 3 | Describe Your Change | Pick from a list (add column, drop column, rename, etc.) OR type in plain English |
+| 4 | Risk Report | App checks for dangers (e.g., adding NOT NULL to a table with existing rows) |
+| 5 | Review Generated Script | See the exact SQL that will run, plus the undo (rollback) script |
+| 6 | Apply the Change | Click Apply. Done. |
+
+---
+
+## Page 3 — Features (`/features`)
+
+A detailed breakdown of all 6 features, each with its own full section.
+
+---
+
+### Section 3.1 — Page Header
+
+- Heading: **"Features"**
+- Subtitle: *"Every feature was built to solve a real pain point that developers face during database migrations."*
+
+---
+
+### Section 3.2 — Feature Sections (one per feature)
+
+Each feature section has:
+- Feature name and icon
+- A 1-paragraph plain English description
+- A "What you'll see" box showing a text/visual preview of the UI
+- A "Why it matters" bullet list
+
+**Feature 1: AI Schema Mapping**
+- Description: *"When you connect your MongoDB database, the app reads your collections and sends the structure to AI. The AI figures out how to turn your MongoDB documents into proper PostgreSQL tables — flattening nested objects, splitting arrays into separate tables, and choosing the right data types."*
+- Why it matters: *Saves hours of manual mapping. Understands business logic, not just raw types.*
+
+**Feature 2: Risk Report**
+- Description: *"Before any migration runs, the app scans your schema and data for potential problems. It categorizes them as Critical (will fail), Warning (may cause issues), or Info (safe but worth knowing)."*
+- Examples shown: *"Your 'items' array will need a separate table" / "45 users have no email — column can't be NOT NULL"*
+
+**Feature 3: Dry Run Mode**
+- Description: *"Click 'Dry Run' and the app simulates the entire migration without writing a single permanent row to your database. It tells you exactly how many rows would be migrated, how many would be skipped, and why."*
+- Why it matters: *Builds confidence. You know what will happen before it happens.*
+
+**Feature 4: Rollback Script**
+- Description: *"Every migration automatically generates a rollback SQL script. If something goes wrong after migration, run this script and your database goes back to its original state."*
+- Example rollback SQL shown as a code block.
+
+**Feature 5: Live Progress Tracking**
+- Description: *"While your migration runs, you see a live progress bar and a real-time log. You know exactly which table is being migrated, how many rows have been copied, and if any rows were skipped."*
+
+**Feature 6: 100% Local Execution**
+- Description: *"The app runs entirely on your Windows PC. Your database passwords never leave your machine. There's no cloud server, no account, no subscription. Just download and run."*
+
+**Feature 7: ERD Diagram Export**
+- Description: *"After connecting to any database, the app automatically generates a visual Entity Relationship Diagram (ERD) — a map showing all your tables/collections, their fields, and the relationships (foreign keys) between them. You can view it inside the app or download it as a PNG image."*
+- Why it matters: *Instantly understand a complex database at a glance. Great for documentation and team presentations.*
+- What you'll see: A visual diagram with boxes for each table connected by lines showing foreign key relationships. Hovering a line shows the FK constraint name.
+
+**Feature 8: AI Schema Health Score**
+- Description: *"Before migration, the AI examines your source database and gives it a health score from 0 to 100. It flags specific problems — type inconsistencies, missing indexes, sparse fields — and tells you exactly what's impacting the score and how to fix it."*
+- Why it matters: *Gives you actionable insight into your schema quality before you commit to a migration. No other free migration tool does this.*
+- Example output shown:
+  ```
+  Schema Health: 71 / 100
+  🔴 -15pts  orders.items has inconsistent object structure
+  🟡 -10pts  users.phone has 3 different data types
+  🟡 -4pts   products collection has no indexes
+  ✅ +0pts   users.email present in 99.8% of documents
+  ```
+
+**Feature 9: Partial Migration**
+- Description: *"By default, the app migrates your entire database. But if you only need to move specific collections, or only data from a certain time period, you can use the Partial Migration filter. Toggle it on, select which collections to include, and optionally set a date range."*
+- Why it matters: *Real migrations are rarely all-or-nothing. This makes the tool practical for staging environments, incremental moves, and data archiving.*
+
+**Feature 10: Schema Version History**
+- Description: *"Every schema change you make through the Schema Update Assistant is recorded with a timestamp. You can view the full history of changes made to any database, and download the rollback script for any past change — even ones made weeks ago."*
+- Why it matters: *Like Git for your database. Know exactly what changed, when, and how to undo it.*
+
+---
+
+### Section 3.3 — Why Us? (Comparison with Existing Tools)
+
+**Heading:** **"Why not just use Flyway, Prisma, or AWS DMS?"**
+
+A comparison table displayed on the Features page showing exactly where existing tools fall short:
+
+| Tool | What it does | What it can't do |
+|------|-------------|------------------|
+| **Flyway** | Runs SQL scripts you write manually | You write every script by hand. Zero AI. Zero safety checks. One typo crashes production. |
+| **Prisma Migrate** | Manages schema changes if you use Prisma ORM | Completely locked to Prisma. No MongoDB → PostgreSQL migration. Weak rollback support. |
+| **Liquibase** | Enterprise schema versioning | Extremely complex XML/YAML config. Safety checks cost money (enterprise license). |
+| **Bytebase** | Approval workflow for SQL changes | Requires heavy infrastructure. Focuses on approving SQL, not generating or validating it intelligently. |
+| **AWS DMS** | Live data replication in the cloud | Hard to configure. Dumps MongoDB arrays as raw JSON into a single column — you still have to clean everything manually. |
+| ✅ **Migration Planner** | All of the above, guided by AI | Nothing. It's what we built. |
+
+Below the table, a short paragraph:
+*"Every existing tool either requires you to be an expert, locks you into an ecosystem, or moves data without helping you understand what changed or how to undo it. Migration Planner is the only tool that combines AI schema understanding, real-time risk analysis, dry-run simulation, and automatic rollback — all in one guided wizard."*
+
+---
+
+## Page 4 — Download (`/download`)
+
+The most important page. Its job is to get the user to download the `.exe`.
+
+---
+
+### Section 4.1 — Download Hero
+
+- Heading: **"Download Intelligent Migration Planner"**
+- Subtitle: *"Free. No account required. Runs fully on your PC."*
+- A large download button: **"⬇ Download for Windows (.exe)"** → triggers the `.exe` file download
+- Below the button: **"Version 1.0.0 · Released August 2026 · 64-bit"**
+
+---
+
+### Section 4.2 — System Requirements
+
+A simple card with:
+- **Operating System:** Windows 10 or Windows 11 (64-bit)
+- **RAM:** Minimum 4 GB (8 GB recommended for large datasets)
+- **Disk Space:** ~300 MB
+- **Internet:** Required only for AI features (the migration itself is local)
+- **Databases:** Runs with local databases (MongoDB, PostgreSQL) or cloud databases (MongoDB Atlas, Supabase, Neon, Railway, Render)
+
+---
+
+### Section 4.3 — Installation Steps
+
+Four numbered steps:
+1. Click the Download button above
+2. Run the downloaded `.exe` installer
+3. Launch "MigrationPlanner" from your desktop or Start menu
+4. Enter your database connection strings and start migrating
+
+---
+
+### Section 4.4 — FAQ
+
+Three collapsible accordion questions:
+
+**Q: Does this app store my passwords anywhere?**
+A: *Connection strings are saved locally on your PC only (in a hidden file). They are never sent to any server.*
+
+**Q: Do I need a cloud account to use the AI features?**
+A: *No. The app uses free-tier AI APIs. You optionally enter a free API key (e.g., from Google AI Studio) in Settings, or use the app's built-in key.*
+
+**Q: What databases are supported?**
+A: *MongoDB (local and MongoDB Atlas) and PostgreSQL (local, Supabase, Neon, Railway, Render, AWS RDS).*
+
+---
+
+## Page 5 — About (`/about`)
+
+A brief page about the project.
+
+---
+
+### Section 5.1 — Project Description
+
+- Heading: **"About This Project"**
+- One paragraph: *"Intelligent Database Migration Planner was built as a Final Year Project by a team of four computer science students. The goal was to solve a real-world problem: database migrations are one of the most feared tasks in software engineering because they're complex, risky, and hard to reverse. We built a tool that makes this process visual, guided, and safe."*
+
+---
+
+### Section 5.2 — Team Cards
+
+Four cards, one per team member:
+- Photo (or avatar placeholder)
+- Name
+- Role on the project (e.g., "Windows App & ETL Engine", "MongoDB Testbed", "PostgreSQL Platform & Testing", "Landing Website & Documentation")
+
+---
+---
+---
+
+# PART 2 — WINDOWS DESKTOP APPLICATION
+
+---
+
+## What is the Windows Application?
+
+The Windows Application is the **core product** — a desktop app (`.exe`) that the user downloads and installs. It is built using **Electron** (the same technology that powers VS Code, Slack, and Discord), which means it looks like a website running inside a native window.
+
+Inside the app, there are two completely separate workflows:
+
+1. **Migrate My Database** — Move data from MongoDB to PostgreSQL or from PostgreSQL to MongoDB
+2. **Update My Database** — Safely alter an existing database schema (add/remove/rename columns, etc.)
+
+---
+
+## The App Shell (Always Visible)
+
+When the user launches the app, they see a persistent shell that stays on screen at all times:
+
+**Left Sidebar (Navigation Panel):**
+- App logo at the top
+- **Home** icon + label → goes to the main dashboard
+- **New Migration** icon + label → starts a new migration wizard
+- **New Schema Update** icon + label → starts the schema update wizard
+- **History** icon + label → shows past migrations and schema updates
+- **Schema History** icon + label → shows the full version history of all schema changes
+- **Connections** icon + label → shows saved database connections
+- **Settings** icon + label → opens settings
+- At the very bottom: App version number (e.g., v1.0.0)
+
+**Main Content Area:**
+- The right side of the window. This is where all screens, forms, and step-by-step wizard pages are displayed.
+
+---
+
+## Screen 1 — Home Dashboard
+
+The first thing the user sees when they open the app.
+
+**Top section — Welcome Banner:**
+- Heading: **"Welcome to Migration Planner"**
+- Two large cards side by side:
+  - **Card A: "Migrate My Database"**
+    - Icon: arrows between two database cylinders
+    - Description: *"Move all data from MongoDB to PostgreSQL or PostgreSQL to MongoDB with AI-powered schema mapping."*
+    - Button: **"Start Migration →"** → launches the Migration Wizard from Step 1
+  - **Card B: "Update My Database"**
+    - Icon: a pencil over a database cylinder
+    - Description: *"Safely add, remove, or rename columns, indexes, and constraints in your existing database."*
+    - Button: **"Start Schema Update →"** → launches the Schema Update Wizard from Step 1
+
+**Bottom section — Recent Activity:**
+- Heading: **"Recent Migrations"**
+- A table showing the last 3–5 migrations:
+  - Date & time
+  - Direction (e.g., "MongoDB → PostgreSQL")
+  - Status (✅ Completed / ⚠️ Completed with warnings / ❌ Failed)
+  - A **"View Report"** link
+- If no history exists yet: a placeholder message — *"No migrations yet. Start your first one above."*
+
+---
+
+## WORKFLOW A — MIGRATE MY DATABASE
+
+This is an 8-step wizard. Each step appears in the main content area. At the top of the main area there is always a **Step Progress Bar** showing all 8 steps with the current one highlighted.
+
+Users can click **"Back"** to go to a previous step. They cannot skip forward.
+
+---
+
+### Step 1 — Choose Migration Direction
+
+**What the user sees:**
+- Heading: **"Step 1 of 8 — Choose Direction"**
+- A large prompt: **"What do you want to do?"**
+- Two big clickable cards:
+  - **Card A:** "Migrate from MongoDB to PostgreSQL" with a graphic showing a MongoDB leaf icon → arrow → PostgreSQL elephant icon
+  - **Card B:** "Migrate from PostgreSQL to MongoDB" with the reverse graphic
+
+**When the user clicks a card:**
+- The card gets a highlighted blue border showing it is selected
+- A **"Next →"** button appears at the bottom right
+
+**When they click Next:**
+- The app saves their direction choice and moves to Step 2.
+
+---
+
+### Step 2 — Connect Source Database
+
+*(If MongoDB → PostgreSQL was chosen, the source is MongoDB. If the reverse, the source is PostgreSQL.)*
+
+**Sub-heading:** "Step 2 of 8 — Connect Source Database (MongoDB)"
+
+**What the user sees:**
+- A form with the heading: **"Enter your MongoDB connection details"**
+- Two input options (user can toggle between them using tabs):
+
+  **Tab 1: Connection String**
+  - A text input field: *"mongodb://username:password@host:27017/dbname"*
+  - A small eye icon to show/hide the password part of the string
+  - A note: *"Supports MongoDB Atlas (mongodb+srv://...) and local connections"*
+
+  **Tab 2: Individual Fields**
+  - Host field (default: `localhost`)
+  - Port field (default: `27017`)
+  - Username field
+  - Password field (masked)
+  - Database Name field
+
+- A **"Use a Saved Connection"** dropdown at the top — if the user has saved connections before, they can pick one and all fields are filled automatically.
+- Button: **"Test Connection & Read Schema"** (filled, primary)
+
+**What happens when the button is clicked:**
+- The button changes to a loading state: *"Connecting…"* with a spinner
+- The app pings the database
+- **If connection fails:** A red error card appears below the button: *"❌ Could not connect. Error: [exact error message]"* — user must fix their credentials
+- **If connection succeeds:** The button area is replaced with a green success card:
+  - ✅ **"Connected!"**
+  - *"Found 5 collections: users, orders, products, categories, reviews"*
+  - A collapsible list showing a preview of the schema for each collection:
+    - `users → { _id (ObjectId), name (String), email (String), address (Object), createdAt (Date) }`
+    - `orders → { _id (ObjectId), userId (ObjectId), items (Array), totalAmount (Number) }`
+    - *(and so on for all collections)*
+  - A **"🗺️ View ERD Diagram"** button → opens a modal showing the visual relationship diagram of all collections
+
+**🧠 AI Schema Health Score (appears automatically below the schema preview):**
+
+Immediately after the schema is read, the app silently sends it to AI and displays a health score card (takes 3–5 seconds):
+
+```
+🧠 AI Schema Health Score: 71 / 100
+─────────────────────────────────────────────────────
+🔴 -15pts  "orders.items" has inconsistent object structure
+           (23% of documents have different field names in items array)
+🟡 -10pts  "users.phone" has 3 different data types across documents
+           (Integer: 60%, String: 35%, Null: 5%)
+🟡 -4pts   "products" collection has no indexes at all
+           (Full table scans will be slow after migration)
+✅  Good:   "users.email" present in 99.8% of documents
+✅  Good:   "orders" has a compound index on {userId, createdAt}
+
+💡 Tip: Fix the "phone" type inconsistency before migrating
+   for a smoother experience.
+─────────────────────────────────────────────────────
+[Dismiss]   [Copy Health Report]
+```
+
+If AI is unavailable, the health score is skipped silently and no card is shown.
+
+**🔍 Partial Migration Selector (optional, collapsed by default):**
+
+Below the health score, there is a collapsible section:
+
+> **"⚙️ Advanced: Migrate only part of this database"** *(click to expand)*
+
+By default this section is **collapsed** — meaning the whole database is migrated. If the user expands it, they see:
+
+**Sub-section A — Choose Collections:**
+- A list of all collections with a checkbox next to each one. All checkboxes are **ticked by default.**
+- A small note: *"All collections are selected by default. Uncheck any you want to skip."*
+- Example:
+  ```
+  ✅ users          (2,000 documents)
+  ✅ orders         (5,000 documents)
+  ✅ products       (500 documents)
+  ✅ categories     (50 documents)
+  ☐  inventory_logs (10,000 documents)  ← user unchecked this
+  ✅ reviews        (3,000 documents)
+  ```
+- A **"Select All"** and **"Deselect All"** link at the top of the list.
+
+**Sub-section B — Filter by Date (optional):**
+- A toggle: **"Filter by document creation date"** (off by default)
+- When toggled ON, two date pickers appear:
+  - **From date:** *(date picker)*
+  - **To date:** *(date picker — defaults to today)*
+- A note: *"Only documents with a createdAt / created_at / timestamp field within this range will be migrated."*
+- A preview updates automatically: *"Estimated documents matching filter: ~1,240 out of 5,000 orders"*
+
+If the partial migration selector is left in its default state (all collections, no date filter), the migration proceeds exactly as normal.
+
+  - A **"Next →"** button appears at the bottom right
+
+**Checkbox option:**
+- "💾 Save this connection for future use" — if checked, a small label field appears: *"Connection name"* where they type a friendly name like "My Local MongoDB"
+
+---
+
+### Step 3 — Connect Target Database
+
+**Sub-heading:** "Step 3 of 8 — Connect Target Database (PostgreSQL)"
+
+Identical layout to Step 2 but for PostgreSQL.
+
+**Form fields (Tab 1 - Connection String):**
+- Text input: *"postgresql://username:password@host:5432/dbname"*
+- Note: *"Supports Supabase, Neon, Railway, Render, AWS RDS, and local PostgreSQL"*
+
+**Form fields (Tab 2 - Individual Fields):**
+- Host, Port (default 5432), Username, Password, Database Name
+
+Button: **"Test Connection"** (not "read schema" — target is just tested, not fully read at this point)
+
+**If connection succeeds:**
+- ✅ *"Connected to PostgreSQL successfully!"*
+- *(If there are existing tables)* ⚠️ *"Note: This database already has 2 existing tables: users, logs. The migration may conflict with these. We'll flag this in the Risk Report."*
+
+**Pre-Flight Permission Check (runs automatically after connection):**
+
+Immediately after connecting, the app silently runs a quick background check to verify the PostgreSQL user actually has permission to create tables and insert data. The user sees a small status line:
+
+```
+🔍 Checking database permissions...
+✅ Can create tables: Yes
+✅ Can insert data: Yes
+✅ Lock timeout supported: Yes
+```
+
+If any permission is missing, a 🔴 red warning card appears:
+```
+❌ Permission Error
+The connected PostgreSQL user does not have CREATE TABLE permission
+on the 'public' schema. Migration cannot proceed.
+
+→ Ask your database administrator to run:
+  GRANT CREATE ON SCHEMA public TO your_username;
+```
+The **"Next →"** button is disabled until the permission issue is resolved.
+
+- **"Next →"** button
+
+---
+
+### Step 4 — AI Schema Mapping
+
+**Sub-heading:** "Step 4 of 8 — AI Generates Schema Mapping"
+
+This is an automatic step. The user lands here and sees an animation immediately.
+
+**What the user sees (while AI is working):**
+- A card in the center: **"🤖 AI is analyzing your MongoDB schema…"**
+- A subtle animated pulse/spinner
+- Below the spinner, a text log that updates live:
+  - *"Reading users collection... ✅"*
+  - *"Reading orders collection... ✅"*
+  - *"Sending schema to AI... ✅"*
+  - *"Generating PostgreSQL table layout... ⏳"*
+
+**What the user sees (once AI is done):**
+- The loading area is replaced with the **Interactive Schema Mapper** — the main visual editing table.
+- A small banner at the top: **"🤖 AI has suggested a mapping. Review it below and make any changes you want."**
+
+**The Schema Mapper (the main interactive table):**
+
+The mapper is divided by source collection. For each collection, there is a section heading and a table.
+
+*Example — Collection: "users" → Table: "users"*
+
+| MongoDB Field | Type | → | PostgreSQL Column | Data Type | Nullable | Include? |
+|---|---|---|---|---|---|---|
+| `_id` | ObjectId | → | `id` | VARCHAR(24) ▼ | No | ✅ |
+| `name` | String | → | `name` | VARCHAR(255) ▼ | No | ✅ |
+| `email` | String (98%) | → | `email` | VARCHAR(255) ▼ | Yes | ✅ |
+| `address.city` | String | → | `address_city` | VARCHAR(100) ▼ | Yes | ✅ |
+| `address.zip` | String | → | `address_zip` | VARCHAR(20) ▼ | Yes | ✅ |
+| `createdAt` | Date | → | `created_at` | TIMESTAMPTZ ▼ | Yes | ✅ |
+
+**Interaction rules:**
+- **Data Type dropdown (▼):** Clicking opens a dropdown where the user can switch the data type (e.g., change `VARCHAR(255)` to `TEXT`, or `INTEGER` to `BIGINT`)
+- **Include checkbox:** Unchecking removes this field from the migration entirely. The row gets a strikethrough.
+- **Column name:** The user can click on the PostgreSQL column name and type to rename it.
+- Special badges appear next to fields:
+  - `⚠️ Was Nested` — field was inside an embedded object, now flattened
+  - `🔗 Foreign Key → users.id` — this field references another table
+  - `📋 Creates child table: order_items` — this array field will become a separate table
+
+*If a collection (e.g., "orders") has a field `items` that is an Array of Objects:*
+- A special row appears: `items (Array of Objects) → Creates table: "order_items" [View Details]`
+- Clicking "View Details" expands a sub-section showing the child table mapping
+
+---
+
+**📘 Data Type Reference Panel (collapsible, shown below the mapper):**
+
+A collapsible section the user can open to see exactly how MongoDB types map to PostgreSQL types. This helps them make informed decisions when changing types in the dropdown.
+
+| MongoDB (BSON) Type | Maps To (PostgreSQL) | Notes shown in UI |
+|---|---|---|
+| ObjectId (12-byte) | `VARCHAR(24)` | Use as string ID. Safe default. |
+| String (UTF-8) | `TEXT` or `VARCHAR(N)` | TEXT is default. Use VARCHAR if you know the max length. |
+| NumberInt (32-bit) | `INTEGER` | Direct 1:1 mapping. |
+| NumberLong (64-bit) | `BIGINT` | Use BIGINT to avoid JavaScript precision loss on large numbers. |
+| Double (float) | `DOUBLE PRECISION` | Direct IEEE 754 mapping. |
+| Decimal128 | `NUMERIC(p, s)` | Preserves full precision. Never use DOUBLE for money. |
+| ISODate / Date | `TIMESTAMPTZ` | Always use TIMESTAMPTZ (timezone-aware). Never plain TIMESTAMP. |
+| Boolean | `BOOLEAN` | Direct mapping. |
+| Binary (UUID subtype) | `UUID` | Converted to standard 36-char hyphenated UUID string. |
+| Binary (generic) | `BYTEA` | Raw binary data. Stored as hex. |
+| Array of Strings/Ints | `TEXT[]` or `INT[]` | Native PostgreSQL array type. |
+| Array of Objects | Separate child table + FK | Or JSONB if structure is irregular. |
+| Nested Object (1–2 levels) | Flattened columns | e.g. `address.city` → `address_city` |
+| Nested Object (3+ levels) | `JSONB` | Too deep to flatten cleanly. Use JSONB with GIN index. |
+| null / missing field | `NULL` column | Column must allow NULL. Never NOT NULL without a default. |
+| GeoJSON Point | `JSONB` | Or PostGIS `geometry(Point,4326)` if extension is enabled. |
+
+*This table is read-only reference information. Actual type choices are made in the mapper rows above.*
+
+---
+
+**🗂️ Index Translation Section (shown below the field mapper, one section per collection):**
+
+After the column mapping table for each collection, there is a separate **"Indexes"** sub-section. The app reads all existing MongoDB indexes from the source database and proposes equivalent PostgreSQL indexes.
+
+*Example — Indexes for Collection: "users"*
+
+| MongoDB Index | Type | → | PostgreSQL Equivalent | Notes |
+|---|---|---|---|---|
+| `{ email: 1 }` | Standard | → | `CREATE INDEX CONCURRENTLY idx_users_email ON users(email);` | B-Tree. Standard lookup. |
+| `{ username: 1 }, unique: true` | Unique | → | `ALTER TABLE users ADD CONSTRAINT unique_username UNIQUE(username);` | Unique constraint. |
+| `{ bio: "text" }` | Text Search | → | `CREATE INDEX CONCURRENTLY idx_bio_fts ON users USING GIN (to_tsvector('english', bio));` | Full-text search via GIN. |
+| `{ status: 1, created_at: -1 }` | Compound | → | `CREATE INDEX CONCURRENTLY idx_status_created ON orders(status, created_at DESC);` | Compound B-Tree. Order matters. |
+| `{ tags: 1 }` | Multikey (Array) | → | `CREATE INDEX CONCURRENTLY idx_tags ON products USING GIN(tags);` | GIN index for array columns. |
+
+**All generated PostgreSQL index commands automatically include `CONCURRENTLY`** so that index creation never locks the table during migration.
+
+**Include/Exclude toggle:** Each proposed index has a checkbox so the user can exclude any index they don't want to migrate.
+
+**Special warning badge** appears on GIN indexes: *"⚠️ GIN indexes are fast to read but slower to update. If this column is updated very frequently, consider whether you need this index."*
+
+---
+
+**Bottom of the mapper:**
+- Button: **"✅ This Looks Good, Continue →"** (primary)
+- Button: **"← Back to Connection"** (secondary)
+
+---
+
+### Step 5 — Risk Report
+
+**Sub-heading:** "Step 5 of 8 — Risk Report"
+
+**What the user sees:**
+- A banner at the top summarizing the report:
+  - If critical issues: 🔴 **"1 Critical Issue and 2 Warnings Found. Please review before continuing."**
+  - If no critical issues: 🟡 **"No critical issues. 2 warnings found."**
+  - If all clear: ✅ **"No issues found. Your migration looks safe."**
+
+**The Risk Cards:**
+
+Issues are displayed as expandable accordion cards, sorted by severity.
+
+**🔴 Critical (Red Card):**
+```
+CRITICAL — Array of Objects Cannot Be Stored in a Single Column
+─────────────────────────────────────────────────────────────────
+The "orders" collection has an "items" field which is an array of
+objects. This cannot be stored directly as a column in PostgreSQL.
+
+→ Suggested Fix: Create a separate "order_items" table with a
+  foreign key referencing orders.id (already applied in your mapping).
+
+[Mark as Acknowledged]   [Go Back to Fix Mapping]
+```
+
+**🟡 Warning (Amber Card):**
+```
+WARNING — 45 Users Have No Email Value
+─────────────────────────────────────────────────────────────────
+45 out of 1,240 documents in the "users" collection have no email
+value. Your current mapping marks "email" as NOT NULL, which means
+these 45 rows will fail to insert.
+
+→ Suggested Fix: Change the "email" column to allow NULL,
+  or set a default value like 'unknown@example.com'.
+
+[Auto-Fix: Set email to Nullable]   [Ignore Warning]
+```
+
+**ℹ️ Info (Blue Card):**
+```
+INFO — Nested "address" Object Was Flattened
+─────────────────────────────────────────────────────────────────
+The nested "address" object has been split into separate columns:
+address_city and address_zip. This is safe and expected.
+Your application code will need to be updated to use the new
+column names instead of address.city and address.zip.
+```
+
+**At the bottom:**
+- Button: **"I've Reviewed All Issues — Continue to Dry Run →"** (primary) — this button is only bright/active if all 🔴 Critical issues are either fixed or acknowledged
+- Button: **"← Go Back to Mapping"** (secondary)
+
+---
+
+### Step 6 — Dry Run
+
+**Sub-heading:** "Step 6 of 8 — Dry Run Simulation"
+
+**Explanation card at top:**
+- *"A Dry Run simulates your migration without making any permanent changes to your database. It tests your schema and a sample of your data to predict exactly what will happen."*
+
+**Button: "▶ Run Simulation"** (large, centered)
+
+**While simulation is running (progress shown):**
+```
+Running Simulation...
+
+✅ Schema check: CREATE TABLE users — Valid
+✅ Schema check: CREATE TABLE orders — Valid
+✅ Schema check: CREATE TABLE order_items — Valid
+⏳ Testing data batch: users (500 sample rows)...
+✅ 498 rows passed transformation
+⚠️  2 rows failed: missing required field "name"
+⏳ Testing data batch: orders (500 sample rows)...
+✅ 500 rows passed
+```
+
+**Dry Run Results card (shown after simulation):**
+```
+DRY RUN COMPLETE — Nothing was changed in your database
+
+✅ Would create table: users (7 columns)
+✅ Would create table: orders (6 columns)
+✅ Would create table: order_items (5 columns)
+✅ Would migrate: 1,240 rows → users
+✅ Would migrate: 3,891 rows → orders
+✅ Would migrate: 9,102 rows → order_items
+⚠️  12 rows in "users" would be skipped — missing required fields
+    [View affected rows]
+```
+
+**At the bottom:**
+- Button: **"✅ Dry Run Passed — Run Real Migration →"** (primary, green)
+- Button: **"← Go Back to Risk Report"** (secondary)
+- Text link: **"Skip Dry Run and migrate directly"** (small, grey — for advanced users)
+
+---
+
+### Step 7 — Run Migration
+
+**Sub-heading:** "Step 7 of 8 — Migration in Progress"
+
+**Warning confirmation dialog (appears first):**
+- Modal popup with:
+  - ⚠️ **"You are about to run the actual migration."**
+  - *"This will create tables and insert data into your PostgreSQL database. Make sure you have a backup of your data."*
+  - Button: **"Yes, Start Migration"** (red, danger-style)
+  - Button: **"Cancel"** (grey)
+
+**Live Progress Screen (after user confirms):**
+- Top: A large overall progress bar
+  - *"Overall Progress: 63%"*
+- Below: A phase label — *"Currently: Inserting rows into orders table…"*
+- A live event log (scrolling text):
+  ```
+  [10:42:01] Migration started.
+  [10:42:01] Source: mongodb://admin:••••••••@localhost:27017/myapp
+  [10:42:01] Target: postgresql://user:••••••••@db.supabase.co:5432/prod
+  [10:42:01] ℹ️  Migrating tables in dependency order:
+  [10:42:01]     categories → users → products → orders → order_items
+  [10:42:02] ✅ Created table: categories
+  [10:42:02] ✅ Created table: users
+  [10:42:02] ✅ Created table: products
+  [10:42:02] ✅ Created table: orders
+  [10:42:02] ✅ Created table: order_items
+  [10:42:02] ✅ Created indexes: 5 indexes (CONCURRENTLY — non-blocking)
+  [10:42:03] ⏳ Inserting categories... (50 rows)
+  [10:42:03] ✅ categories: 50 rows inserted.
+  [10:42:03] ⏳ Inserting users... (1,240 rows) — Processing in batches of 500
+  [10:42:05] ✅ Batch 1/3: 500 rows OK
+  [10:42:06] ✅ Batch 2/3: 500 rows OK
+  [10:42:06] ⚠️  Batch 3/3: 1 row failed (type error: field 'phone' — expected INTEGER, got STRING "+91-98765")
+  [10:42:06]     → Retrying batch row-by-row to isolate the bad record...
+  [10:42:06]     ✅ 239 valid rows inserted. 1 row logged to error report.
+  [10:42:06] ✅ users complete: 1,239 rows inserted. 1 skipped.
+  [10:42:06] ⏳ Inserting orders... (3,891 rows)
+  [10:42:11] ✅ orders: 3,891 rows inserted.
+  [10:42:11] ⏳ Inserting order_items... (9,102 rows)
+  ```
+- Per-table progress bars (one per table being migrated)
+- Note: **The user cannot go back during migration. A "Cancel Migration" button is available which stops the process and safely cleans up.**
+
+**Important behaviour — Chunk-Level Error Isolation:**
+If a batch of 500 rows contains even 1 corrupted document (e.g., a string in an integer field), the app does **not** abort the entire migration. Instead:
+1. It catches the batch error
+2. It retries that batch one row at a time
+3. The 499 valid rows are inserted successfully
+4. The 1 bad row is logged to the error report with its document ID and exact reason
+5. Migration continues to the next batch seamlessly
+
+This behaviour is reflected in the live log (as shown above) and means a single dirty document can never stop thousands of valid rows from being migrated.
+
+**Important:** If migration fails mid-way:
+- The log shows the error in red
+- A red card appears: *"Migration stopped at orders table. 1,228 rows were inserted into users. Please run the rollback script to undo these changes."*
+- A **"Download Rollback Script"** button appears immediately
+
+---
+
+### Step 8 — Migration Complete
+
+**Sub-heading:** "Step 8 of 8 — Migration Complete"
+
+**Success banner:**
+🎉 **"Migration Complete!"** (with a confetti or celebration animation)
+
+**Summary card:**
+```
+Migration Summary
+
+✅ 3 tables created
+✅ 14,221 rows migrated successfully
+⚠️  12 rows skipped (see error log below)
+⏱️  Total time: 3 minutes 42 seconds
+📅  Completed: August 15, 2026 at 10:45 PM
+```
+
+**Error log section** (only if rows were skipped):
+- A collapsible section: **"⚠️ 12 rows were skipped"**
+- Inside: a small table showing each skipped row:
+  - Document ID | Collection | Reason
+
+**Download buttons (four):**
+- **"📄 Download Audit Report (.pdf)"** — Full migration report with row counts and checksums
+- **"↩️ Download Rollback Script (.sql)"** — The SQL to undo the entire migration
+- **"📦 Download Refactoring Kit (.zip)"** — Contains `schema.prisma` file + MQL→SQL query cheat sheet
+- **"🗺️ Download ERD Diagram (.png)"** — Visual Entity Relationship Diagram of the new PostgreSQL schema
+
+**ERD Diagram Preview (shown inline above the download button):**
+A small, scrollable preview of the generated ERD is displayed directly on this screen. It shows all tables as boxes connected by arrows (foreign key lines). The user can click **"Open Full Screen"** to view it in a larger modal window.
+
+**Next steps message:**
+*"Your migration is complete. If you are using a Node.js backend, use the schema.prisma file in the Refactoring Kit to quickly connect your app to the new PostgreSQL database."*
+
+**Button: "← Go to Dashboard"** — returns to the Home screen
+
+---
+
+## WORKFLOW B — MIGRATE FROM PostgreSQL TO MongoDB
+
+This is the reverse direction. The wizard is identical to Workflow A, but the source and target databases are swapped, and the AI mapping logic works in reverse (denormalizing relational tables into MongoDB collections/embedded documents).
+
+**Unique differences from Workflow A:**
+
+**Step 4 (AI Mapping) — Reverse Logic:**
+
+Instead of flattening objects, the AI *denormalizes* them:
+- Related child tables (e.g., `order_items`) are suggested to be **embedded as arrays** inside the parent collection (e.g., `orders.items`)
+- 1:1 related tables are suggested to be **embedded as nested objects**
+- Many-to-many (junction) tables are suggested to be stored as **arrays of IDs**
+
+The mapper shows the same side-by-side format, but in reverse:
+
+| PostgreSQL Table/Column | → | MongoDB Collection/Field | Type |
+|---|---|---|---|
+| `users.id` | → | `users._id` | ObjectId |
+| `users.name` | → | `users.name` | String |
+| `orders.id` + `order_items.*` | → | `orders.items` | Array of Objects (embedded) |
+
+**Step 7 (Run Migration):**
+- The ETL engine reads PostgreSQL rows and writes MongoDB documents (with JOINs resolved in the Node.js layer to reconstruct embedded documents).
+
+**Step 8 (Complete):**
+- Rollback script is a MongoDB `db.dropCollection()` set.
+- Refactoring Kit contains a `mongoose` schema file instead of `schema.prisma`.
+
+---
+
+## WORKFLOW C — UPDATE MY DATABASE (Schema Update Assistant)
+
+This is a 6-step wizard for safely altering an existing database schema.
+
+---
+
+### Step 1 — Choose Database Type
+
+**Heading:** "Step 1 of 6 — What type of database do you want to update?"
+
+Two large clickable cards:
+- **"PostgreSQL"** (with PostgreSQL elephant icon)
+- **"MongoDB"** (with MongoDB leaf icon)
+
+Button: **"Next →"**
+
+---
+
+### Step 2 — Connect to Database
+
+Same connection form as in the Migration Wizard (Tab 1: Connection String, Tab 2: Individual Fields, Saved Connections dropdown).
+
+Button: **"Connect & Read Schema"**
+
+**On success:**
+- Green success banner: ✅ *"Connected!"*
+- Full schema is displayed in a clean panel:
+  ```
+  📋 Table: users
+     - id (VARCHAR(24), PRIMARY KEY)
+     - name (VARCHAR(255), NOT NULL)
+     - email (VARCHAR(255), UNIQUE, NOT NULL)
+     - address_city (VARCHAR(100), NULL)
+     - created_at (TIMESTAMPTZ)
+     Indexes: idx_users_email (email)
+     Row count: 1,240 rows
+
+  📋 Table: orders
+     - id (VARCHAR(24), PRIMARY KEY)
+     - user_id (VARCHAR(24), FK → users.id)
+     - total_amount (NUMERIC(12,2), NOT NULL)
+     - status (VARCHAR(50), DEFAULT 'PENDING')
+     Row count: 3,891 rows
+  ```
+
+Button: **"Next →"**
+
+---
+
+### Step 3 — Describe the Change
+
+**Heading:** "Step 3 of 6 — What do you want to change?"
+
+**Two input modes (toggle at top):**
+
+**Mode A — Form (Pick from a list):**
+- A dropdown: **"What operation?"**
+  - Add a Column
+  - Drop (Delete) a Column
+  - Rename a Column
+  - Rename a Table
+  - Change Column Data Type
+  - Add an Index
+  - Remove an Index
+  - Add a Foreign Key
+
+- Depending on what is selected, the form below updates dynamically. For example, if **"Add a Column"** is selected:
+  - **Table:** dropdown of all existing tables
+  - **Column Name:** text input
+  - **Data Type:** dropdown (VARCHAR, TEXT, INTEGER, BIGINT, BOOLEAN, TIMESTAMPTZ, NUMERIC, JSONB, UUID)
+  - **Allow NULL:** toggle (Yes / No)
+  - **Default Value:** optional text input (shows/hides based on Allow NULL)
+
+**Mode B — Plain English (AI-Powered):**
+- A text area: *"Describe the change you want to make…"*
+- Example placeholder: *"Add an optional phone number column to the users table, maximum 15 characters"*
+- Button: **"🤖 Let AI Interpret This"**
+- When clicked: a small spinner, then the form switches to Mode A with all fields filled in automatically by AI
+- The user can review and adjust the form before continuing
+
+Button: **"Next →"**
+
+---
+
+### Step 4 — Risk Report
+
+Identical visual style to the Migration Risk Report (Step 5 of Migration Wizard), but specific to schema changes.
+
+Examples of risks shown:
+- **🔴 Critical:** *"You are adding a NOT NULL column to a table with 1,240 existing rows and no default value. PostgreSQL will reject this immediately."* → Auto-Fix button: "Make nullable instead"
+- **🟡 Warning:** *"Dropping column 'legacy_notes' will permanently delete all data in that column. This cannot be undone without a database backup."* → Button: "I understand, proceed"
+- **ℹ️ Info:** *"This change is fully reversible. A rollback script will be generated."*
+
+Button: **"Reviewed — Show Me the Script →"**
+
+---
+
+### Step 5 — Preview Script
+
+**Heading:** "Step 5 of 6 — Review the Generated Script"
+
+A full-width code editor panel (read-only, syntax highlighted) showing the exact SQL or MongoDB command that will run:
+
+```sql
+-- CHANGE: Add column "phone" to table "users"
+SET lock_timeout = '5s';
+BEGIN;
+ALTER TABLE users ADD COLUMN phone VARCHAR(15) DEFAULT NULL;
+COMMIT;
+```
+
+Below it, a second code panel labeled **"Rollback Script (run this to undo)":**
+
+```sql
+-- ROLLBACK: Undo the addition of column "phone"
+ALTER TABLE users DROP COLUMN IF EXISTS phone;
+```
+
+**Controls:**
+- **"📋 Copy Forward Script"** button (copies the top script)
+- **"📋 Copy Rollback Script"** button (copies the rollback)
+- **"⬇ Download Both Scripts (.sql)"** button
+
+Button: **"▶ Apply This Change →"** (primary, green)
+Button: **"← Go Back"** (secondary)
+
+---
+
+### Step 6 — Change Applied
+
+**Success or failure result screen.**
+
+**On Success:**
+```
+✅ Change Applied Successfully!
+
+Column "phone" (VARCHAR(15), nullable) has been added
+to the "users" table.
+
+Time taken: 0.3 seconds
+```
+
+- **"📋 Copy Rollback Script"** button
+- **"← Make Another Change"** button → goes back to Step 3
+- **"🏠 Go to Dashboard"** button
+
+**On Failure:**
+```
+❌ Change Failed
+
+Error: column "phone" of relation "users" already exists
+(PostgreSQL error code: 42701)
+
+The change was not applied. Your database is unchanged.
+```
+- A friendly explanation of the error in plain English
+- **"← Fix and Retry"** button → goes back to Step 3
+
+---
+
+## Screen — Schema Version History
+
+Accessed from the left sidebar (**"Schema History"** item).
+
+This screen tracks every schema change ever made through the Schema Update Assistant — like a Git history, but for your database schema.
+
+**Layout:**
+
+A filter bar at the top: **All Databases | PostgreSQL | MongoDB** — and a search box to filter by table/collection name.
+
+Below: A **timeline view** of all changes, sorted newest-first. Each entry is a card:
+
+```
+─────────────────────────────────────────────────────
+📅  August 15, 2026 — 10:42 PM
+✅  Added column: phone (VARCHAR 15, nullable)
+    Table: users  |  Database: localhost:5432/myapp
+    [View Script ▼]   [Download Rollback .sql]
+─────────────────────────────────────────────────────
+📅  August 12, 2026 — 3:15 PM
+✅  Created index: idx_users_email on users(email)
+    Table: users  |  Database: localhost:5432/myapp
+    [View Script ▼]   [Download Rollback .sql]
+─────────────────────────────────────────────────────
+📅  August 10, 2026 — 9:00 AM
+✅  Changed type: users.age  VARCHAR(10) → INTEGER
+    Table: users  |  Database: localhost:5432/myapp
+    [View Script ▼]   [Download Rollback .sql]
+─────────────────────────────────────────────────────
+📅  August 8, 2026 — 7:30 PM
+❌  FAILED: Drop column users.email
+    Error: column is referenced by foreign key fk_orders_email
+    Table: users  |  Database: localhost:5432/myapp
+    [View Error Details ▼]
+─────────────────────────────────────────────────────
+```
+
+**"View Script ▼" expands** to show the exact forward SQL that was run:
+```sql
+SET lock_timeout = '5s';
+BEGIN;
+ALTER TABLE users ADD COLUMN phone VARCHAR(15) DEFAULT NULL;
+COMMIT;
+```
+
+**"Download Rollback .sql"** downloads the compensating undo script for that specific change.
+
+**"Export Full History"** button at the top right — downloads a Markdown or PDF changelog of all schema changes ever made to the connected database.
+
+**Note:** Schema history is stored locally in `electron-store`. It is tied to the specific database connection (matched by host + database name), so different databases have separate histories.
+
+## Screen — History
+
+Accessed from the left sidebar. Shows a full log of all past migrations and schema updates.
+
+**Layout:**
+- A filter bar at the top: **All | Migrations | Schema Updates | Completed | Failed**
+- A list of history items. Each item is a card showing:
+  - Date & Time
+  - Operation type (e.g., "MongoDB → PostgreSQL" or "Added column 'phone' to users")
+  - Status badge (✅ Completed / ⚠️ Completed with skipped rows / ❌ Failed)
+  - Database connection used (with password masked)
+  - **"View Full Report"** button → opens the audit report in a modal
+  - **"Download Rollback Script"** button
+
+---
+
+## Screen — Saved Connections
+
+Accessed from the left sidebar.
+
+Shows all database connections the user has saved.
+
+**Layout:**
+- A list of connection cards. Each card shows:
+  - Connection name (e.g., "My Local MongoDB" or "Supabase Production")
+  - Database type (MongoDB / PostgreSQL)
+  - Host (e.g., `localhost:27017` or `db.supabase.co:5432`)
+  - Database name
+  - **"Test Connection"** button → pings the database and shows ✅ or ❌
+  - **"Edit"** button → opens a form to update the connection string
+  - **"Delete"** button → removes the saved connection (with a confirmation dialog)
+
+- **"+ Add New Connection"** button at the top → opens a form identical to Step 2 of the Migration Wizard
+
+---
+
+## Screen — Settings
+
+Accessed from the left sidebar.
+
+**Three sections:**
+
+**Section A — AI Configuration:**
+- Heading: *"AI Settings"*
+- **AI Provider:** dropdown with options: "Google Gemini (Recommended)" / "Groq (Llama 3)" / "OpenRouter" / "No AI (Use Rule Engine Only)"
+- **API Key:** a password-masked text input field
+  - Small help text: *"Get a free API key from Google AI Studio at aistudio.google.com. The free tier is sufficient for this app."*
+- **"Test API Key"** button → sends a test request to the AI and shows ✅ or ❌
+
+**Section B — Migration Defaults:**
+- **Batch Size:** a number input (default: 500). *"How many rows to process at a time. Increase for faster migrations on powerful machines."*
+- **Lock Timeout:** a number input in seconds (default: 5). *"How long to wait for a database lock before aborting."*
+
+**Section C — Data & Privacy:**
+- **"Clear All Saved Connections"** button (with a red confirmation dialog)
+- **"Clear Migration History"** button (with a red confirmation dialog)
+- **"Export Settings"** button → downloads a settings JSON file
+- **"Import Settings"** button → loads settings from a JSON file
+
+---
+---
+---
+
+# PART 3 — TESTBED APPLICATIONS
+
+---
+
+## What are the Testbed Applications?
+
+The Testbed Applications are **two companion apps** used to demonstrate and test the Migration Planner. They are not part of the tool itself, but they are essential for:
+1. Proving the Migration Planner works on a realistic application
+2. Giving the team a real database to migrate during demos and presentations
+3. Running automated verification to prove no data was lost
+
+---
+
+## Testbed App A — The Source (MongoDB E-Commerce App)
+
+This is a working **Multi-Vendor E-Commerce and Inventory Platform** built with **Next.js + Express + MongoDB**.
+
+### What it looks like:
+
+A simple but functional e-commerce website with:
+- A storefront showing products with categories, prices, and ratings
+- User profiles
+- An order history page
+- An inventory management dashboard (admin view)
+
+### What it contains in the database:
+
+| MongoDB Collection | What it stores | Document count |
+|---|---|---|
+| `users` | Customers with addresses and profile info | ~2,000 |
+| `products` | Items for sale with polymorphic specs (electronics vs clothing) | ~500 |
+| `categories` | Product categories with parent-child hierarchy | ~50 |
+| `orders` | Customer orders with embedded `items` arrays | ~5,000 |
+| `reviews` | Product reviews with ratings | ~3,000 |
+| `inventory_logs` | Stock change timestamps and quantities | ~10,000 |
+| `coupons` | Discount codes with validity dates | ~100 |
+
+**Total: ~20,000+ documents**
+
+### Intentional Messy Data (Edge Cases Seeded In):
+
+The seed data script intentionally creates these problems to test the Migration Planner:
+
+1. **Mixed types:** `phone` field is an integer for some users, a string for others, and missing for some
+2. **Nested objects:** `users.address.billing.coordinates` is 3 levels deep
+3. **Arrays of objects:** `orders.items` is an embedded array of 1–20 product line items
+4. **Primitive arrays:** `products.tags` is a simple array of strings
+5. **Null/undefined fields:** `discount` is 0 in some, null in some, missing in others
+6. **Mixed dates:** Some dates stored as `ISODate`, some as Unix timestamps (number), some as ISO strings
+7. **Polymorphic specs:** Electronics have `{ ram, cpu, storage }` while Clothing has `{ size, color, fabric }`
+8. **Large text fields:** Some product descriptions are 50KB+ of text
+9. **Self-referencing:** `categories.parent_id` references other categories
+10. **Existing indexes:** Compound index on `{ category: 1, price: -1 }` in products
+
+---
+
+## Testbed App B — The Target (PostgreSQL E-Commerce App)
+
+This is the **exact same e-commerce website**, but configured to connect to PostgreSQL instead of MongoDB. The UI looks identical to the user, but the backend uses `pg` (node-postgres) and SQL queries.
+
+### Purpose:
+
+After the Migration Planner runs, the team switches App A's database connection to PostgreSQL and the site should work identically. If it does, the migration was perfect.
+
+### Automated Test Suite:
+
+A script that runs immediately after migration and produces a verification report:
+
+| Test | What it checks | Pass Condition |
+|------|---------------|----------------|
+| Row Count Audit | `COUNT(postgres.users) == COUNT(mongo.users)` | Exact match |
+| Sum Reconciliation | `SUM(postgres.total_amount) == SUM(mongo.totalAmount)` | Exact match |
+| MD5 Checksum Sample | 500 random rows hashed in both DBs | 100% hash match |
+| Foreign Key Integrity | All `order_items.order_id` values exist in `orders.id` | No orphan rows |
+| API Latency Benchmark | 1,000 parallel lookups on both DBs | Report both times |
+
+The test suite outputs a single **Verification Report** (JSON + Markdown) showing all test results and a pass/fail verdict.
+
+---
+
+---
+
+## What the Seed Script Does
+
+The seed data is generated by a Node.js script (`seed-mongodb.js`). It creates all the collections above with realistic but intentionally messy data. The script has specific modules for each edge case:
+
+| Script Module | What it injects |
+|---|---|
+| `seedUsers.js` | 2,000 users — some with integer phones, some with string phones, some with no phone |
+| `seedProducts.js` | 500 products — electronics with `{ ram, cpu }` specs and clothing with `{ size, color }` specs |
+| `seedOrders.js` | 5,000 orders — each with 1–20 embedded `items` objects |
+| `seedDates.js` | Mixed date formats across collections (ISODate, Unix timestamp, ISO string) |
+| `seedDeepNest.js` | Users with `address.billing.coordinates` 3 levels deep |
+
+The script is run once before the demo to populate the MongoDB database. It takes approximately 30 seconds to complete.
+
+---
+
+---
+---
+---
+
+# PART 4 — KNOWN CHALLENGES & LIMITATIONS
+
+---
+
+## Why This Section Exists
+
+Every serious software project has things that are hard, things that have limits, and things that the team consciously decided to scope out. This section documents all of them honestly. Reading this, you should understand exactly what can go wrong, what the tool cannot do, and how each challenge is handled (or acknowledged as a known limitation).
+
+The challenges are organized by priority: 🔴 High (will definitely encounter), 🟡 Medium (likely to encounter with specific setups), 🟢 Low (edge cases worth knowing).
+
+---
+
+## 🔴 High Priority Challenges
+
+---
+
+### Challenge 1 — Real-Time Progress in Electron (IPC vs SSE)
+
+**The Problem:**
+The research recommends Server-Sent Events (SSE) for real-time progress updates — SSE works great in a web browser talking to a web server. But in Electron, the Node.js "backend" (Main Process) and the React "frontend" (Renderer Process) are not a web server and browser — they communicate through a private internal channel called **IPC (Inter-Process Communication)**.
+
+SSE cannot simply be used between Electron's Main and Renderer processes.
+
+**How we handle it:**
+Two acceptable approaches:
+
+- **Approach A (Simpler):** Run a tiny local HTTP server on `localhost:PORT` inside the Electron Main Process. The React UI connects to it via `EventSource`. This is the "SSE inside Electron" pattern. Works but adds a moving part (port management).
+- **Approach B (Cleaner for Electron):** Use Electron's built-in `ipcMain.emit()` / `ipcRenderer.on()` to push progress events directly. The React UI listens with `window.electronAPI.onProgress(callback)`. No HTTP server needed, fully native to Electron.
+
+**Our choice:** Approach B — native IPC events — is cleaner and avoids port conflicts. The live log in the Migration Wizard receives data via IPC events, not HTTP SSE.
+
+**Impact on user:** None. The live log looks and behaves identically either way.
+
+---
+
+### Challenge 2 — What Happens if the App Crashes Mid-Migration?
+
+**The Problem:**
+The user is migrating 14,000 rows. At row 8,000, their laptop dies, the app crashes, or Windows force-restarts for an update. The migration is now in an unknown state:
+- Some tables exist in PostgreSQL (partially filled)
+- The rollback script was only in memory — it was never saved to disk
+- The original MongoDB data is untouched (source is never modified)
+
+**How we handle it:**
+
+1. **The rollback script is written to a temporary file on disk the moment migration starts** — before any rows are inserted. Even if the app crashes, the user can find and run this file.
+2. **Migration state is saved to `electron-store` at each table completion.** If the app is reopened, the History screen shows the migration as "❌ Interrupted" with a **"Clean Up Partial Migration"** button that runs the rollback script.
+3. **The source MongoDB database is always read-only.** No matter what happens, the original data is never touched.
+
+**Shown in the app:** The History screen shows interrupted migrations with a red "⚠️ Interrupted — Partial Data May Exist" badge and a "Run Rollback to Clean Up" button.
+
+---
+
+### Challenge 3 — Windows SmartScreen / Antivirus Blocking the .exe
+
+**The Problem:**
+When a user downloads and tries to run an unsigned `.exe` from an unknown publisher, Windows Defender SmartScreen shows:
+
+> *"Windows protected your PC — Microsoft Defender SmartScreen prevented an unrecognized app from starting."*
+
+This will happen for every user until the app either:
+- Gets a **Code Signing Certificate** (costs ~$200–$500/year for an EV certificate), OR
+- Accumulates enough user installs/reports to build "SmartScreen reputation" (can take months)
+
+**How we handle it (for FYP context):**
+
+The installation instructions on the Download page include a clear note:
+
+> *"⚠️ Note: Because this is a self-distributed application, Windows may show a SmartScreen warning. This is normal for unsigned apps. To bypass it: click 'More info' → 'Run anyway'. This is safe — the app's source code is publicly available on GitHub."*
+
+The About page links to the GitHub repository so users can inspect the source code and verify it is safe.
+
+**Long-term fix (post-FYP):** Obtain an Extended Validation (EV) Code Signing Certificate.
+
+---
+
+### Challenge 4 — Circular Foreign Key Dependencies
+
+**The Problem:**
+The topological sort algorithm (used to determine migration order) assumes a **Directed Acyclic Graph (DAG)** — no circular references. But some real databases have circular FKs. For example:
+
+- `users.organization_id → organizations.id`
+- `organizations.created_by → users.id`
+
+Neither `users` nor `organizations` can be created first because each requires the other to exist.
+
+**How we handle it:**
+
+1. During schema introspection, the app builds the FK dependency graph.
+2. It runs a **cycle detection algorithm**. If a cycle is found, it is flagged in the Risk Report as a 🔴 Critical issue:
+   ```
+   CRITICAL — Circular Foreign Key Detected
+   ────────────────────────────────────────
+   Tables "users" and "organizations" have a circular reference:
+   users.organization_id → organizations.id
+   organizations.created_by → users.id
+
+   → Suggested Fix: The app will create both tables WITHOUT
+     foreign key constraints first, insert all data, then add
+     the FK constraints afterwards using:
+     ALTER TABLE ... ADD CONSTRAINT ... NOT VALID;
+     VALIDATE CONSTRAINT ...;
+   ```
+3. The migration defers all FK constraint creation to **after** all rows are inserted — this breaks the cycle safely.
+
+**Shown in UI:** The Risk Report shows the cycle and the auto-fix strategy. The live migration log shows: *"⚠️ Circular FK detected: deferring all foreign key creation to post-data step."*
+
+---
+
+### Challenge 5 — The "Stop the World" Limitation (Not Zero-Downtime)
+
+**The Problem:**
+This tool performs a **point-in-time snapshot migration**. It reads MongoDB at a specific moment and copies it to PostgreSQL. If the source MongoDB database is live and receiving new writes during migration:
+- Any document added or updated after the migration started will NOT be in PostgreSQL.
+- Any document deleted in MongoDB after the start will still be in PostgreSQL.
+
+This is sometimes called the "Stop the World" problem.
+
+**What tools like AWS DMS do instead:** They use Change Data Capture (CDC) with Kafka / Debezium to continuously stream every single change. This is enterprise-level infrastructure and is beyond the scope of a 3-month FYP.
+
+**How we handle it (user communication):**
+
+The app surfaces this limitation clearly in two places:
+
+1. **At the start of Step 7 (Run Migration)**, the confirmation dialog includes:
+   ```
+   ⚠️  IMPORTANT: This is a snapshot migration.
+   New data written to MongoDB AFTER you click "Start"
+   will NOT be included in the migration.
+
+   Recommendation: Put your application in maintenance mode
+   (stop new writes to MongoDB) before running the migration
+   for best accuracy.
+   ```
+
+2. **The Audit Report (Step 8)** states the exact timestamp when migration started and ended, so the user knows the exact window of potential data gap.
+
+**This is a known, documented limitation — not a bug.**
+
+---
+
+## 🟡 Medium Priority Challenges
+
+---
+
+### Challenge 6 — MongoDB Atlas & Supabase/Neon Connection Quirks
+
+**MongoDB Atlas — DNS SRV Issues:**
+- Atlas connection strings use the format `mongodb+srv://` which requires a DNS SRV record lookup.
+- On some corporate networks, university networks, or VPNs, SRV records are blocked by DNS firewalls.
+- The error is cryptic: not "wrong password" but something like "querySrv ENOTFOUND _mongodb._tcp.cluster.mongodb.net".
+- **Shown in the app:** If an SRV DNS error is detected, the connection error card shows a plain-English explanation: *"DNS SRV lookup failed. This happens on some corporate/university networks. Try: (1) Switching to a mobile hotspot, (2) Using a direct connection string instead of the SRV format."*
+
+**Supabase / Neon — Pooler vs Direct Connection:**
+- Supabase and Neon provide two connection URLs: a **pooler URL** (for application queries) and a **direct URL** (for migrations/DDL).
+- Running `CREATE TABLE` or `ALTER TABLE` through the pooler in "transaction mode" can fail or behave unexpectedly.
+- **Shown in the app:** When a Supabase or Neon connection string is detected (by domain pattern), a blue info banner appears:
+  ```
+  ℹ️  Supabase / Neon Detected
+  For migrations, use the "Direct Connection" URL
+  (not the pooler URL). Find it in your project dashboard
+  under: Settings → Database → Connection String → Direct.
+  ```
+
+---
+
+### Challenge 7 — Wizard State Lost if App is Closed Mid-Way
+
+**The Problem:**
+If the user has spent 10 minutes completing Steps 1–5 (connecting DBs, reviewing AI mapping, reviewing risks) and then closes the app accidentally, all their work is lost. They must start from Step 1 again.
+
+**How we handle it:**
+Wizard state (all connection details, the AI mapping, user edits, risk acknowledgements) is **auto-saved to `electron-store` after every step completion.** When the user reopens the app:
+- The Home Dashboard shows a banner: *"📋 You have an unfinished migration. [Resume →]"*
+- Clicking "Resume" takes them back to the exact step where they left off, with all their previous inputs preserved.
+
+---
+
+### Challenge 8 — Large Binary Data (BYTEA) Memory Spikes
+
+**The Problem:**
+If a MongoDB collection contains documents with large binary fields (e.g., product images or PDFs stored directly in the database as BSON Binary), streaming 500 of these at once can cause memory usage to spike far above the normal 20MB ceiling.
+
+**How we handle it:**
+1. During schema introspection, the app detects any field of type `Binary` and checks average document size.
+2. If the average document size exceeds **100KB**, the batch size for that collection is automatically reduced (e.g., from 500 to 50) and a 🟡 Warning is added to the Risk Report:
+   ```
+   WARNING — Large Binary Fields Detected
+   ────────────────────────────────────────
+   The "products" collection has an "image_data" binary field
+   with an average size of 250KB per document.
+   Batch size has been automatically reduced to 50 for this
+   collection to prevent memory issues.
+   → Migration will be slower but stable.
+   ```
+
+---
+
+### Challenge 9 — Child Table Row Ordering (Array → Table Split)
+
+**The Problem:**
+When `orders.items` (an array of 5 objects in a specific order) is split into 5 rows in `order_items`, the original array index (order) may matter to the application. Without preserving it, row 3 in the array might end up as any row in the table.
+
+**How we handle it:**
+When the AI (or rule engine) creates the `order_items` child table mapping, it automatically adds a **`sort_order INTEGER`** column. During migration, each array element is inserted with its 0-based index from the original array:
+
+```
+orders.items[0] → order_items { sort_order: 0, ... }
+orders.items[1] → order_items { sort_order: 1, ... }
+orders.items[2] → order_items { sort_order: 2, ... }
+```
+
+This is visible in the Schema Mapper as an automatically added row:
+```
+[auto] (array index) → sort_order    INTEGER    Not Nullable    ✅
+```
+The user can rename or exclude this column, but it is included by default.
+
+---
+
+### Challenge 10 — AI Token Limits for Very Large Schemas
+
+**The Problem:**
+The Gemini / Groq free tier has per-request token limits. For very large databases (30+ collections, 100+ fields each), the schema metadata sent to the AI may exceed the model's context window, causing the request to fail or be truncated.
+
+**How we handle it:**
+
+1. The app measures the size of the schema payload before sending it.
+2. If it exceeds the safe token limit (~6,000 tokens), it automatically **batches the AI requests** — sending 5–6 collections at a time rather than all at once.
+3. The AI loading screen in Step 4 updates to reflect this: *"Large schema detected — processing in 4 batches…"*
+4. The results are merged into one unified mapping object.
+5. If even batch processing fails, the **fallback rule engine** handles the mapping instead, and a badge shows `[⚡ Auto Rule-Mapped]` instead of `[🤖 AI Suggested]`.
+
+---
+
+## 🟢 Lower Priority — Known Limitations (Accepted, Documented)
+
+| Limitation | What it means | Our stance |
+|---|---|---|
+| **`electron-store` is not encrypted** | Saved connection strings (with passwords) are stored in a plain JSON file on disk | We note this in Settings with: *"Saved credentials are stored locally and unencrypted. Do not save production credentials on a shared PC."* |
+| **No real-time / CDC migration** | New data written to MongoDB during migration is not captured | Documented limitation; user is warned before migration starts |
+| **PostgreSQL → MongoDB is harder** | Reconstructing embedded documents from JOINs (Workflow B) is significantly more complex to implement than the Mongo→PG direction | Acknowledged — Workflow B may have a slightly simpler implementation for the FYP (e.g., embedding only verified 1:N tables, not all JOINs) |
+| **No MySQL / SQLite support** | Only MongoDB and PostgreSQL are supported | Explicitly stated on the Download page and Features page |
+| **No user authentication** | The app has no login system | Not needed — it's a local desktop app, not a multi-user platform |
+| **Free AI tier rate limits** | Heavy use (many migrations in a short time) may trigger 429 rate limit errors | Fallback rule engine activates automatically; user sees `[⚡ Auto Rule-Mapped]` badge |
+| **Code signing / SmartScreen** | Unsigned .exe shows Windows warning on first run | Download page includes bypass instructions |
+| **Windows only** | The `.exe` only runs on Windows 10/11 64-bit | Explicitly stated on the Download page. No macOS or Linux version is planned. |
+
+---
+
+## Summary Table — All Challenges at a Glance
+
+| # | Challenge | Priority | Status |
+|---|---|---|---|
+| 1 | Electron IPC vs SSE for progress | 🔴 High | Handled — use native IPC events |
+| 2 | App crash mid-migration | 🔴 High | Handled — rollback saved to disk + History screen |
+| 3 | Windows SmartScreen blocking .exe | 🔴 High | Handled — download page instructions + GitHub link |
+| 4 | Circular FK dependencies | 🔴 High | Handled — cycle detection + deferred FK creation |
+| 5 | Stop-the-world snapshot limitation | 🔴 High | Documented — warning shown before Step 7 |
+| 6 | Atlas SRV / Supabase pooler issues | 🟡 Medium | Handled — detected + plain-English error guidance |
+| 7 | Wizard state lost on app close | 🟡 Medium | Handled — auto-saved to electron-store per step |
+| 8 | Large binary data memory spikes | 🟡 Medium | Handled — auto batch size reduction |
+| 9 | Child table array ordering | 🟡 Medium | Handled — auto `sort_order` column added |
+| 10 | AI token limit on huge schemas | 🟡 Medium | Handled — batched AI requests + fallback engine |
+| 11 | electron-store not encrypted | 🟢 Low | Documented — warned in Settings |
+| 12 | No CDC / real-time migration | 🟢 Low | Documented — known scope limitation |
+| 13 | PG→MongoDB Workflow B complexity | 🟢 Low | Acknowledged — simplified implementation for FYP |
+| 14 | Free AI rate limits | 🟢 Low | Handled — fallback rule engine |
+| 15 | Windows Defender / code signing | 🟢 Low | Documented — bypass instructions on site |
+
+---
+
+*End of Product Blueprint v1.2*

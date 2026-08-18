@@ -1,0 +1,63 @@
+# Deep Research: Advanced Dry-Run Architecture (Shadow Testing)
+
+---
+
+## 1. The Challenge of "Dry Running" a Database Migration
+
+A true "Dry Run" must simulate the full execution of the migration (schema creation and data insertion) to catch type errors, constraint violations, and performance issues, but it **must not leave any permanent changes** in the production database.
+
+There are two primary architectures to achieve this in PostgreSQL:
+
+---
+
+## 2. Approach 1: Transactional Rollbacks (The Fast & Simple Way)
+
+Because PostgreSQL supports **Transactional DDL**, you can create tables, insert millions of rows, and run complex validations inside a single transaction, and then immediately erase everything with a single `ROLLBACK` command.
+
+### How it works:
+```sql
+BEGIN; -- Start the simulation
+
+-- 1. Create the target schemas
+CREATE TABLE users_temp (id INT, email VARCHAR);
+
+-- 2. Stream and insert a test batch (e.g., 500 rows from MongoDB)
+INSERT INTO users_temp (id, email) VALUES (1, 'test@test.com');
+
+-- 3. Run validation queries (e.g., count check)
+SELECT count(*) FROM users_temp;
+
+-- 4. Destroy everything instantly and safely
+ROLLBACK;
+```
+
+* **Pros:** Extremely fast, zero cleanup required, mathematically safe (PostgreSQL guarantees no data is committed).
+* **Cons:** Cannot simulate index creation using `CREATE INDEX CONCURRENTLY` (as it cannot run inside a transaction).
+
+---
+
+## 3. Approach 2: Shadow Schemas (The Enterprise Zero-Downtime Way)
+
+For massive migrations where you need to run full-scale ETL pipelines alongside live production traffic without risking locks, you use the **Shadow Schema Strategy** (similar to tools like *pgroll* or *Bytebase*).
+
+### How it works:
+1. **Create an isolated Sandbox:** Instead of writing to the `public` schema, the tool creates a temporary schema.
+   ```sql
+   CREATE SCHEMA migration_dry_run_v1;
+   SET search_path TO migration_dry_run_v1;
+   ```
+2. **Build and Load:** The Node.js ETL engine runs its full process, creating tables and streaming data into this isolated schema. Production queries pointing to `public` are completely unaffected.
+3. **Verify:** The user can run actual SQL queries against the shadow schema to inspect the data.
+4. **Cleanup:**
+   ```sql
+   DROP SCHEMA migration_dry_run_v1 CASCADE;
+   ```
+
+---
+
+## 4. How Our Tool Will Implement This
+
+For the **Intelligent Database Migration Planner**, we will implement a hybrid model for maximum safety and user confidence:
+
+1. **Schema Check (Transactional):** When the user clicks "Preview Script", we run the `ALTER` or `CREATE` statements inside a `BEGIN; ... ROLLBACK;` block to prove that the PostgreSQL syntax is valid.
+2. **Data Check (In-Memory Simulation):** When the user clicks "Dry Run", the Node.js backend streams a batch of 500 documents from MongoDB, runs them through the transformation engine, and identifies any documents that would fail (e.g., due to nullability or string lengths), without touching PostgreSQL at all.
