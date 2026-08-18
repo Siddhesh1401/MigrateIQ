@@ -104,6 +104,8 @@ migrateiq/
 
 ## 🚀 Getting Started
 
+> 💡 **Teammates:** For a complete, beginner-friendly step-by-step setup guide, see **[`SETUP.md`](./SETUP.md)**.
+
 ### Prerequisites
 - Node.js v20+
 - A MongoDB instance (local or [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) — free tier)
