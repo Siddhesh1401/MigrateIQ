@@ -1,0 +1,158 @@
+.footer {
+  background-color: #FFFFFF;
+  border-top: 1px solid var(--border-subtle);
+  padding: 64px 0 32px;
+  margin-top: 80px;
+}
+
+.footerContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+.topSection {
+  display: flex;
+  justify-content: space-between;
+  gap: 64px;
+}
+
+/* Brand */
+.brandCol {
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.logoIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
+  border: 1px solid #BFDBFE;
+  border-radius: 8px;
+  color: var(--brand-primary);
+}
+
+.logoText {
+  letter-spacing: -0.03em;
+}
+
+.logoAccent {
+  color: var(--brand-primary);
+}
+
+.brandDescription {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Links Grid */
+.linksGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 48px;
+}
+
+.linkGroupTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.linkList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.linkList a {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
+.linkList a:hover {
+  color: var(--brand-primary);
+  text-decoration: none;
+}
+
+.staticLink {
+  font-size: 0.875rem;
+  color: var(--text-light);
+  font-family: var(--font-mono);
+}
+
+/* Bottom Section */
+.bottomSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.copyright {
+  color: var(--text-muted);
+}
+
+.bottomMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  color: var(--border-strong);
+}
+
+@media (max-width: 860px) {
+  .topSection {
+    flex-direction: column;
+    gap: 40px;
+  }
+
+  .linksGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+  }
+
+  .bottomSection {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 520px) {
+  .linksGrid {
+    grid-template-columns: 1fr;
+  }
+}
