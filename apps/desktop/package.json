@@ -1,0 +1,53 @@
+{
+  "name": "@migrateiq/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.node.json",
+    "watch:main": "tsc -p tsconfig.node.json -w",
+    "dev:vite": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "dev": "npm run build:main && concurrently -k \"npm run dev:vite\" \"npm run watch:main\" \"npm run dev:electron\"",
+    "build": "tsc && vite build && npm run build:main",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "dist:win": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "@migrateiq/shared": "*",
+    "electron-store": "^8.2.0",
+    "mongodb": "^6.8.0",
+    "pg": "^8.12.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "@types/pg": "^8.11.6",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.5",
+    "vite": "^5.3.1",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.migrateiq.app",
+    "productName": "MigrateIQ",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "../../assets/icon.png"
+    }
+  }
+}

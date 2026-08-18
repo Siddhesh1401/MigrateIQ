@@ -6,7 +6,7 @@ This folder contains the complete, phase-by-phase technical documentation genera
 
 | Phase | Document | Description | Status |
 | :--- | :--- | :--- | :--- |
-| **Phase 0** | [`phase-00-monorepo-foundation.md`](./phase-00-monorepo-foundation.md) | Monorepo root, shared packages, Next.js & Electron scaffolds | ⏳ Pending |
+| **Phase 0** | [`phase-00-monorepo-foundation.md`](./phase-00-monorepo-foundation.md) | Monorepo root, shared packages, Next.js & Electron scaffolds | ✅ Completed |
 | **Phase 1** | [`phase-01-landing-website.md`](./phase-01-landing-website.md) | Next.js 5-page marketing site & design system | ⏳ Pending |
 | **Phase 2** | [`phase-02-desktop-app-shell.md`](./phase-02-desktop-app-shell.md) | Electron app shell, sidebar navigation, placeholder routes | ⏳ Pending |
 | **Phase 3** | [`phase-03-home-dashboard.md`](./phase-03-home-dashboard.md) | Dashboard entry cards, recent migrations table, resume banner | ⏳ Pending |

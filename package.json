@@ -1,0 +1,23 @@
+{
+  "name": "migrateiq-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MigrateIQ - Intelligent Database Migration Planner Monorepo",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "web:dev": "npm run dev --workspace=@migrateiq/web",
+    "web:build": "npm run build --workspace=@migrateiq/web",
+    "desktop:dev": "npm run dev --workspace=@migrateiq/desktop",
+    "desktop:build": "npm run build --workspace=@migrateiq/desktop",
+    "shared:build": "npm run build --workspace=@migrateiq/shared",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.4.5"
+  }
+}
