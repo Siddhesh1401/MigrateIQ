@@ -8,10 +8,11 @@
     "apps/*"
   ],
   "scripts": {
+    "postinstall": "npm run shared:build",
     "web:dev": "npm run dev --workspace=@migrateiq/web",
     "web:build": "npm run build --workspace=@migrateiq/web",
-    "desktop:dev": "npm run dev --workspace=@migrateiq/desktop",
-    "desktop:build": "npm run build --workspace=@migrateiq/desktop",
+    "desktop:dev": "npm run shared:build && npm run dev --workspace=@migrateiq/desktop",
+    "desktop:build": "npm run shared:build && npm run build --workspace=@migrateiq/desktop",
     "shared:build": "npm run build --workspace=@migrateiq/shared",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

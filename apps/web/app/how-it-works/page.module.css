@@ -1,0 +1,949 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+  padding-bottom: 32px;
+}
+
+/* ================= HEADER SECTION ================= */
+.headerSection {
+  padding-top: 36px;
+  text-align: center;
+}
+
+.headerContent {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.pageTitle {
+  font-size: 2.8rem;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.pageSubtitle {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 680px;
+}
+
+/* ================= HIGH-IMPACT WORKFLOW SELECTOR ================= */
+.workflowSelectorWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 20px;
+}
+
+.workflowSelectorLabel {
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.workflowGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+  max-width: 840px;
+}
+
+.workflowCard {
+  background-color: #FFFFFF;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.workflowCard:hover {
+  border-color: var(--border-medium);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.workflowCardActive {
+  border-color: var(--brand-primary);
+  background-color: #F8FAFF;
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.15), 0 0 0 1px var(--brand-primary);
+}
+
+.wfCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wfPill {
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  background-color: #EFF6FF;
+  color: var(--brand-primary);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid #BFDBFE;
+}
+
+.wfPillAi {
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  background-color: #F0F9FF;
+  color: #0284C7;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid #BAE6FD;
+}
+
+.stepCountBadge {
+  font-size: 0.725rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background-color: var(--bg-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.workflowCardActive .stepCountBadge {
+  background-color: #FFFFFF;
+  color: var(--brand-primary);
+  border: 1px solid #BFDBFE;
+}
+
+.wfCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wfTitle {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.workflowCardActive .wfTitle {
+  color: var(--brand-primary);
+}
+
+.wfDesc {
+  font-size: 0.825rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.wfFooter {
+  display: flex;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.activeIndicator {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.workflowCardActive .activeIndicator {
+  color: #059669;
+}
+
+/* ================= COMPACT SINGLE-VIEW STUDIO CONTAINER ================= */
+.explorerSection {
+  padding: 0;
+}
+
+.studioContainer {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Top Horizontal Step Track */
+.topStepTrack {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  background-color: #F8FAFC;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+}
+
+.stepTrackBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px;
+  border: none;
+  background: transparent;
+  border-right: 1px solid var(--border-subtle);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.stepTrackBtn:last-child {
+  border-right: none;
+}
+
+.stepTrackBtn:hover {
+  background-color: #F1F5F9;
+}
+
+.stepTrackBtnActive {
+  background-color: #FFFFFF;
+  box-shadow: inset 0 -3px 0 var(--brand-primary);
+}
+
+.stepTrackNum {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-medium);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.stepTrackBtnActive .stepTrackNum {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #FFFFFF;
+}
+
+.stepTrackBtnDone .stepTrackNum {
+  color: #10B981;
+  font-weight: 800;
+}
+
+.stepTrackText {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.stepTrackTitle {
+  font-size: 0.775rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.stepTrackBtnActive .stepTrackTitle {
+  color: var(--brand-primary);
+}
+
+.stepTrackBadge {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Studio Body */
+.studioBody {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background-color: #FFFFFF;
+}
+
+.studioInspectorHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.studioTitleCol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stepPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.725rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--brand-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dotDivider {
+  color: var(--border-medium);
+}
+
+.studioMainHeading {
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.studioDescText {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  max-width: 700px;
+}
+
+.tagsRow {
+  display: flex;
+  gap: 6px;
+}
+
+.techTag {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--brand-primary);
+  background-color: var(--brand-light);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #BFDBFE;
+}
+
+/* ================= STEP VISUAL SIMULATOR BOX ================= */
+.stepVisualBox {
+  background-color: #F8FAFC;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.visualBoxHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background-color: #FFFFFF;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.visualHeaderDots {
+  display: flex;
+  gap: 4px;
+}
+
+.vDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #CBD5E1;
+}
+
+.visualHeaderTitle {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.visualLiveBadge {
+  font-size: 0.625rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #059669;
+  background-color: #ECFDF5;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.visualBoxBody {
+  padding: 16px;
+}
+
+/* Step 1: Direction */
+.simDirectionGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.simDirectionCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.simDirectionCardActive {
+  border-color: var(--brand-primary);
+  background-color: #EFF6FF;
+}
+
+.simDirTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.simDirIcon {
+  font-size: 1.1rem;
+}
+
+.simDirActiveTag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--brand-primary);
+}
+
+.simDirSelectBtn {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.simDirectionCard h4 {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.simDirectionCard p {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Step 2: Health Score */
+.simHealthBox {
+  display: flex;
+  flex-direction: column;
+}
+
+.healthDialRow {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  align-items: center;
+}
+
+.healthScoreCard {
+  background-color: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+
+.healthScoreBig {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #047857;
+  line-height: 1;
+}
+
+.healthScoreMax {
+  font-size: 0.7rem;
+  color: #065F46;
+  font-family: var(--font-mono);
+}
+
+.healthStatusGood {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #059669;
+  margin-top: 2px;
+}
+
+.healthBreakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.healthItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.healthItemWarn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #D97706;
+  font-weight: 600;
+}
+
+.warnIcon {
+  font-size: 0.85rem;
+}
+
+/* Step 3: Target */
+.simTargetBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.targetField {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  font-size: 0.8rem;
+}
+
+.targetFieldLabel {
+  color: var(--text-muted);
+}
+
+.targetFieldValue {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.targetFieldClean {
+  font-weight: 700;
+  color: #059669;
+  font-family: var(--font-mono);
+}
+
+/* Step 4: Mapping */
+.simMappingBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mappingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  font-size: 0.775rem;
+  font-family: var(--font-mono);
+}
+
+.sourceTag {
+  color: #059669;
+  font-weight: 600;
+}
+
+.mapArrow {
+  color: #94A3B8;
+}
+
+.targetTag {
+  color: #2563EB;
+  font-weight: 600;
+}
+
+/* Step 5: Risk */
+.simRiskBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.riskCardWarn {
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: var(--radius-xs);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.riskCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.riskBadgeWarn {
+  font-size: 0.65rem;
+  background-color: #D97706;
+  color: #FFFFFF;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.riskCardInfo {
+  background-color: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: var(--radius-xs);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.riskBadgeInfo {
+  font-size: 0.65rem;
+  background-color: #2563EB;
+  color: #FFFFFF;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* Step 6: Terminal Box */
+.simTerminalBox {
+  background-color: #0B0F17;
+  border-radius: var(--radius-xs);
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 0.775rem;
+  line-height: 1.55;
+  color: #E2E8F0;
+}
+
+.termLine {
+  margin-bottom: 2px;
+}
+
+.termKeyword {
+  color: #60A5FA;
+  font-weight: 700;
+}
+
+.termSuccess {
+  color: #34D399;
+}
+
+.termHighlight {
+  color: #FCD34D;
+  font-weight: 700;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #1E293B;
+}
+
+/* Step 7: ETL Streaming */
+.simEtlBox {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.etlProgressHeader {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.etlSpeed {
+  font-family: var(--font-mono);
+  color: #2563EB;
+}
+
+.etlTrack {
+  height: 10px;
+  background-color: #F1F5F9;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.etlFill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563EB 0%, #10B981 100%);
+  border-radius: 5px;
+}
+
+.etlStatsRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Step 8: Deliverables */
+.simDeliverablesGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.deliverableCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.delivText h5 {
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 1px;
+}
+
+.delivText span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Studio Footer Controls */
+.studioFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.stepProgressDots {
+  display: flex;
+  gap: 6px;
+}
+
+.pDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #E2E8F0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pDotActive {
+  background-color: var(--brand-primary);
+  transform: scale(1.3);
+}
+
+/* ================= PARADIGM SECTION ================= */
+.paradigmSection {
+  padding: 0;
+}
+
+.sectionHeader {
+  text-align: center;
+  max-width: 760px;
+  margin: 0 auto 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.sectionTitle {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.sectionSubtitle {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.paradigmTabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.pTabBtn {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid var(--border-subtle);
+  background-color: #FFFFFF;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pTabBtn:hover {
+  border-color: var(--border-medium);
+  color: var(--text-primary);
+}
+
+.pTabBtnActive {
+  background-color: #EFF6FF;
+  color: var(--brand-primary);
+  border-color: #BFDBFE;
+}
+
+.paradigmCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.paradigmCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.paradigmTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.paradigmCodeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.paradigmCodeCol {
+  background-color: #0F172A;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.codeColTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background-color: #1E293B;
+  border-bottom: 1px solid #334155;
+  font-size: 0.725rem;
+  font-weight: 600;
+  color: #94A3B8;
+}
+
+.codeColFormat {
+  font-family: var(--font-mono);
+  font-size: 0.675rem;
+  color: #60A5FA;
+}
+
+.codeBlock {
+  padding: 12px;
+  margin: 0;
+  color: #E2E8F0;
+  font-family: var(--font-mono);
+  font-size: 0.775rem;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* ================= CTA SECTION ================= */
+.ctaCard {
+  background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+  border-radius: var(--radius-lg);
+  padding: 48px 24px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+}
+
+.ctaCardContent {
+  max-width: 580px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.ctaTitle {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: -0.03em;
+}
+
+.ctaSubtitle {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: #94A3B8;
+}
+
+.ctaButtonRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+@media (max-width: 960px) {
+  .workflowGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .topStepTrack {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .paradigmCodeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .simDirectionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .simDeliverablesGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

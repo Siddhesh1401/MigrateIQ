@@ -45,7 +45,9 @@ Run this single command inside the root `MigrateIQ` folder:
 npm install
 ```
 
-*(This automatically installs everything for both the Landing Website and the Desktop App in one go. It may take 1–2 minutes).*
+*(This automatically installs all dependencies across all workspaces and builds the `@migrateiq/shared` types package via postinstall).*
+
+> 💡 **Troubleshooting Tip:** If you ever see `Cannot find module '@migrateiq/shared'`, simply run `npm run shared:build` once in the root folder.
 
 ---
 
