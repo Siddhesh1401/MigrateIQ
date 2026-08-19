@@ -1,0 +1,347 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 72px;
+  padding-bottom: 32px;
+}
+
+/* ================= HEADER SECTION ================= */
+.headerSection {
+  padding-top: 40px;
+  text-align: center;
+}
+
+.headerContent {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.pageTitle {
+  font-size: 2.8rem;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.pageSubtitle {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 680px;
+}
+
+/* Filter Track */
+.filterTrack {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  padding: 6px;
+  border-radius: var(--radius-md);
+}
+
+.filterBtn {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.825rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filterBtn:hover {
+  color: var(--text-primary);
+  background-color: #FFFFFF;
+}
+
+.filterBtnActive {
+  background-color: #FFFFFF;
+  color: var(--brand-primary);
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-subtle);
+}
+
+/* ================= FEATURES GRID ================= */
+.featuresSection {
+  padding: 0;
+}
+
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.featureCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.featureCard:hover {
+  border-color: var(--border-medium);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.featureCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.iconBadgeRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.featureIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.featureNum {
+  font-size: 0.8rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-light);
+}
+
+.featureTitle {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.featureDesc {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* Preview Box */
+.previewBox {
+  background-color: #0F172A;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.previewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: #1E293B;
+  border-bottom: 1px solid #334155;
+  font-size: 0.725rem;
+  font-weight: 600;
+  color: #94A3B8;
+}
+
+.previewTag {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: #60A5FA;
+}
+
+.previewCode {
+  padding: 12px;
+  margin: 0;
+  color: #E2E8F0;
+  font-family: var(--font-mono);
+  font-size: 0.775rem;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* Why It Matters Box */
+.whyMattersBox {
+  background-color: #F8FAFC;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.whyTitle {
+  font-size: 0.775rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.whyList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.whyList li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.whyList li svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ================= COMPETITOR COMPARISON MATRIX ================= */
+.comparisonSection {
+  padding: 0;
+}
+
+.sectionHeader {
+  text-align: center;
+  max-width: 760px;
+  margin: 0 auto 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.sectionSubtitle {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.tableWrapper {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow-x: auto;
+}
+
+.compTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.compTable th,
+.compTable td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.compTable th {
+  background-color: #F8FAFC;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.compTable th.highlightCol {
+  background-color: #EFF6FF;
+  color: var(--brand-primary);
+  border-bottom: 2px solid var(--brand-primary);
+}
+
+.featureNameCell {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.migrateiqCell {
+  background-color: #F8FAFF;
+  font-weight: 700;
+  color: #059669;
+}
+
+.compTable tr:hover {
+  background-color: #FAFAFC;
+}
+
+.compTable tr:hover .migrateiqCell {
+  background-color: #EFF6FF;
+}
+
+/* ================= CTA SECTION ================= */
+.ctaCard {
+  background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+  border-radius: var(--radius-lg);
+  padding: 56px 28px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+}
+
+.ctaCardContent {
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.ctaTitle {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: -0.03em;
+}
+
+.ctaSubtitle {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: #94A3B8;
+}
+
+.ctaButtonRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+@media (max-width: 960px) {
+  .featuresGrid {
+    grid-template-columns: 1fr;
+  }
+}
