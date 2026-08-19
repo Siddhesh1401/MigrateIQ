@@ -1,0 +1,324 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 72px;
+  padding-bottom: 32px;
+}
+
+/* ================= HERO SECTION ================= */
+.heroSection {
+  padding-top: 48px;
+  text-align: center;
+}
+
+.heroContent {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.heroTitle {
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.heroSubtitle {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 720px;
+}
+
+.heroSubtitle strong {
+  color: var(--text-primary);
+}
+
+/* ================= MISSION SECTION ================= */
+.missionSection {
+  padding: 0;
+}
+
+.missionCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.missionHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.missionTitle {
+  font-size: 1.85rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.missionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.missionBody strong {
+  color: var(--text-primary);
+}
+
+/* ================= TEAM SECTION ================= */
+.teamSection {
+  padding: 0;
+}
+
+.sectionHeader {
+  text-align: center;
+  max-width: 760px;
+  margin: 0 auto 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.sectionSubtitle {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.teamGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.memberCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: all 0.2s ease;
+}
+
+.memberCard:hover {
+  border-color: var(--border-medium);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.memberTop {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatarBox {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  color: #FFFFFF;
+  font-size: 1.2rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.memberTitles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.memberName {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.memberRole {
+  font-size: 0.85rem;
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.memberFocus {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* ================= PILLARS SECTION ================= */
+.pillarsSection {
+  padding: 0;
+}
+
+.pillarsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.pillarCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pillarIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pillarTitle {
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.pillarDesc {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ================= TECH STACK SECTION ================= */
+.techSection {
+  padding: 0;
+}
+
+.techGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.techCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.techCardTop {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.techName {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.techCategory {
+  font-size: 0.725rem;
+  font-family: var(--font-mono);
+  color: var(--brand-primary);
+  font-weight: 700;
+}
+
+.techDesc {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* ================= CTA SECTION ================= */
+.ctaCard {
+  background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+  border-radius: var(--radius-lg);
+  padding: 56px 28px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+}
+
+.ctaCardContent {
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.ctaTitle {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: -0.03em;
+}
+
+.ctaSubtitle {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: #94A3B8;
+}
+
+.ctaButtonRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+@media (max-width: 960px) {
+  .teamGrid, .pillarsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .techGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .techGrid {
+    grid-template-columns: 1fr;
+  }
+}
