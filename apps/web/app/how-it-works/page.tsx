@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { AuditReportModal } from '../../components/AuditReportModal';
 import {
   WindowsIcon,
   BenchmarkChartIcon,
@@ -17,6 +18,7 @@ export default function HowItWorksPage() {
   const [activeWorkflow, setActiveWorkflow] = useState<'migration' | 'schemaUpdate'>('migration');
   const [activeStep, setActiveStep] = useState<number>(0);
   const [activeParadigmTab, setActiveParadigmTab] = useState<'array' | 'polymorphic' | 'reverse'>('array');
+  const [auditModalOpen, setAuditModalOpen] = useState<boolean>(false);
 
   const migrationSteps = [
     {
@@ -501,11 +503,15 @@ GROUP BY o.id, o.order_number, o.total_amount;`,
                   {/* Step 8 UI */}
                   {current.uiType === 'verification' && (
                     <div className={styles.simDeliverablesGrid}>
-                      <div className={styles.deliverableCard}>
+                      <div
+                        className={styles.deliverableCard}
+                        onClick={() => setAuditModalOpen(true)}
+                        style={{ cursor: 'pointer', borderColor: '#BFDBFE', backgroundColor: '#F0F9FF' }}
+                      >
                         <AuditReportIcon size={20} color="#0284C7" />
                         <div className={styles.delivText}>
                           <h5>Executive Audit Report</h5>
-                          <span>PDF & HTML Certificate</span>
+                          <span style={{ color: '#0284C7', fontWeight: 700 }}>🔍 Click to Preview Certificate</span>
                         </div>
                       </div>
                       <div className={styles.deliverableCard}>
@@ -665,6 +671,9 @@ GROUP BY o.id, o.order_number, o.total_amount;`,
           </div>
         </div>
       </section>
+
+      {/* Audit Report Preview Modal */}
+      <AuditReportModal isOpen={auditModalOpen} onClose={() => setAuditModalOpen(false)} />
     </div>
   );
 }

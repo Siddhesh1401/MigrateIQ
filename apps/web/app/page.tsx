@@ -1,8 +1,11 @@
-import React from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { StudioMockup } from '../components/StudioMockup';
 import { ArchitectureFlow } from '../components/ArchitectureFlow';
 import { DatabaseEcosystem } from '../components/DatabaseEcosystem';
+import { AuditReportModal } from '../components/AuditReportModal';
 import {
   WindowsIcon,
   AiSparkleIcon,
@@ -20,6 +23,8 @@ import {
 import styles from './page.module.css';
 
 export default function HomePage() {
+  const [auditModalOpen, setAuditModalOpen] = useState<boolean>(false);
+
   const metrics = [
     { label: 'Data Integrity Parity', value: '100.00%', desc: 'Verified with penny-accurate decimal sums & MD5 checks' },
     { label: 'Migration Engine', value: 'Bidirectional', desc: 'MongoDB ⇄ PostgreSQL (Dual-direction schema mapping)' },
@@ -252,6 +257,13 @@ export default function HomePage() {
                 <li><CheckCircleIcon size={16} color="#10B981" /> <strong>Category Filter Queries:</strong> 2.5x faster (5.9ms vs 14.8ms)</li>
                 <li><CheckCircleIcon size={16} color="#10B981" /> <strong>Aggregations & Joins:</strong> 3.2x faster (11.4ms vs 36.2ms)</li>
               </ul>
+              <button
+                className="btn-secondary"
+                onClick={() => setAuditModalOpen(true)}
+                style={{ marginTop: '18px', padding: '10px 20px', fontSize: '0.875rem' }}
+              >
+                📄 Preview Sample Executive Audit Certificate
+              </button>
             </div>
             <div className={styles.benchmarkVisual}>
               <div className={styles.chartHeader}>
@@ -310,6 +322,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Audit Report Preview Modal */}
+      <AuditReportModal isOpen={auditModalOpen} onClose={() => setAuditModalOpen(false)} />
     </div>
   );
 }

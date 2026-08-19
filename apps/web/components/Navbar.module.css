@@ -37,6 +37,13 @@
   text-decoration: none;
 }
 
+.logoImg {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
 .logoIcon {
   display: flex;
   align-items: center;
