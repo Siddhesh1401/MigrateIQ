@@ -1,5 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
+import { setupDatabaseHandlers } from './handlers/db';
+import { setupStoreHandlers } from './handlers/store';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -36,6 +38,12 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Setup IPC handlers for database connectivity
+  setupDatabaseHandlers();
+
+  // Setup IPC handlers for electron-store (saved connections, wizard state)
+  setupStoreHandlers();
+
   createWindow();
 
   app.on('activate', () => {

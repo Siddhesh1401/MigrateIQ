@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useWizardStore } from '../store/wizardStore';
 import '../styles/dashboard.css';
 
 export interface HomeDashboardProps {}
@@ -11,10 +12,37 @@ interface Migration {
   status: 'completed' | 'warning' | 'failed';
 }
 
+interface WizardStateSnapshot {
+  direction: 'mongodb-to-postgres' | 'postgres-to-mongo' | null;
+  wizardStep: number;
+  sourceConfig: unknown;
+  targetConfig: unknown;
+  status: 'in-progress' | 'completed' | 'cancelled';
+  savedAt: string;
+}
+
 export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   const navigate = useNavigate();
+  const wizardStore = useWizardStore();
   const [migrations] = useState<Migration[]>([]);
-  const [showResumeCard] = useState(false);
+  const [inProgressState, setInProgressState] = useState<WizardStateSnapshot | null>(null);
+  const [resumeDismissed, setResumeDismissed] = useState(false);
+
+  // On mount: check electron-store for an in-progress wizard state
+  useEffect(() => {
+    window.electronAPI
+      .invoke<WizardStateSnapshot | null>('store:get-wizard-state')
+      .then((response) => {
+        if (response.success && response.data && response.data.status === 'in-progress') {
+          setInProgressState(response.data);
+        }
+      })
+      .catch(() => {
+        // Ignore — non-critical
+      });
+  }, []);
+
+  const showResumeBanner = !resumeDismissed && inProgressState !== null;
 
   const handleStartMigration = () => {
     navigate('/migrate');
@@ -29,7 +57,19 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   };
 
   const handleResume = () => {
+    // Restore direction and step into Zustand so the wizard reopens at the right step
+    if (inProgressState?.direction) {
+      wizardStore.setDirection(inProgressState.direction);
+      // Immediately override step to the saved step
+      wizardStore.setWizardStep(inProgressState.wizardStep);
+    }
     navigate('/migrate');
+  };
+
+  const handleDismissResume = async () => {
+    setResumeDismissed(true);
+    // Clear from electron-store
+    await window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
   };
 
   const getStatusBadge = (status: string) => {
@@ -45,18 +85,47 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
     }
   };
 
+  const directionLabel = inProgressState?.direction === 'mongodb-to-postgres'
+    ? 'MongoDB → PostgreSQL'
+    : inProgressState?.direction === 'postgres-to-mongo'
+    ? 'PostgreSQL → MongoDB'
+    : '';
+
   return (
     <div className="dashboard-container">
-      {/* Resume Banner - Shown only if unfinished migration exists */}
-      {showResumeCard && (
+      {/* Resume Banner — Shown when an in-progress migration is found in electron-store */}
+      {showResumeBanner && (
         <div className="resume-banner">
           <div className="resume-content">
             <span>📋</span>
-            <span>You have an unfinished migration.</span>
+            <div>
+              <strong>You have an unfinished migration.</strong>
+              {directionLabel && (
+                <span style={{ marginLeft: '0.5rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                  ({directionLabel} — at Step {inProgressState?.wizardStep ?? 1} of 8)
+                </span>
+              )}
+            </div>
           </div>
-          <button className="resume-button" onClick={handleResume}>
-            Resume →
-          </button>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+            <button
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                padding: '0.25rem 0.5rem',
+              }}
+              onClick={handleDismissResume}
+              title="Dismiss and clear this migration"
+            >
+              Discard ×
+            </button>
+            <button className="resume-button" onClick={handleResume}>
+              Resume →
+            </button>
+          </div>
         </div>
       )}
 
@@ -69,8 +138,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
 
         <div className="cards-grid">
           {/* Card A - Migrate My Database */}
-          <div 
-            className="entry-card" 
+          <div
+            className="entry-card"
             onClick={handleStartMigration}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStartMigration(); } }}
             role="button"
@@ -82,8 +151,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
             <p className="card-description">
               Move all data from MongoDB to PostgreSQL or PostgreSQL to MongoDB with AI-powered schema mapping.
             </p>
-            <button 
-              className="card-button" 
+            <button
+              className="card-button"
               onClick={(e) => { e.stopPropagation(); handleStartMigration(); }}
             >
               Start Migration →
@@ -91,8 +160,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
           </div>
 
           {/* Card B - Update My Database */}
-          <div 
-            className="entry-card" 
+          <div
+            className="entry-card"
             onClick={handleStartSchemaUpdate}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStartSchemaUpdate(); } }}
             role="button"
@@ -104,8 +173,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
             <p className="card-description">
               Safely add, remove, or rename columns, indexes, and constraints in your existing database.
             </p>
-            <button 
-              className="card-button" 
+            <button
+              className="card-button"
               onClick={(e) => { e.stopPropagation(); handleStartSchemaUpdate(); }}
             >
               Start Schema Update →
@@ -113,8 +182,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
           </div>
 
           {/* Card C - Try with Sample Data (Demo Mode) */}
-          <div 
-            className="entry-card demo" 
+          <div
+            className="entry-card demo"
             onClick={handleLaunchDemo}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLaunchDemo(); } }}
             role="button"
@@ -126,8 +195,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
             <p className="card-description">
               No database? No problem. Try a full migration instantly using our built-in e-commerce sample dataset.
             </p>
-            <button 
-              className="card-button" 
+            <button
+              className="card-button"
               onClick={(e) => { e.stopPropagation(); handleLaunchDemo(); }}
             >
               Launch Demo →
@@ -166,8 +235,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
                       </div>
                     </div>
                     <div className="table-cell">
-                      <a 
-                        href="#report" 
+                      <a
+                        href="#report"
                         className="view-report-link"
                         onClick={(e) => {
                           e.preventDefault();
