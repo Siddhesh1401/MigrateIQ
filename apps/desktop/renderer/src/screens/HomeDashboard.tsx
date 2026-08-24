@@ -25,8 +25,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   };
 
   const handleLaunchDemo = () => {
-    // In Phase 13, we'll add demo mode flag to state
-    navigate('/migrate');
+    navigate('/migrate', { state: { demoMode: true } });
   };
 
   const handleResume = () => {
@@ -63,41 +62,74 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
 
       {/* Welcome Section with Entry Cards */}
       <section className="welcome-section">
-        <h1 className="welcome-heading">Welcome to Migration Planner</h1>
+        <h1 className="welcome-heading">Welcome to MigrateIQ</h1>
+        <p className="welcome-subtitle">
+          AI-Powered Database Migration, Schema Evolution & Real-Time Risk Analysis
+        </p>
 
         <div className="cards-grid">
           {/* Card A - Migrate My Database */}
-          <div className="entry-card">
+          <div 
+            className="entry-card" 
+            onClick={handleStartMigration}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStartMigration(); } }}
+            role="button"
+            tabIndex={0}
+            aria-label="Migrate My Database"
+          >
             <div className="card-icon">🔄</div>
             <h2 className="card-title">Migrate My Database</h2>
             <p className="card-description">
               Move all data from MongoDB to PostgreSQL or PostgreSQL to MongoDB with AI-powered schema mapping.
             </p>
-            <button className="card-button" onClick={handleStartMigration}>
+            <button 
+              className="card-button" 
+              onClick={(e) => { e.stopPropagation(); handleStartMigration(); }}
+            >
               Start Migration →
             </button>
           </div>
 
           {/* Card B - Update My Database */}
-          <div className="entry-card">
+          <div 
+            className="entry-card" 
+            onClick={handleStartSchemaUpdate}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStartSchemaUpdate(); } }}
+            role="button"
+            tabIndex={0}
+            aria-label="Update My Database"
+          >
             <div className="card-icon">✏️</div>
             <h2 className="card-title">Update My Database</h2>
             <p className="card-description">
               Safely add, remove, or rename columns, indexes, and constraints in your existing database.
             </p>
-            <button className="card-button" onClick={handleStartSchemaUpdate}>
+            <button 
+              className="card-button" 
+              onClick={(e) => { e.stopPropagation(); handleStartSchemaUpdate(); }}
+            >
               Start Schema Update →
             </button>
           </div>
 
           {/* Card C - Try with Sample Data (Demo Mode) */}
-          <div className="entry-card demo">
+          <div 
+            className="entry-card demo" 
+            onClick={handleLaunchDemo}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLaunchDemo(); } }}
+            role="button"
+            tabIndex={0}
+            aria-label="Try with Sample Data in Demo Mode"
+          >
             <div className="card-icon">🎮</div>
             <h2 className="card-title">Try with Sample Data</h2>
             <p className="card-description">
               No database? No problem. Try a full migration instantly using our built-in e-commerce sample dataset.
             </p>
-            <button className="card-button" onClick={handleLaunchDemo}>
+            <button 
+              className="card-button" 
+              onClick={(e) => { e.stopPropagation(); handleLaunchDemo(); }}
+            >
               Launch Demo →
             </button>
             <div className="demo-badge">No setup required</div>
@@ -134,7 +166,14 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
                       </div>
                     </div>
                     <div className="table-cell">
-                      <a href="#" className="view-report-link">
+                      <a 
+                        href="#report" 
+                        className="view-report-link"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          // Will open report modal in Phase 10
+                        }}
+                      >
                         View Report
                       </a>
                     </div>

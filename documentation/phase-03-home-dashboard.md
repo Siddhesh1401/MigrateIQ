@@ -46,24 +46,28 @@ In Phase 3, we built the **Home Dashboard** — the landing screen inside the Mi
 - Navigates to `/migrate` route
 
 #### Section 2: Welcome Banner with 3 Entry Cards
-Three interactive cards in a responsive grid:
+Three interactive, keyboard-accessible cards in a responsive grid:
+
+**Branding:**
+- Main heading: `"Welcome to MigrateIQ"` (aligned with `AGENTS.md` Rule 1)
+- Subtitle: `"AI-Powered Database Migration, Schema Evolution & Real-Time Risk Analysis"`
 
 **Card A — "Migrate My Database"**
 - Icon: 🔄 (arrows)
-- Button: "Start Migration →" → navigates to `/migrate`
-- Background: White with subtle hover lift
+- Click Action: Entire card is clickable + inner button: "Start Migration →" → navigates to `/migrate`
+- Background: White with subtle hover lift and focus outline
 
 **Card B — "Update My Database"**
 - Icon: ✏️ (pencil)
-- Button: "Start Schema Update →" → navigates to `/schema-update`
-- Background: White with subtle hover lift
+- Click Action: Entire card is clickable + inner button: "Start Schema Update →" → navigates to `/schema-update`
+- Background: White with subtle hover lift and focus outline
 
 **Card C — "🎮 Try with Sample Data"**
 - Icon: 🎮 (play button)
-- Button: "Launch Demo →" → navigates to `/migrate` (demo mode flag ready for Phase 13)
+- Click Action: Entire card is clickable + inner button: "Launch Demo →" → navigates to `/migrate` with route payload `{ state: { demoMode: true } }` (ready for Phase 13)
 - **Unique accent background:** Light cyan/teal gradient (`#f0f9ff` to `#e0f2fe`)
 - Badge: "No setup required"
-- Hover effects: Cyan border and shadow (instead of blue)
+- Hover & Focus effects: Cyan border, shadow, and accessible focus ring
 
 #### Section 3: Recent Migrations Table
 Two states:
@@ -289,7 +293,7 @@ To verify the Phase 3 implementation works as expected:
 
 2. **Verify the Home Dashboard:**
    - Navigate to `/` (should be default on app start)
-   - See the "Welcome to Migration Planner" heading
+   - See the "Welcome to MigrateIQ" heading and subtitle
    - See 3 entry cards:
      - Card A (blue): "Migrate My Database" — 🔄
      - Card B (blue): "Update My Database" — ✏️

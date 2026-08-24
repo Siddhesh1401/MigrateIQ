@@ -21,6 +21,13 @@
   margin: 0;
 }
 
+.welcome-subtitle {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
 /* Cards Grid */
 .cards-grid {
   display: grid;
@@ -39,11 +46,18 @@
   gap: 1rem;
   transition: all 200ms ease;
   cursor: pointer;
+  outline: none;
 }
 
 .entry-card:hover {
   border-color: var(--brand-primary);
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1);
+  transform: translateY(-2px);
+}
+
+.entry-card:focus-visible {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
   transform: translateY(-2px);
 }
 
@@ -55,6 +69,11 @@
 .entry-card.demo:hover {
   border-color: var(--accent-ai);
   box-shadow: 0 4px 12px rgba(2, 132, 199, 0.15);
+}
+
+.entry-card.demo:focus-visible {
+  border-color: var(--accent-ai);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.25);
 }
 
 .card-icon {
