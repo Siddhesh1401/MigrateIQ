@@ -11,6 +11,7 @@ export interface ConnectionConfig {
   host?: string;
   port?: number;
   database: string;
+  schema?: string; // PostgreSQL schema (default: 'public')
   user?: string;
   password?: string;
   connectionString?: string;
@@ -133,6 +134,46 @@ export interface SchemaHealthScore {
     severity: 'high' | 'medium' | 'low';
   }>;
   summaryTip: string;
+}
+
+export interface PostgresTableInfo {
+  table_name: string;
+  columns: string[];
+  column_types: string[];
+}
+
+export interface PostgresIndexInfo {
+  tablename: string;
+  indexname: string;
+  indexdef: string;
+}
+
+export interface Layer2Summary {
+  functions: number;
+  procedures: number;
+  triggers: number;
+  views: number;
+  checkConstraints: number;
+  enums: number;
+}
+
+export interface PostgresIntrospectionResult {
+  tables: PostgresTableInfo[];
+  indexes: PostgresIndexInfo[];
+  layer2Features: Layer2Summary;
+  /** True when the connection string looks like a Supabase/Neon/Railway pooler URL */
+  isCloudPooler?: boolean;
+  /** Identifies the cloud provider when isCloudPooler is true */
+  cloudProvider?: 'supabase' | 'neon' | 'railway' | 'render' | 'other';
+  /** Ping round-trip latency in milliseconds */
+  latencyMs?: number;
+  /** The target PostgreSQL schema inspected (e.g. 'public') */
+  schema?: string;
+}
+
+export interface MongoIntrospectionResult {
+  schemas: SourceSchema[];
+  latencyMs?: number;
 }
 
 export interface IPCResponse<T = unknown> {

@@ -7,10 +7,10 @@ This folder contains the complete, phase-by-phase technical documentation genera
 | Phase | Document | Description | Status |
 | :--- | :--- | :--- | :--- |
 | **Phase 0** | [`phase-00-monorepo-foundation.md`](./phase-00-monorepo-foundation.md) | Monorepo root, shared packages, Next.js & Electron scaffolds | ✅ Completed |
-| **Phase 1** | [`phase-01-landing-website.md`](./phase-01-landing-website.md) | Next.js 5-page marketing site & design system | ⏳ Pending |
-| **Phase 2** | [`phase-02-desktop-app-shell.md`](./phase-02-desktop-app-shell.md) | Electron app shell, sidebar navigation, placeholder routes | ⏳ Pending |
-| **Phase 3** | [`phase-03-home-dashboard.md`](./phase-03-home-dashboard.md) | Dashboard entry cards, recent migrations table, resume banner | ⏳ Pending |
-| **Phase 4** | [`phase-04-database-connectivity.md`](./phase-04-database-connectivity.md) | MongoDB & PostgreSQL IPC connection handlers, Step 2 & 3 | ⏳ Pending |
+| **Phase 1** | [`phase-01-landing-website.md`](./phase-01-landing-website.md) | Next.js 5-page marketing site & design system | ✅ Completed |
+| **Phase 2** | [`phase-02-desktop-app-shell.md`](./phase-02-desktop-app-shell.md) | Electron app shell, sidebar navigation, placeholder routes | ✅ Completed |
+| **Phase 3** | [`phase-03-home-dashboard.md`](./phase-03-home-dashboard.md) | Dashboard entry cards, recent migrations table, resume banner | ✅ Completed |
+| **Phase 4** | [`phase-04-database-connectivity.md`](./phase-04-database-connectivity.md) | MongoDB & PostgreSQL IPC connection handlers, Step 2 & 3 | ✅ Completed |
 | **Phase 5** | [`phase-05-schema-mapper-ui.md`](./phase-05-schema-mapper-ui.md) | Interactive Schema Mapper table & visual UI components | ⏳ Pending |
 | **Phase 6** | [`phase-06-ai-integration-rule-engine.md`](./phase-06-ai-integration-rule-engine.md) | Gemini AI mapping integration & fallback rule engine | ⏳ Pending |
 | **Phase 7** | [`phase-07-risk-report.md`](./phase-07-risk-report.md) | Pre-migration risk analysis engine & Layer 2 inspection | ⏳ Pending |

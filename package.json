@@ -14,6 +14,7 @@
     "desktop:dev": "npm run shared:build && npm run dev --workspace=@migrateiq/desktop",
     "desktop:build": "npm run shared:build && npm run build --workspace=@migrateiq/desktop",
     "shared:build": "npm run build --workspace=@migrateiq/shared",
+    "seed:sample": "node scripts/seed-sample-dbs.js",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

@@ -5,7 +5,12 @@ These rules apply automatically to every AI session in this workspace.
 ## 1. Project Identity & Source of Truth
 - **Project Name:** MigrateIQ
 - **App Title (displayed in UI):** "MigrateIQ" — use this name consistently across all UI screens, window titles, sidebar headers, and the landing website.
-- **Read the Blueprints First:** Before starting any new phase or writing any code, you MUST cross-reference `phase_plan-v2.md` and `product_blueprint-v7.md`.
+- **Dual Document Protocol:** Before starting any new phase, you MUST consult BOTH documents in parallel:
+  - `phase_plan-v2.md` — Technical/structural specification (what to build, architecture)
+  - `product_blueprint-v7.md` — User-facing/experiential specification (what user sees, UX)
+  - **These are the SAME feature, expressed two ways.** The Phase Plan is the "how," the Blueprint is the "what it looks like."
+  - When presenting a phase to the user: Reference BOTH documents. Extract details from BOTH and present a unified picture.
+  - Example: Phase 4 Step 2 from Phase Plan describes "connection form with two tabs." Product Blueprint describes exact UI: placeholder text, error messages, success states, Health Score card, etc.
 - **Strict Phase Scope:** Do not jump ahead. Build only the features specified in the current phase/task.
 - **Do Not Guess:** If the blueprint or requirements lack detail for an edge case, ask the user before writing code.
 
@@ -42,7 +47,16 @@ These rules apply automatically to every AI session in this workspace.
 - **File Naming:** React components use PascalCase (e.g., `SchemaMapper.tsx`). Utility files use camelCase (e.g., `ruleEngine.ts`). IPC handler files go in `main/handlers/`. Engine logic goes in `main/engine/`.
 
 ## 5. Work Process & Pre-execution Protocol
-- **Technical Specification First:** When instructed to start a phase, your VERY FIRST response must be a concise "Technical Implementation Specification" outlining file paths, npm packages, and planned architecture. Wait for user approval before coding.
+- **Phase Startup Protocol:** When instructed to start a phase, your VERY FIRST response must:
+  1. Check BOTH `phase_plan-v2.md` (technical spec) AND `product_blueprint-v7.md` (user-facing spec) for the same phase
+  2. Extract key details from BOTH documents (they describe the same feature differently)
+  3. Present a UNIFIED specification to the user that covers:
+     - What we're building (from Phase Plan: technical scope)
+     - What the user will see (from Product Blueprint: UX/UI details)
+     - Done criteria (combined from both)
+  4. Ask for user approval before proceeding to code
+  5. Example phrasing: "Reference: Phase Plan Line XXX + Product Blueprint Line YYY"
+- **Technical Specification First:** After user approval, provide concise "Technical Implementation Specification" outlining file paths, npm packages, and planned architecture. Wait for user approval before coding.
 - **Terminal Execution:** You are authorized to run terminal commands (`npm install`, `npm run dev`, test commands) to scaffold and verify code.
 - **Git Discipline:** After the phase documentation file has been written to the `documentation/` folder, your FINAL step is to display the git commit command for the user to run manually. Do not run git commands yourself.
 
