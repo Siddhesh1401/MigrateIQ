@@ -489,50 +489,24 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
   return (
     <div className="wizard-container">
-      {/* ── Active Migration Controls / Reset Header ── */}
+      {/* ── Active Migration Status Bar ── */}
       {wizardStore.wizardStep > 1 && (
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '0.625rem 1.25rem',
-          backgroundColor: '#F1F5F9',
-          borderRadius: '8px',
-          marginBottom: '1rem',
-          border: '1px solid var(--border-subtle)',
-          fontSize: '0.875rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>Active Migration:</span>
-            <span>
-              {wizardStore.direction === 'mongodb-to-postgres' ? 'MongoDB ➔ PostgreSQL' : 'PostgreSQL ➔ MongoDB'}
+        <div className="wizard-status-bar">
+          <div className="wizard-status-left">
+            <span className="wizard-status-pill">Active</span>
+            <span className="wizard-status-direction">
+              {wizardStore.direction === 'mongodb-to-postgres' ? 'MongoDB → PostgreSQL' : 'PostgreSQL → MongoDB'}
             </span>
-            <span style={{ color: 'var(--text-muted)' }}>(Step {wizardStore.wizardStep} of 8)</span>
+            <span className="wizard-status-step">
+              — Step {wizardStore.wizardStep} of 8
+            </span>
           </div>
 
           <button
+            className="wizard-fresh-btn"
             onClick={() => setShowConfirmResetModal(true)}
-            style={{
-              background: 'none',
-              border: '1px solid var(--border-subtle)',
-              padding: '0.375rem 0.75rem',
-              borderRadius: '6px',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              fontSize: '0.8125rem',
-              fontFamily: 'inherit',
-              transition: 'all 150ms ease',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = '#DC2626';
-              e.currentTarget.style.color = '#DC2626';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-subtle)';
-              e.currentTarget.style.color = 'var(--text-muted)';
-            }}
           >
-            Start Fresh Migration 🔄
+            🔄 Start Fresh
           </button>
         </div>
       )}
@@ -694,21 +668,59 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
             <div className="direction-cards">
               <button
+                id="dir-mongo-to-pg"
                 onClick={() => handleDirectionSelect('mongodb-to-postgres')}
                 className={`direction-card ${wizardStore.direction === 'mongodb-to-postgres' ? 'selected' : ''}`}
               >
-                <div className="direction-icon">🍃 → 🐘</div>
-                <h3>Migrate from MongoDB to PostgreSQL</h3>
-                <p>Move your MongoDB data to PostgreSQL with AI-powered schema mapping</p>
+                <div className="direction-icon-wrap">🍃</div>
+                <div>
+                  <h3>MongoDB → PostgreSQL</h3>
+                  <p>Move your MongoDB data to PostgreSQL with AI-powered schema mapping and type inference</p>
+                </div>
+                {wizardStore.direction === 'mongodb-to-postgres' && (
+                  <span style={{
+                    alignSelf: 'flex-end',
+                    marginTop: 'auto',
+                    fontSize: '0.6875rem',
+                    fontWeight: 700,
+                    color: 'var(--brand-primary)',
+                    background: 'var(--brand-primary-light)',
+                    borderRadius: 'var(--radius-full)',
+                    padding: '0.2rem 0.625rem',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}>
+                    ✓ Selected
+                  </span>
+                )}
               </button>
 
               <button
+                id="dir-pg-to-mongo"
                 onClick={() => handleDirectionSelect('postgres-to-mongo')}
                 className={`direction-card ${wizardStore.direction === 'postgres-to-mongo' ? 'selected' : ''}`}
               >
-                <div className="direction-icon">🐘 → 🍃</div>
-                <h3>Migrate from PostgreSQL to MongoDB</h3>
-                <p>Move your PostgreSQL data to MongoDB with denormalization</p>
+                <div className="direction-icon-wrap">🐘</div>
+                <div>
+                  <h3>PostgreSQL → MongoDB</h3>
+                  <p>Move your PostgreSQL data to MongoDB with smart denormalization and document nesting</p>
+                </div>
+                {wizardStore.direction === 'postgres-to-mongo' && (
+                  <span style={{
+                    alignSelf: 'flex-end',
+                    marginTop: 'auto',
+                    fontSize: '0.6875rem',
+                    fontWeight: 700,
+                    color: 'var(--brand-primary)',
+                    background: 'var(--brand-primary-light)',
+                    borderRadius: 'var(--radius-full)',
+                    padding: '0.2rem 0.625rem',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}>
+                    ✓ Selected
+                  </span>
+                )}
               </button>
             </div>
 

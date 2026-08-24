@@ -22,13 +22,12 @@ interface WizardStateSnapshot {
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
-  const navigate = useNavigate();
+  const navigate    = useNavigate();
   const wizardStore = useWizardStore();
   const [migrations] = useState<Migration[]>([]);
   const [inProgressState, setInProgressState] = useState<WizardStateSnapshot | null>(null);
-  const [resumeDismissed, setResumeDismissed] = useState(false);
+  const [resumeDismissed, setResumeDismissed]  = useState(false);
 
-  // On mount: check electron-store for an in-progress wizard state
   useEffect(() => {
     window.electronAPI
       .invoke<WizardStateSnapshot | null>('store:get-wizard-state')
@@ -37,30 +36,14 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
           setInProgressState(response.data);
         }
       })
-      .catch(() => {
-        // Ignore — non-critical
-      });
+      .catch(() => {});
   }, []);
 
   const showResumeBanner = !resumeDismissed && inProgressState !== null;
 
-  const handleStartMigration = () => {
-    navigate('/migrate');
-  };
-
-  const handleStartSchemaUpdate = () => {
-    navigate('/schema-update');
-  };
-
-  const handleLaunchDemo = () => {
-    navigate('/migrate', { state: { demoMode: true } });
-  };
-
   const handleResume = () => {
-    // Restore direction and step into Zustand so the wizard reopens at the right step
     if (inProgressState?.direction) {
       wizardStore.setDirection(inProgressState.direction);
-      // Immediately override step to the saved step
       wizardStore.setWizardStep(inProgressState.wizardStep);
     }
     navigate('/migrate');
@@ -68,20 +51,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
 
   const handleDismissResume = async () => {
     setResumeDismissed(true);
-    // Clear from electron-store
     await window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'completed':
-        return { icon: '✅', label: 'Completed', className: 'completed' };
-      case 'warning':
-        return { icon: '⚠️', label: 'Completed with warnings', className: 'warning' };
-      case 'failed':
-        return { icon: '❌', label: 'Failed', className: 'failed' };
-      default:
-        return { icon: '?', label: 'Unknown', className: 'failed' };
+      case 'completed': return { icon: '✓', label: 'Completed',             className: 'completed' };
+      case 'warning':   return { icon: '!', label: 'Completed w/ warnings', className: 'warning'   };
+      case 'failed':    return { icon: '✕', label: 'Failed',                className: 'failed'    };
+      default:          return { icon: '?', label: 'Unknown',               className: 'failed'    };
     }
   };
 
@@ -93,33 +71,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
 
   return (
     <div className="dashboard-container">
-      {/* Resume Banner — Shown when an in-progress migration is found in electron-store */}
+
+      {/* ── Resume Banner ── */}
       {showResumeBanner && (
-        <div className="resume-banner">
+        <div className="resume-banner" role="alert">
           <div className="resume-content">
-            <span>📋</span>
+            <div className="resume-icon">📋</div>
             <div>
-              <strong>You have an unfinished migration.</strong>
+              <strong>Unfinished migration detected</strong>
               {directionLabel && (
-                <span style={{ marginLeft: '0.5rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                  ({directionLabel} — at Step {inProgressState?.wizardStep ?? 1} of 8)
+                <span style={{ display: 'block', marginTop: '0.125rem', color: 'var(--text-muted)', fontSize: '0.8125rem', fontWeight: 400 }}>
+                  {directionLabel} — paused at Step {inProgressState?.wizardStep ?? 1} of 8
                 </span>
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-            <button
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-muted)',
-                cursor: 'pointer',
-                fontSize: '0.875rem',
-                padding: '0.25rem 0.5rem',
-              }}
-              onClick={handleDismissResume}
-              title="Dismiss and clear this migration"
-            >
+          <div className="resume-actions">
+            <button className="resume-discard-btn" onClick={handleDismissResume} title="Discard this migration">
               Discard ×
             </button>
             <button className="resume-button" onClick={handleResume}>
@@ -129,19 +97,24 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
         </div>
       )}
 
-      {/* Welcome Section with Entry Cards */}
+      {/* ── Welcome Section ── */}
       <section className="welcome-section">
+        <div className="welcome-kicker">
+          <span>⚡</span>
+          AI-Powered
+        </div>
         <h1 className="welcome-heading">Welcome to MigrateIQ</h1>
         <p className="welcome-subtitle">
-          AI-Powered Database Migration, Schema Evolution & Real-Time Risk Analysis
+          Migrate databases, evolve schemas, and analyse migration risks — all in one place.
         </p>
 
         <div className="cards-grid">
-          {/* Card A - Migrate My Database */}
+          {/* Card A — Migrate My Database */}
           <div
+            id="card-migrate"
             className="entry-card"
-            onClick={handleStartMigration}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStartMigration(); } }}
+            onClick={() => navigate('/migrate')}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/migrate'); } }}
             role="button"
             tabIndex={0}
             aria-label="Migrate My Database"
@@ -152,21 +125,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
               Move all data from MongoDB to PostgreSQL or PostgreSQL to MongoDB with AI-powered schema mapping.
             </p>
             <button
+              id="btn-start-migration"
               className="card-button"
-              onClick={(e) => { e.stopPropagation(); handleStartMigration(); }}
+              onClick={(e) => { e.stopPropagation(); navigate('/migrate'); }}
             >
               Start Migration →
             </button>
           </div>
 
-          {/* Card B - Update My Database */}
+          {/* Card B — Update My Database */}
           <div
+            id="card-schema-update"
             className="entry-card"
-            onClick={handleStartSchemaUpdate}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStartSchemaUpdate(); } }}
+            onClick={() => navigate('/schema-update')}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/schema-update'); } }}
             role="button"
             tabIndex={0}
-            aria-label="Update My Database"
+            aria-label="Update My Database Schema"
           >
             <div className="card-icon">✏️</div>
             <h2 className="card-title">Update My Database</h2>
@@ -174,18 +149,20 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
               Safely add, remove, or rename columns, indexes, and constraints in your existing database.
             </p>
             <button
+              id="btn-start-schema-update"
               className="card-button"
-              onClick={(e) => { e.stopPropagation(); handleStartSchemaUpdate(); }}
+              onClick={(e) => { e.stopPropagation(); navigate('/schema-update'); }}
             >
               Start Schema Update →
             </button>
           </div>
 
-          {/* Card C - Try with Sample Data (Demo Mode) */}
+          {/* Card C — Demo Mode */}
           <div
+            id="card-demo"
             className="entry-card demo"
-            onClick={handleLaunchDemo}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLaunchDemo(); } }}
+            onClick={() => navigate('/migrate', { state: { demoMode: true } })}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/migrate', { state: { demoMode: true } }); } }}
             role="button"
             tabIndex={0}
             aria-label="Try with Sample Data in Demo Mode"
@@ -196,54 +173,55 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
               No database? No problem. Try a full migration instantly using our built-in e-commerce sample dataset.
             </p>
             <button
+              id="btn-launch-demo"
               className="card-button"
-              onClick={(e) => { e.stopPropagation(); handleLaunchDemo(); }}
+              onClick={(e) => { e.stopPropagation(); navigate('/migrate', { state: { demoMode: true } }); }}
             >
               Launch Demo →
             </button>
-            <div className="demo-badge">No setup required</div>
+            <div className="demo-badge">⚡ No setup required</div>
           </div>
         </div>
       </section>
 
-      {/* Recent Migrations Section */}
+      {/* ── Recent Migrations Section ── */}
       <section className="recent-section">
-        <h2 className="section-heading">Recent Migrations</h2>
+        <div className="section-heading-row">
+          <h2 className="section-heading">Recent Migrations</h2>
+          {migrations.length > 0 && (
+            <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+              {migrations.length} total
+            </span>
+          )}
+        </div>
 
         <div className="migrations-table">
           {migrations.length > 0 ? (
             <>
-              {/* Table Header */}
               <div className="table-header">
-                <div>Date & Time</div>
+                <div>Date &amp; Time</div>
                 <div>Direction</div>
                 <div>Status</div>
                 <div>Action</div>
               </div>
-
-              {/* Table Rows */}
               {migrations.map((migration) => {
-                const status = getStatusBadge(migration.status);
+                const badge = getStatusBadge(migration.status);
                 return (
                   <div key={migration.id} className="table-row">
                     <div className="table-cell muted">{migration.dateTime}</div>
                     <div className="table-cell">{migration.direction}</div>
                     <div className="table-cell">
-                      <div className={`status-badge ${status.className}`}>
-                        <span>{status.icon}</span>
-                        <span>{status.label}</span>
-                      </div>
+                      <span className={`status-badge ${badge.className}`}>
+                        {badge.icon} {badge.label}
+                      </span>
                     </div>
                     <div className="table-cell">
                       <a
                         href="#report"
                         className="view-report-link"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // Will open report modal in Phase 10
-                        }}
+                        onClick={(e) => { e.preventDefault(); }}
                       >
-                        View Report
+                        View Report →
                       </a>
                     </div>
                   </div>
@@ -251,11 +229,11 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
               })}
             </>
           ) : (
-            /* Empty State */
             <div className="empty-state">
-              <div className="empty-state-icon">📭</div>
+              <div className="empty-state-icon-wrap">📭</div>
+              <p className="empty-state-title">No migrations yet</p>
               <p className="empty-state-text">
-                No migrations yet. Start your first one above.
+                Start your first migration above to see your history here.
               </p>
             </div>
           )}
