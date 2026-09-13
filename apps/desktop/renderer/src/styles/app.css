@@ -2,9 +2,9 @@
 
 :root {
   /* ── Canvas & Surfaces ─────────────────────────────── */
-  --bg-canvas: #F4F6FA;
+  --bg-canvas: #F8FAFC;
   --bg-surface: #FFFFFF;
-  --bg-sidebar: #F8FAFC;
+  --bg-sidebar: #F1F5F9;
   --bg-hover: #F1F5F9;
 
   /* ── Borders ───────────────────────────────────────── */

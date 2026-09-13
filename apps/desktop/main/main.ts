@@ -2,6 +2,9 @@ import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { setupDatabaseHandlers } from './handlers/db';
 import { setupStoreHandlers } from './handlers/store';
+import { setupAIHandlers } from './handlers/ai';
+import { setupAIUsageHandlers } from './handlers/aiUsageStore';
+import { setupRiskHandlers } from './handlers/risk';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -43,6 +46,15 @@ app.whenReady().then(() => {
 
   // Setup IPC handlers for electron-store (saved connections, wizard state)
   setupStoreHandlers();
+
+  // Setup IPC handlers for AI schema mapping
+  setupAIHandlers();
+
+  // Setup IPC handlers for AI usage & token tracking
+  setupAIUsageHandlers();
+
+  // Setup IPC handlers for pre-migration risk analysis (Step 5)
+  setupRiskHandlers();
 
   createWindow();
 

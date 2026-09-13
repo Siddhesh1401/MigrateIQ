@@ -1888,4 +1888,3 @@ Developers often worry that because MongoDB cannot run PostgreSQL stored procedu
 ---
 
 *End of Product Blueprint v1.6*
-

@@ -11,7 +11,7 @@ This folder contains the complete, phase-by-phase technical documentation genera
 | **Phase 2** | [`phase-02-desktop-app-shell.md`](./phase-02-desktop-app-shell.md) | Electron app shell, sidebar navigation, placeholder routes | ✅ Completed |
 | **Phase 3** | [`phase-03-home-dashboard.md`](./phase-03-home-dashboard.md) | Dashboard entry cards, recent migrations table, resume banner | ✅ Completed |
 | **Phase 4** | [`phase-04-database-connectivity.md`](./phase-04-database-connectivity.md) | MongoDB & PostgreSQL IPC connection handlers, Step 2 & 3 | ✅ Completed |
-| **Phase 5** | [`phase-05-schema-mapper-ui.md`](./phase-05-schema-mapper-ui.md) | Interactive Schema Mapper table & visual UI components | ⏳ Pending |
+| **Phase 5** | [`phase-05-ai-schema-mapping.md`](./phase-05-ai-schema-mapping.md) <br> [`advanced-ai-schema-engine.md`](./advanced-ai-schema-engine.md) | Bidirectional AI schema mapping (MongoDB ↔ PostgreSQL), BSON type system, `$jsonSchema` script generator, Copilot Workspace, & AI Quota Monitor | ✅ Completed |
 | **Phase 6** | [`phase-06-ai-integration-rule-engine.md`](./phase-06-ai-integration-rule-engine.md) | Gemini AI mapping integration & fallback rule engine | ⏳ Pending |
 | **Phase 7** | [`phase-07-risk-report.md`](./phase-07-risk-report.md) | Pre-migration risk analysis engine & Layer 2 inspection | ⏳ Pending |
 | **Phase 8** | [`phase-08-dry-run-simulation.md`](./phase-08-dry-run-simulation.md) | Transactional dry run simulation engine & results screen | ⏳ Pending |

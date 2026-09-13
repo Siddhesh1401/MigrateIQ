@@ -64,6 +64,8 @@ export function setupMongoDBHandler(): void {
 
         // Infer field types from samples
         const fieldsMap = new Map<string, FieldDefinition>();
+        // Track nested field schemas for arrayOfObjects and object types
+        const nestedFieldsMaps = new Map<string, Map<string, FieldDefinition>>();
 
         sampleDocs.forEach((doc) => {
           Object.entries(doc).forEach(([key, value]) => {
@@ -72,12 +74,25 @@ export function setupMongoDBHandler(): void {
             const bsonType = getBsonType(value);
             const isArray = Array.isArray(value);
             const isNullable = value === null || value === undefined;
+            const sampleVal = extractSampleValue(key, value);
 
             if (fieldsMap.has(key)) {
               const existing = fieldsMap.get(key)!;
               if (isNullable) existing.isNullable = true;
+              if (sampleVal !== null && existing.sampleValues && existing.sampleValues.length < 3) {
+                if (!existing.sampleValues.includes(sampleVal)) {
+                  existing.sampleValues.push(sampleVal);
+                }
+              }
               if (existing.bsonType !== bsonType && !isNullable) {
-                existing.bsonType = 'mixed'; // Mark as mixed if types vary
+                // Numeric widening: int + double conflict → widen to double, not mixed.
+                // e.g. price: 28.00 (int) and price: 249.99 (double) → DOUBLE PRECISION, not JSONB.
+                const numericTypes = new Set(['int', 'double']);
+                if (numericTypes.has(existing.bsonType) && numericTypes.has(bsonType)) {
+                  existing.bsonType = 'double';
+                } else {
+                  existing.bsonType = 'mixed'; // Truly incompatible types (e.g. string + object)
+                }
               }
             } else {
               fieldsMap.set(key, {
@@ -85,10 +100,77 @@ export function setupMongoDBHandler(): void {
                 bsonType,
                 isNullable,
                 isArray,
+                sampleValues: sampleVal !== null ? [sampleVal] : [],
+              });
+            }
+
+            // ── Populate nestedFields for arrayOfObjects ────────────────────────
+            // Inspects inner array elements across all sample docs to build a
+            // merged schema of the child object's fields (used for child table creation).
+            if (bsonType === 'arrayOfObjects' && Array.isArray(value)) {
+              if (!nestedFieldsMaps.has(key)) nestedFieldsMaps.set(key, new Map());
+              const nestedMap = nestedFieldsMaps.get(key)!;
+              (value as unknown[]).forEach((element) => {
+                if (!element || typeof element !== 'object' || Array.isArray(element)) return;
+                Object.entries(element as Record<string, unknown>).forEach(([nk, nv]) => {
+                  const nType = getBsonType(nv);
+                  const nSample = extractSampleValue(nk, nv);
+                  if (nestedMap.has(nk)) {
+                    const nExisting = nestedMap.get(nk)!;
+                    if (nv === null || nv === undefined) nExisting.isNullable = true;
+                    if (nSample !== null && nExisting.sampleValues && nExisting.sampleValues.length < 3) {
+                      if (!nExisting.sampleValues.includes(nSample)) {
+                        nExisting.sampleValues.push(nSample);
+                      }
+                    }
+                  } else {
+                    nestedMap.set(nk, {
+                      name: nk,
+                      bsonType: nType,
+                      isNullable: nv === null || nv === undefined,
+                      isArray: Array.isArray(nv),
+                      sampleValues: nSample !== null ? [nSample] : [],
+                    });
+                  }
+                });
+              });
+            }
+
+            // ── Populate nestedFields for nested objects ────────────────────────
+            // Captures object property names/types so the ETL engine can choose
+            // between flattening (address.city → address_city) or keeping as JSONB.
+            if (bsonType === 'object' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+              if (!nestedFieldsMaps.has(key)) nestedFieldsMaps.set(key, new Map());
+              const nestedMap = nestedFieldsMaps.get(key)!;
+              Object.entries(value as Record<string, unknown>).forEach(([nk, nv]) => {
+                const nSample = extractSampleValue(nk, nv);
+                if (nestedMap.has(nk)) {
+                  const nExisting = nestedMap.get(nk)!;
+                  if (nv === null || nv === undefined) nExisting.isNullable = true;
+                  if (nSample !== null && nExisting.sampleValues && nExisting.sampleValues.length < 3) {
+                    if (!nExisting.sampleValues.includes(nSample)) {
+                      nExisting.sampleValues.push(nSample);
+                    }
+                  }
+                } else {
+                  nestedMap.set(nk, {
+                    name: nk,
+                    bsonType: getBsonType(nv),
+                    isNullable: nv === null || nv === undefined,
+                    isArray: Array.isArray(nv),
+                    sampleValues: nSample !== null ? [nSample] : [],
+                  });
+                }
               });
             }
           });
         });
+
+        // Attach accumulated nestedFields to the corresponding FieldDefinitions
+        for (const [key, nestedMap] of nestedFieldsMaps) {
+          const field = fieldsMap.get(key);
+          if (field) field.nestedFields = Array.from(nestedMap.values());
+        }
 
         // Add _id field explicitly
         const fields: FieldDefinition[] = [
@@ -224,8 +306,9 @@ export function setupPostgresqlHandler(): void {
       const tablesResult = await client.query(`
         SELECT 
           table_name,
-          array_agg(column_name::text) as columns,
-          array_agg(data_type::text) as column_types
+          array_agg(column_name::text ORDER BY ordinal_position) as columns,
+          array_agg(data_type::text ORDER BY ordinal_position) as column_types,
+          array_agg(is_nullable::text ORDER BY ordinal_position) as is_nullables
         FROM information_schema.columns
         WHERE table_schema = $1
         GROUP BY table_name
@@ -261,6 +344,7 @@ export function setupPostgresqlHandler(): void {
             table_name: r.table_name,
             columns: Array.isArray(r.columns) ? r.columns : [],
             column_types: Array.isArray(r.column_types) ? r.column_types : [],
+            is_nullables: Array.isArray(r.is_nullables) ? r.is_nullables : [],
           })),
           indexes: indexesResult.rows.map(r => ({
             tablename: r.tablename,
@@ -308,7 +392,12 @@ export function setupPostgresqlHandler(): void {
 }
 
 /**
- * Helper function to detect BSON type from JavaScript value
+ * Helper function to detect BSON type from a JavaScript value.
+ *
+ * Must detect MongoDB driver BSON objects (ObjectId, Decimal128, Long, Binary, UUID)
+ * BEFORE falling through to the generic typeof === 'object' check, because the
+ * MongoDB Node.js driver returns these as plain JS objects whose constructor name
+ * identifies their real BSON type.
  */
 function getBsonType(value: unknown): string {
   if (value === null || value === undefined) {
@@ -323,13 +412,36 @@ function getBsonType(value: unknown): string {
     return 'binary';
   }
 
+  // ── MongoDB BSON type detection ─────────────────────────────────────────────
+  // Must come before Array.isArray() and generic typeof checks.
+  if (typeof value === 'object' && value !== null) {
+    const ctorName = (value as Record<string, unknown>).constructor?.name as string | undefined;
+
+    // ObjectId: 12-byte identifier returned by the driver as an object with toHexString()
+    if (ctorName === 'ObjectId' || typeof (value as Record<string, unknown>).toHexString === 'function') {
+      return 'objectid';
+    }
+    // Decimal128: arbitrary-precision decimal (money, scientific)
+    if (ctorName === 'Decimal128' || ctorName === 'BSONDecimal128') {
+      return 'decimal';
+    }
+    // Long: 64-bit signed integer (avoids JS number precision loss)
+    if (ctorName === 'Long' || ctorName === 'BSONLong') {
+      return 'long';
+    }
+    // Binary / UUID subtypes
+    if (ctorName === 'UUID') return 'uuid';
+    if (ctorName === 'Binary' || ctorName === 'BSONBinary') return 'binary';
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   if (Array.isArray(value)) {
     if (value.length === 0) return 'array';
-    const firstElement = value[0];
-    if (typeof firstElement === 'object' && firstElement !== null) {
-      return 'arrayOfObjects';
-    }
-    return 'array';
+    // Check multiple elements to avoid mis-classifying a mixed array
+    const hasObjectElement = (value as unknown[]).some(
+      (el) => el !== null && typeof el === 'object' && !Array.isArray(el)
+    );
+    return hasObjectElement ? 'arrayOfObjects' : 'array';
   }
 
   const type = typeof value;
@@ -337,6 +449,8 @@ function getBsonType(value: unknown): string {
     case 'boolean':
       return 'bool';
     case 'number':
+      // Return 'int' for whole numbers, 'double' for decimals.
+      // Numeric widening in the schema merge handles int+double conflicts correctly.
       return Number.isInteger(value) ? 'int' : 'double';
     case 'string':
       return 'string';
@@ -345,6 +459,39 @@ function getBsonType(value: unknown): string {
     default:
       return 'unknown';
   }
+}
+
+/**
+ * Regular expression detecting sensitive credential, authentication, and PII keys.
+ */
+const SENSITIVE_KEY_REGEX = /(password|passwd|secret|token|auth|bearer|jwt|api[_-]?key|credit[_-]?card|card[_-]?num|cvv|cvc|ssn|social[_-]?sec|pin|access[_-]?key)/i;
+
+/**
+ * Extracts a safe scalar representation of a sample value for AI type inference.
+ * Sanitizes sensitive credentials/PII, masks long strings, and formats dates / ObjectIds nicely.
+ */
+function extractSampleValue(key: string, value: unknown): unknown | null {
+  if (value === null || value === undefined) return null;
+  // Redact any sensitive field values to protect credentials and customer PII
+  if (SENSITIVE_KEY_REGEX.test(key)) {
+    return '[REDACTED: SENSITIVE]';
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    // Redact Bearer tokens, JWTs, or suspicious hashes
+    if (/^(Bearer\s+|eyJ[a-zA-Z0-9_-]{10,})/i.test(value)) {
+      return '[REDACTED: TOKEN]';
+    }
+    return value.length > 60 ? value.substring(0, 57) + '...' : value;
+  }
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'object') {
+    const ctor = (value as Record<string, unknown>).constructor?.name;
+    if (ctor === 'ObjectId' && typeof (value as { toHexString?: () => string }).toHexString === 'function') {
+      return (value as { toHexString: () => string }).toHexString();
+    }
+  }
+  return null;
 }
 
 /**

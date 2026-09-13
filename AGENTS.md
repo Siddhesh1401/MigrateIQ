@@ -5,12 +5,15 @@ These rules apply automatically to every AI session in this workspace.
 ## 1. Project Identity & Source of Truth
 - **Project Name:** MigrateIQ
 - **App Title (displayed in UI):** "MigrateIQ" — use this name consistently across all UI screens, window titles, sidebar headers, and the landing website.
-- **Dual Document Protocol:** Before starting any new phase, you MUST consult BOTH documents in parallel:
+- **Dual Document Protocol:** Before starting any new phase, you MUST consult BOTH documents:
   - `phase_plan-v2.md` — Technical/structural specification (what to build, architecture)
   - `product_blueprint-v7.md` — User-facing/experiential specification (what user sees, UX)
-  - **These are the SAME feature, expressed two ways.** The Phase Plan is the "how," the Blueprint is the "what it looks like."
-  - When presenting a phase to the user: Reference BOTH documents. Extract details from BOTH and present a unified picture.
-  - Example: Phase 4 Step 2 from Phase Plan describes "connection form with two tabs." Product Blueprint describes exact UI: placeholder text, error messages, success states, Health Score card, etc.
+  - **These describe the SAME feature from two angles.** Phase Plan = "how", Blueprint = "what it looks like".
+  - When presenting a phase to the user: Reference BOTH documents. Extract details and present a unified picture.
+- **Supporting Documents** (consult when relevant to the current task):
+  - `advance reports/testing-strategy.md` — Write unit tests alongside every engine file. Follow the test patterns defined here.
+  - `advance reports/security-analysis.md` — Security patterns to apply (parameterized queries, password masking, input validation).
+  - `advance reports/scalability-analysis.md` — Performance targets and batch size constraints per phase.
 - **Strict Phase Scope:** Do not jump ahead. Build only the features specified in the current phase/task.
 - **Do Not Guess:** If the blueprint or requirements lack detail for an edge case, ask the user before writing code.
 
@@ -45,6 +48,9 @@ These rules apply automatically to every AI session in this workspace.
 - **Preserve Existing Logic:** Do not overwrite, delete, or break working code or comments unrelated to the current task.
 - **Component Architecture:** Use explicit named exports, clean file organization, and self-contained reusable components. Define a `Props` TypeScript interface above every React component.
 - **File Naming:** React components use PascalCase (e.g., `SchemaMapper.tsx`). Utility files use camelCase (e.g., `ruleEngine.ts`). IPC handler files go in `main/handlers/`. Engine logic goes in `main/engine/`.
+- **Array → Child Table Rule:** When a MongoDB array of objects is mapped to a PostgreSQL child table, ALWAYS automatically add a `sort_order INTEGER NOT NULL` column. During ETL, set its value to the 0-based index of the element in the original array (e.g., `orders.items[2]` → `sort_order: 2`). This column must be visible in the Schema Mapper as an auto-added row and the user can rename or exclude it.
+- **SQL Safety:** All PostgreSQL data values must use parameterized queries (`$1, $2`). Table and column names must be sanitized (replace non-alphanumeric chars with `_`, truncate to 63 chars). Never use string concatenation to build SQL.
+- **Password Masking:** All log output (IPC logs, progress events, audit reports) must pass through a `maskSensitiveFields()` function that replaces passwords in connection strings with `••••••••`. Never log real credentials.
 
 ## 5. Work Process & Pre-execution Protocol
 - **Phase Startup Protocol:** When instructed to start a phase, your VERY FIRST response must:

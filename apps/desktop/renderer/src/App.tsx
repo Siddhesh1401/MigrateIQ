@@ -8,6 +8,7 @@ import { HistoryScreen } from './screens/HistoryScreen';
 import { SchemaHistoryScreen } from './screens/SchemaHistoryScreen';
 import { ConnectionsScreen } from './screens/ConnectionsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { AIUsageScreen } from './screens/AIUsageScreen';
 
 export interface AppProps {}
 
@@ -22,6 +23,7 @@ export const App: React.FC<AppProps> = () => {
           <Route path="history" element={<HistoryScreen />} />
           <Route path="schema-history" element={<SchemaHistoryScreen />} />
           <Route path="connections" element={<ConnectionsScreen />} />
+          <Route path="ai-usage" element={<AIUsageScreen />} />
           <Route path="settings" element={<SettingsScreen />} />
         </Route>
       </Routes>

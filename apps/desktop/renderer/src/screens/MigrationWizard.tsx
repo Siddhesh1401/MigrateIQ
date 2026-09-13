@@ -1,15 +1,129 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type {
   ConnectionConfig,
   SourceSchema,
-  PostgresIntrospectionResult
+  IndexDefinition,
+  PostgresIntrospectionResult,
+  AIGenerateMappingResponse,
+  AIHealthScoreResponse,
+  MappingBadge,
 } from '@migrateiq/shared';
 import { useWizardStore } from '../store/wizardStore';
 import { StepProgressBar } from '../components/StepProgressBar';
 import { ConnectionForm } from '../components/ConnectionForm';
+import { SchemaMapper } from './SchemaMapper';
+import { RiskReport } from './RiskReport';
 import '../styles/wizard.css';
 
 export interface MigrationWizardProps {}
+
+// ── Utility: Convert PostgreSQL Introspection Result to SourceSchema ─────────
+
+/**
+ * Convert PostgreSQL table structure to SourceSchema format (for Schema Mapping)
+ * Maps SQL types to BSON-like types for schema mapping engine compatibility.
+ */
+function convertPostgresTableToSourceSchema(pgTables: any[], pgIndexes: any[] = []): SourceSchema[] {
+  return pgTables.map((table) => {
+    const fields = (table.columns || []).map((colName: string, idx: number) => {
+      const sqlType = (table.column_types || [])[idx] || 'text';
+      const isNullableStr = (table.is_nullables || [])[idx];
+      // In PostgreSQL information_schema.columns, 'NO' means NOT NULL
+      const isNullable = isNullableStr ? isNullableStr.toUpperCase() !== 'NO' : true;
+      const bsonType = postgresTypeToBsonType(sqlType);
+
+      return {
+        name: colName,
+        bsonType,
+        sqlType: sqlType.toUpperCase(),
+        isNullable,
+        isArray: sqlType.includes('[]'),
+      };
+    });
+
+    // Extract indexes for this table from PostgreSQL pg_indexes
+    const tableIndexes = (pgIndexes || []).filter((idx: any) => idx.tablename === table.table_name);
+    const indexes: IndexDefinition[] = tableIndexes.map((idx: any) => {
+      const isUnique = (idx.indexdef || '').toUpperCase().includes('UNIQUE');
+      const match = (idx.indexdef || '').match(/\(([^)]+)\)/);
+      const fieldStr = match ? match[1].replace(/["']/g, '').trim() : '';
+      const fieldsRecord: Record<string, 1 | -1 | string> = {};
+      if (fieldStr) {
+        fieldStr.split(',').forEach((f: string) => {
+          fieldsRecord[f.trim()] = 1;
+        });
+      }
+      return {
+        name: idx.indexname,
+        fields: fieldsRecord,
+        unique: isUnique,
+      };
+    });
+
+    return {
+      collectionName: table.table_name,
+      fields,
+      documentCount: 0,
+      indexes,
+    };
+  });
+}
+
+/**
+ * Map PostgreSQL data type to BSON-like type for schema mapping
+ */
+function postgresTypeToBsonType(pgType: string): string {
+  const type = (pgType || '').toUpperCase().trim();
+
+  // ── Core Text / String Types ──
+  if (type.startsWith('VARCHAR') || type.startsWith('CHARACTER') || type.includes('CHAR')) return 'string';
+  if (type === 'TEXT' || type === 'CITEXT' || type === 'XML' || type === 'NAME') return 'string';
+  if (type === 'USER-DEFINED' || type.includes('ENUM')) return 'string';
+
+  // ── Integer Types ──
+  if (type === 'SMALLINT' || type === 'INT2') return 'int';
+  if (type === 'INTEGER' || type === 'INT' || type === 'INT4' || type === 'OID') return 'int';
+  if (type === 'BIGINT' || type === 'INT8') return 'long';
+  if (type.includes('SERIAL')) return 'int';
+
+  // ── Decimal & Monetary Types ──
+  if (type.startsWith('NUMERIC') || type.startsWith('DECIMAL') || type === 'MONEY') return 'decimal';
+  if (type === 'REAL' || type === 'FLOAT4') return 'double';
+  if (type === 'DOUBLE PRECISION' || type === 'FLOAT8' || type === 'FLOAT') return 'double';
+
+  // ── Boolean ──
+  if (type === 'BOOLEAN' || type === 'BOOL') return 'bool';
+
+  // ── Date/Time Types ──
+  if (type.includes('TIMESTAMP') || type === 'TIMESTAMPTZ') return 'date';
+  if (type === 'DATE') return 'date';
+  if (type === 'TIME' || type.includes('TIME')) return 'date';
+  if (type === 'INTERVAL') return 'string';
+
+  // ── Network / Identifier Types ──
+  if (type === 'UUID' || type === 'INET' || type === 'CIDR' || type === 'MACADDR' || type === 'MACADDR8') return 'string';
+
+  // ── Binary Types ──
+  if (type === 'BYTEA' || type === 'BLOB' || type === 'BIT' || type.startsWith('VARBIT')) return 'binary';
+
+  // ── JSON / Complex Object Types ──
+  if (type === 'JSONB' || type === 'JSON') return 'object';
+
+  // ── Full-Text Search Types ──
+  if (type === 'TSVECTOR' || type === 'TSQUERY') return 'string';
+
+  // ── Geometric Types (PostGIS / Native Postgres Geometry) ──
+  if (type.includes('GEOMETRY') || type.includes('GEOGRAPHY') ||
+      ['POINT', 'LINE', 'LSEG', 'BOX', 'PATH', 'POLYGON', 'CIRCLE'].includes(type)) {
+    return 'object';
+  }
+
+  // ── Array Types ──
+  if (type.includes('[]') || type.startsWith('ARRAY')) return 'array';
+
+  // ── Default ──
+  return 'string';
+}
 
 // ── Collapsible Mongo Preview ───────────────────────────────────────────────
 
@@ -291,6 +405,34 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const [isWiping, setIsWiping] = useState(false);
   const [wipeMessage, setWipeMessage] = useState<string | null>(null);
 
+  // Step 4: AI Mapping state
+  const [aiMapping, setAiMapping] = useState<AIGenerateMappingResponse | null>(null);
+  const [isAILoading, setIsAILoading] = useState(false);
+  const [aiLoadingStage, setAiLoadingStage] = useState<number>(1);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const isGeneratingRef = useRef(false);
+  const [mappingBadge, setMappingBadge] = useState<MappingBadge>('AI Suggested');
+
+  // Timer for Step 4 loading estimated time
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isAILoading) {
+      setElapsedSeconds(0);
+      interval = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAILoading]);
+
+  // Health Score (async badge on Step 2 MongoDB success card)
+  const [healthScore, setHealthScore] = useState<number | null>(null);
+  const [isHealthScoreLoading, setIsHealthScoreLoading] = useState(false);
+
   // Prevent accidental tab reload / window close mid-wizard
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -302,6 +444,116 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [wizardStore.wizardStep]);
+
+  // Trigger AI mapping when user reaches Step 4 (guarded against duplicate execution)
+  useEffect(() => {
+    if (wizardStore.wizardStep === 4 && !aiMapping && wizardStore.sourceSchema && !isGeneratingRef.current) {
+      generateAIMapping();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardStore.wizardStep, aiMapping]);
+
+  const generateAIMapping = async (forceRefresh = false) => {
+    if (!wizardStore.sourceSchema || isGeneratingRef.current) return;
+
+    isGeneratingRef.current = true;
+    setIsAILoading(true);
+    setAiLoadingStage(1);
+
+    try {
+      // Stage 1: Architecture Ingestion (fast inspection)
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      setAiLoadingStage(2);
+
+      // Stage 2: Schema Synthesis
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      setAiLoadingStage(3);
+
+      const mappingPromise = window.electronAPI.invoke<AIGenerateMappingResponse>(
+        'ai:generate-mapping',
+        {
+          schemas: wizardStore.sourceSchema,
+          apiKey: import.meta.env.VITE_GEMINI_API_KEY || undefined,
+          direction: wizardStore.direction,
+          forceRefresh,
+        }
+      );
+
+      // Stage 4 transition while awaiting AI completion
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      setAiLoadingStage(4);
+
+      const response = await mappingPromise;
+
+      if (response.success && response.data) {
+        console.log('[SchemaMapper] AI Response ready:', response.data.mappings?.length, 'collections');
+        setAiMapping(response.data);
+        setMappingBadge(response.data.badge);
+      } else if (response.data) {
+        console.log('[SchemaMapper] Fallback Response ready:', response.data.mappings?.length, 'collections');
+        setAiMapping(response.data);
+        setMappingBadge(response.data.badge);
+      }
+    } catch (error) {
+      console.error('[SchemaMapper] Mapping generation error:', error);
+    } finally {
+      setIsAILoading(false);
+      isGeneratingRef.current = false;
+    }
+  };
+
+  // Async health score (non-blocking, updates badge when ready) with retry logic
+  const fetchHealthScoreAsync = async (schemas: SourceSchema[]) => {
+    setIsHealthScoreLoading(true);
+    setHealthScore(null);
+
+    // Debug: Check if API key is loaded
+    console.log('[Health Score] API Key:', import.meta.env.VITE_GEMINI_API_KEY ? 'Found' : 'NOT FOUND');
+
+    // Retry logic: try up to 3 times with exponential backoff
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await window.electronAPI.invoke<AIHealthScoreResponse | null>(
+          'ai:health-score',
+          {
+            schemas,
+            apiKey: import.meta.env.VITE_GEMINI_API_KEY || undefined, // Read from .env
+            direction: wizardStore.direction, // Pass direction for context
+          }
+        );
+
+        if (response.success && response.data) {
+          setHealthScore(response.data.score);
+          console.log(`[Health Score] Success on attempt ${attempt}:`, response.data.score);
+        }
+        setIsHealthScoreLoading(false);
+        return; // Success, exit
+      } catch (error) {
+        lastError = error as Error;
+        console.log(`[Health Score] Attempt ${attempt}/${maxRetries} failed:`, (error as Error).message);
+        
+        // If last attempt, stop retrying
+        if (attempt === maxRetries) {
+          console.error('[Health Score] All retries exhausted');
+          break;
+        }
+        
+        // Exponential backoff: 1s, 2s, 4s
+        const waitTime = Math.pow(2, attempt - 1) * 1000;
+        console.log(`[Health Score] Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+
+    // Final failure after all retries
+    if (lastError) {
+      console.warn('[Health Score] Failed after retries:', lastError.message);
+    }
+    setIsHealthScoreLoading(false);
+  };
 
   const handleDirectionSelect = (direction: 'mongodb-to-postgres' | 'postgres-to-mongo') => {
     wizardStore.setDirection(direction);
@@ -386,6 +638,9 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         wizardStore.setSourceConfig(config);
         wizardStore.setSourceSchema(response.data);
         setSourceMongoPreview(response.data);
+
+        // Trigger async health score (non-blocking)
+        fetchHealthScoreAsync(response.data);
       } else {
         const response = await window.electronAPI.invoke<PostgresIntrospectionResult>('db:connect-postgresql', config);
         const elapsed = Math.round(performance.now() - startTime);
@@ -398,6 +653,10 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         setSourceLatencyMs(elapsed);
         wizardStore.setSourceConfig(config);
         setSourcePgPreview(response.data);
+
+        // Convert PostgreSQL tables to SourceSchema for schema mapping
+        const sourceSchemas = convertPostgresTableToSourceSchema(response.data.tables, response.data.indexes || []);
+        wizardStore.setSourceSchema(sourceSchemas);
 
         if (response.data.layer2Features) {
           wizardStore.setLayer2Features({
@@ -780,6 +1039,31 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
                     }}>
                       ⚡ {sourceLatencyMs !== null ? `${sourceLatencyMs}ms ping` : 'Connected'}
                     </span>
+                    {/* Health Score Badge (async) */}
+                    {isHealthScoreLoading && (
+                      <span style={{
+                        backgroundColor: '#E0F2FE',
+                        color: '#0369A1',
+                        padding: '0.15rem 0.5rem',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                      }}>
+                        🧬 Analyzing...
+                      </span>
+                    )}
+                    {!isHealthScoreLoading && healthScore !== null && (
+                      <span style={{
+                        backgroundColor: healthScore >= 80 ? '#DCFCE7' : healthScore >= 60 ? '#FEF3C7' : '#FEE2E2',
+                        color: healthScore >= 80 ? '#15803D' : healthScore >= 60 ? '#D97706' : '#DC2626',
+                        padding: '0.15rem 0.5rem',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                      }}>
+                        🧬 Health: {healthScore}/100
+                      </span>
+                    )}
                   </div>
                   <p>Found {(sourceMongoPreview || wizardStore.sourceSchema)?.length || 0} collections with schema ready for mapping</p>
                   <CollapsibleMongoPreview
@@ -1005,12 +1289,200 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
           </div>
         )}
 
-        {/* ── Steps 4+ (Placeholder for future phases) ── */}
-        {wizardStore.wizardStep > 3 && (
+        {/* ── Step 4: AI Schema Mapping ── */}
+        {wizardStore.wizardStep === 4 && (
+          <>
+            {isAILoading ? (
+              <div className="ai-loading-card">
+                <div className="ai-loading-header">
+                    <div className="ai-badge-pill">
+                      <span className="ai-badge-dot"></span>
+                      <span>AI Schema Synthesizer</span>
+                    </div>
+                    <h2 className="ai-loading-title">
+                      Generating Intelligent Schema Mapping
+                    </h2>
+                    <p className="ai-loading-subtitle">
+                      {wizardStore.direction === 'postgres-to-mongo'
+                        ? 'Analyzing PostgreSQL relational tables and synthesizing MongoDB document schemas'
+                        : 'Analyzing MongoDB collections and designing normalized PostgreSQL relational schema'}
+                    </p>
+                  </div>
+
+                  {/* Progress Meta & Estimated Time */}
+                  <div className="ai-progress-meta">
+                    <span className="ai-progress-stage-label">
+                      {aiLoadingStage === 1
+                        ? 'Step 1 of 4: Ingesting Architecture'
+                        : aiLoadingStage === 2
+                        ? 'Step 2 of 4: Synthesizing Types'
+                        : aiLoadingStage === 3
+                        ? 'Step 3 of 4: Inferring Constraints'
+                        : 'Step 4 of 4: Finalizing Manifesto'}
+                    </span>
+                    <span className="ai-progress-est-time">
+                      <span>⏱️ Est:</span>
+                      <strong>~{Math.max(3, Math.min(8, Math.round((wizardStore.sourceSchema?.length || 4) * 0.8)))}s</strong>
+                      <span className="ai-progress-elapsed">{elapsedSeconds}s elapsed</span>
+                    </span>
+                  </div>
+
+                  {/* Shimmering Progress Bar */}
+                  <div className="ai-progress-track">
+                    <div
+                      className="ai-progress-fill"
+                      style={{
+                        width:
+                          aiLoadingStage === 1
+                            ? '25%'
+                            : aiLoadingStage === 2
+                            ? '52%'
+                            : aiLoadingStage === 3
+                            ? '78%'
+                            : '96%',
+                      }}
+                    ></div>
+                  </div>
+
+                  {/* Milestone Stages */}
+                  <div className="ai-stages-list">
+                    {/* Stage 1 */}
+                    <div
+                      className={`ai-stage-item ${
+                        aiLoadingStage > 1 ? 'completed' : aiLoadingStage === 1 ? 'active' : 'pending'
+                      }`}
+                    >
+                      <div className="ai-stage-icon-wrap">
+                        {aiLoadingStage > 1 ? (
+                          <span className="ai-stage-icon-done">✓</span>
+                        ) : (
+                          <span className="ai-stage-icon-active">⚡</span>
+                        )}
+                      </div>
+                      <div className="ai-stage-content">
+                        <strong className="ai-stage-title">Architecture Ingestion</strong>
+                        <span className="ai-stage-desc">
+                          {wizardStore.direction === 'postgres-to-mongo'
+                            ? `Inspected ${wizardStore.sourceSchema?.length || 0} PostgreSQL tables, columns & constraints`
+                            : `Inspected ${wizardStore.sourceSchema?.length || 0} MongoDB collections & document structures`}
+                        </span>
+                      </div>
+                      <span className="ai-stage-status">
+                        {aiLoadingStage > 1 ? 'Complete' : 'Inspecting...'}
+                      </span>
+                    </div>
+
+                    {/* Stage 2 */}
+                    <div
+                      className={`ai-stage-item ${
+                        aiLoadingStage > 2 ? 'completed' : aiLoadingStage === 2 ? 'active' : 'pending'
+                      }`}
+                    >
+                      <div className="ai-stage-icon-wrap">
+                        {aiLoadingStage > 2 ? (
+                          <span className="ai-stage-icon-done">✓</span>
+                        ) : (
+                          <span className="ai-stage-icon-active">🧠</span>
+                        )}
+                      </div>
+                      <div className="ai-stage-content">
+                        <strong className="ai-stage-title">Cross-Engine Schema Synthesis</strong>
+                        <span className="ai-stage-desc">
+                          {wizardStore.direction === 'postgres-to-mongo'
+                            ? 'Mapping SQL data types to optimal BSON structures with precision decimals'
+                            : 'Normalizing polymorphic schemas, flattening objects & configuring JSONB'}
+                        </span>
+                      </div>
+                      <span className="ai-stage-status">
+                        {aiLoadingStage > 2 ? 'Complete' : aiLoadingStage === 2 ? 'Synthesizing...' : 'Pending'}
+                      </span>
+                    </div>
+
+                    {/* Stage 3 */}
+                    <div
+                      className={`ai-stage-item ${
+                        aiLoadingStage > 3 ? 'completed' : aiLoadingStage === 3 ? 'active' : 'pending'
+                      }`}
+                    >
+                      <div className="ai-stage-icon-wrap">
+                        {aiLoadingStage > 3 ? (
+                          <span className="ai-stage-icon-done">✓</span>
+                        ) : (
+                          <span className="ai-stage-icon-active">🔗</span>
+                        )}
+                      </div>
+                      <div className="ai-stage-content">
+                        <strong className="ai-stage-title">Relation &amp; Index Inference</strong>
+                        <span className="ai-stage-desc">
+                          {wizardStore.direction === 'postgres-to-mongo'
+                            ? 'Detecting primary keys, unique constraints & generating MongoDB index commands'
+                            : 'Inferring cross-collection foreign keys, child tables & composite indexes'}
+                        </span>
+                      </div>
+                      <span className="ai-stage-status">
+                        {aiLoadingStage > 3 ? 'Complete' : aiLoadingStage === 3 ? 'Analyzing...' : 'Pending'}
+                      </span>
+                    </div>
+
+                    {/* Stage 4 */}
+                    <div
+                      className={`ai-stage-item ${
+                        aiLoadingStage >= 4 ? 'active' : 'pending'
+                      }`}
+                    >
+                      <div className="ai-stage-icon-wrap">
+                        <span className="ai-stage-icon-active">✨</span>
+                      </div>
+                      <div className="ai-stage-content">
+                        <strong className="ai-stage-title">Finalizing Schema Manifesto</strong>
+                        <span className="ai-stage-desc">
+                          Compiling verified mapping definitions &amp; validator models
+                        </span>
+                      </div>
+                      <span className="ai-stage-status">
+                        {aiLoadingStage >= 4 ? 'Finalizing...' : 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="ai-loading-footer">
+                    <span className="ai-secure-shield">🛡️</span>
+                    <span>Zero Data Transfer · Schema Architecture Analysis Only</span>
+                  </div>
+                </div>
+            ) : (
+              <SchemaMapper
+                initialMappings={aiMapping?.mappings || []}
+                badge={mappingBadge}
+                sourceSchema={wizardStore.sourceSchema}
+                direction={wizardStore.direction || 'mongodb-to-postgres'}
+                onSave={(mappings) => {
+                  wizardStore.setSchemaMapping(mappings);
+                  wizardStore.setWizardStep(5);
+                }}
+                onBack={handleBackStep}
+                onRegenerate={() => generateAIMapping(true)}
+              />
+            )}
+          </>
+        )}
+
+        {/* ── Step 5: Risk Report ── */}
+        {wizardStore.wizardStep === 5 && (
+          <RiskReport
+            onBack={handleBackStep}
+            onContinue={() => {
+              wizardStore.setWizardStep(6);
+            }}
+          />
+        )}
+
+        {/* ── Steps 6+ (Placeholder for future phases) ── */}
+        {wizardStore.wizardStep > 5 && (
           <div className="wizard-step">
             <h2 className="step-heading">Step {wizardStore.wizardStep} of 8</h2>
             <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>
-              This step will be built in future phases (Phase 5+: Schema Mapping, Risk Detection, ETL Migration).
+              This step will be built in future phases (Phase 8: Dry Run Simulation, Phase 9: Live ETL).
             </p>
             <div className="wizard-buttons">
               <button className="btn-secondary" onClick={handleBackStep}>

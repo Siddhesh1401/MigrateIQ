@@ -1,0 +1,951 @@
+/* ==========================================================================
+   MigrateIQ - Pre-Migration Risk Report & Layer 2 Section Styles (Step 5)
+   Design System: Light Theme (#F8FAFC canvas, #FFFFFF card, #0F172A text)
+   ========================================================================== */
+
+.risk-report-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background-color: var(--canvas-bg, #F8FAFC);
+  min-height: calc(100vh - 140px);
+  color: var(--text-primary, #0F172A);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Step Header ─────────────────────────────────────────────────────────── */
+.risk-header-area {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.risk-header-title-group h1 {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: #0F172A;
+  margin: 0 0 0.375rem 0;
+  letter-spacing: -0.02em;
+}
+
+.risk-header-subtitle {
+  font-size: 0.9375rem;
+  color: #64748B;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.risk-stats-chips {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.risk-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.risk-stat-chip.critical {
+  background-color: #FEF2F2;
+  border-color: #FECACA;
+  color: #DC2626;
+}
+
+.risk-stat-chip.warning {
+  background-color: #FFFBEB;
+  border-color: #FDE68A;
+  color: #D97706;
+}
+
+.risk-stat-chip.info {
+  background-color: #F0F9FF;
+  border-color: #BAE6FD;
+  color: #0284C7;
+}
+
+.risk-stat-chip.resolved {
+  background-color: #F0FDF4;
+  border-color: #BBF7D0;
+  color: #16A34A;
+}
+
+/* ── Severity Banner ─────────────────────────────────────────────────────── */
+.risk-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  gap: 1rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease;
+}
+
+.risk-banner.critical {
+  background-color: #FEF2F2;
+  border-color: #FCA5A5;
+  color: #991B1B;
+}
+
+.risk-banner.warning {
+  background-color: #FFFBEB;
+  border-color: #FDE68A;
+  color: #92400E;
+}
+
+.risk-banner.success {
+  background-color: #F0FDF4;
+  border-color: #86EFAC;
+  color: #166534;
+}
+
+.risk-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.risk-banner-icon {
+  font-size: 1.375rem;
+  flex-shrink: 0;
+}
+
+.risk-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.risk-banner-title {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.risk-banner-desc {
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.risk-banner-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+
+/* ── Filter / Tabs Bar ───────────────────────────────────────────────────── */
+.risk-filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #E2E8F0;
+  padding-bottom: 0.75rem;
+}
+
+.risk-filter-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.risk-filter-btn {
+  background: none;
+  border: 1px solid transparent;
+  padding: 0.375rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748B;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.risk-filter-btn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+.risk-filter-btn.active {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+  color: #2563EB;
+  font-weight: 600;
+}
+
+.risk-filter-count {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.risk-filter-btn.active .risk-filter-count {
+  background: #DBEAFE;
+  color: #1D4ED8;
+}
+
+.risk-expand-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-ghost-sm {
+  background: none;
+  border: 1px solid #E2E8F0;
+  background-color: #FFFFFF;
+  padding: 0.25rem 0.625rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-ghost-sm:hover {
+  background-color: #F8FAFC;
+  border-color: #CBD5E1;
+  color: #0F172A;
+}
+
+/* ── Risk Cards List ─────────────────────────────────────────────────────── */
+.risk-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.risk-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.risk-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: #CBD5E1;
+}
+
+/* Severity indicator strip on the left */
+.risk-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 5px;
+}
+
+.risk-card.critical::before {
+  background-color: #DC2626;
+}
+
+.risk-card.warning::before {
+  background-color: #D97706;
+}
+
+.risk-card.info::before {
+  background-color: #0284C7;
+}
+
+.risk-card.fixed::before {
+  background-color: #16A34A;
+}
+
+.risk-card.acknowledged:not(.fixed) {
+  opacity: 0.82;
+  background-color: #FAFAFA;
+}
+
+/* ── Card Header ─────────────────────────────────────────────────────────── */
+.risk-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 1rem 1.5rem;
+  cursor: pointer;
+  user-select: none;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.risk-card-header:hover {
+  background-color: #F8FAFC;
+}
+
+.risk-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.risk-severity-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.risk-severity-badge.critical {
+  background-color: #FEE2E2;
+  color: #DC2626;
+}
+
+.risk-severity-badge.warning {
+  background-color: #FEF3C7;
+  color: #D97706;
+}
+
+.risk-severity-badge.info {
+  background-color: #E0F2FE;
+  color: #0284C7;
+}
+
+.risk-severity-badge.fixed {
+  background-color: #DCFCE7;
+  color: #16A34A;
+}
+
+.risk-card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #0F172A;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-card.fixed .risk-card-title {
+  color: #166534;
+}
+
+.risk-target-tag {
+  font-size: 0.75rem;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  background-color: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  color: #475569;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.risk-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.risk-ack-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.risk-ack-pill.acknowledged {
+  background-color: #F1F5F9;
+  color: #475569;
+  border: 1px solid #CBD5E1;
+}
+
+.risk-ack-pill.pending {
+  background-color: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+.risk-card-chevron {
+  color: #94A3B8;
+  font-size: 0.875rem;
+  transition: transform 0.2s ease;
+}
+
+.risk-card.open .risk-card-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Card Body (Accordion Content) ───────────────────────────────────────── */
+.risk-card-body {
+  padding: 0 1.25rem 1.25rem 1.5rem;
+  border-top: 1px solid #F1F5F9;
+  margin-top: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.risk-desc-block {
+  padding-top: 0.875rem;
+  font-size: 0.875rem;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.risk-desc-block strong {
+  color: #0F172A;
+}
+
+.risk-suggested-fix-box {
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-left: 3px solid #2563EB;
+  border-radius: 6px;
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  color: #1E293B;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.risk-suggested-fix-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #2563EB;
+}
+
+.risk-suggested-fix-text {
+  line-height: 1.5;
+}
+
+/* ── Card Actions ────────────────────────────────────────────────────────── */
+.risk-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #E2E8F0;
+  flex-wrap: wrap;
+}
+
+.risk-card-actions-left,
+.risk-card-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+/* Action Buttons */
+.btn-risk-autofix {
+  background-color: #16A34A;
+  color: #FFFFFF;
+  border: none;
+  padding: 0.4375rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.25);
+  transition: all 0.15s ease;
+}
+
+.btn-risk-autofix:hover {
+  background-color: #15803D;
+  box-shadow: 0 2px 4px rgba(22, 163, 74, 0.35);
+}
+
+.btn-risk-ack {
+  background-color: #FFFFFF;
+  color: #334155;
+  border: 1px solid #CBD5E1;
+  padding: 0.4375rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  transition: all 0.15s ease;
+}
+
+.btn-risk-ack:hover {
+  background-color: #F8FAFC;
+  border-color: #94A3B8;
+  color: #0F172A;
+}
+
+.btn-risk-ack.acknowledged {
+  background-color: #F1F5F9;
+  border-color: #94A3B8;
+  color: #1E293B;
+  font-weight: 600;
+}
+
+.btn-risk-fix-mapping {
+  background-color: #FFFFFF;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+  padding: 0.4375rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-risk-fix-mapping:hover {
+  background-color: #EFF6FF;
+  border-color: #2563EB;
+}
+
+.btn-risk-ignore {
+  background: none;
+  border: none;
+  color: #64748B;
+  padding: 0.4375rem 0.625rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.btn-risk-ignore:hover {
+  color: #0F172A;
+  text-decoration: underline;
+}
+
+/* ── Fixed State Overlay / Style ─────────────────────────────────────────── */
+.risk-fixed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #16A34A;
+  background: #DCFCE7;
+  padding: 0.3125rem 0.625rem;
+  border-radius: 6px;
+}
+
+/* ==========================================================================
+   LAYER 2 SECTION (PostgreSQL -> MongoDB migrations)
+   ========================================================================== */
+
+.layer2-section {
+  margin-top: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.layer2-divider {
+  height: 1px;
+  background: linear-gradient(to right, #E2E8F0, #CBD5E1, #E2E8F0);
+  margin: 1rem 0 0.5rem 0;
+}
+
+.layer2-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.layer2-title-group h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0F172A;
+  margin: 0 0 0.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.layer2-manual-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background-color: #FEF3C7;
+  color: #B45309;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.layer2-subtitle {
+  font-size: 0.875rem;
+  color: #64748B;
+  margin: 0;
+}
+
+/* Principle Box */
+.layer2-principle-box {
+  background-color: #F0F9FF;
+  border: 1px solid #BAE6FD;
+  border-left: 4px solid #0284C7;
+  border-radius: 10px;
+  padding: 1.125rem 1.25rem;
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  box-shadow: 0 1px 2px rgba(2, 132, 199, 0.06);
+}
+
+.layer2-principle-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+.layer2-principle-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.layer2-principle-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #0369A1;
+}
+
+.layer2-principle-bullets {
+  margin: 0;
+  padding-left: 1.125rem;
+  font-size: 0.875rem;
+  color: #0C4A6E;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.layer2-principle-bullets strong {
+  color: #0369A1;
+}
+
+/* Layer 2 Cards */
+.layer2-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.layer2-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  transition: all 0.2s ease;
+  border-left: 4px solid #6366F1;
+}
+
+.layer2-card.auto-applied {
+  border-left-color: #10B981;
+}
+
+.layer2-card:hover {
+  border-color: #CBD5E1;
+  border-left-color: #4F46E5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.layer2-card.acknowledged {
+  background-color: #FAFAFA;
+}
+
+.layer2-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.layer2-card-header:hover {
+  background-color: #F8FAFC;
+}
+
+.layer2-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.layer2-type-icon {
+  font-size: 1.125rem;
+}
+
+.layer2-type-tag {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: #EEF2FF;
+  color: #4F46E5;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.layer2-card.auto-applied .layer2-type-tag {
+  background-color: #ECFDF5;
+  color: #059669;
+}
+
+.layer2-item-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #0F172A;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.layer2-card-body {
+  padding: 0 1.25rem 1.25rem 1.25rem;
+  border-top: 1px solid #F1F5F9;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.layer2-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.layer2-field-row strong {
+  color: #0F172A;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.layer2-code-box {
+  background-color: #0F172A;
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  color: #F8FAFC;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  position: relative;
+}
+
+.layer2-code-box pre {
+  margin: 0;
+}
+
+.btn-code-copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  color: #F8FAFC;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-code-copy:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.layer2-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+
+/* Layer 2 Counter at bottom */
+.layer2-counter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 0.875rem 1.25rem;
+}
+
+.layer2-counter-text {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.layer2-counter-text strong {
+  color: #2563EB;
+}
+
+.layer2-counter-hint {
+  font-size: 0.8125rem;
+  color: #64748B;
+}
+
+/* ── Wizard Sticky Footer Actions ─────────────────────────────────────────── */
+.risk-footer-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 1.5rem;
+  border-top: 1px solid #E2E8F0;
+  margin-top: 1.5rem;
+}
+
+.risk-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.risk-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-risk-back {
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #334155;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-risk-back:hover {
+  background-color: #F8FAFC;
+  border-color: #94A3B8;
+  color: #0F172A;
+}
+
+.btn-risk-continue {
+  background-color: #2563EB;
+  color: #FFFFFF;
+  border: none;
+  padding: 0.625rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+  transition: all 0.15s ease;
+}
+
+.btn-risk-continue:hover:not(:disabled) {
+  background-color: #1D4ED8;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-risk-continue:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background-color: #94A3B8;
+  box-shadow: none;
+  transform: none;
+}
+
+.risk-disabled-tooltip {
+  font-size: 0.8125rem;
+  color: #DC2626;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* ── Empty State ── */
+.risk-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 2.5rem 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.risk-empty-icon {
+  font-size: 2.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.risk-empty-state h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #0F172A;
+  margin: 0 0 0.375rem 0;
+}
+
+.risk-empty-state p {
+  font-size: 0.875rem;
+  color: #64748B;
+  margin: 0;
+  max-width: 480px;
+  line-height: 1.5;
+}

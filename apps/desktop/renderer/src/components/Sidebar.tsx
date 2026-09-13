@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { id: 'history',       path: '/history',       label: 'History',           icon: '◷', section: 'Data' },
   { id: 'schema-history',path: '/schema-history',label: 'Schema History',    icon: '◈', section: 'Data' },
   { id: 'connections',   path: '/connections',   label: 'Connections',       icon: '⊘', section: 'Data' },
+  { id: 'ai-usage',      path: '/ai-usage',      label: 'AI Usage & Tokens', icon: '🤖', section: 'System' },
   { id: 'settings',      path: '/settings',      label: 'Settings',          icon: '⊙', section: 'System' },
 ];
 
@@ -30,6 +31,7 @@ const NAV_ICONS: Record<string, string> = {
   history: '📋',
   'schema-history': '📜',
   connections: '🔌',
+  'ai-usage': '🤖',
   settings: '⚙️',
 };
 

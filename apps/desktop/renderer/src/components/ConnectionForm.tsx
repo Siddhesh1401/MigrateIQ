@@ -205,7 +205,7 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     postgresql: 'Supports Supabase, Neon, Railway, Render, AWS RDS, and local PostgreSQL',
   };
 
-  const defaultButtonLabel = dbType === 'mongodb' ? 'Test Connection & Read Schema' : 'Test Connection & Read Schema';
+  const defaultButtonLabel = dbType === 'mongodb' ? 'Test Connection & Read Schema' : 'Test Connection & Verify';
   const effectiveButtonLabel = buttonText || defaultButtonLabel;
 
   return (

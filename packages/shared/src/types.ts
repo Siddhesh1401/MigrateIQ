@@ -21,6 +21,7 @@ export interface ConnectionConfig {
 export interface FieldDefinition {
   name: string;
   bsonType: string;
+  sqlType?: string;
   isNullable: boolean;
   isArray: boolean;
   sampleValues?: unknown[];
@@ -55,6 +56,7 @@ export interface FieldMapping {
   foreignKeyToParent?: string;
   sortOrderColumn?: boolean;
   transformationRule?: string;
+  isAiModified?: boolean;
 }
 
 export interface CollectionMapping {
@@ -76,6 +78,20 @@ export interface IndexMapping {
 
 export type RiskSeverity = 'critical' | 'warning' | 'info';
 
+export type AutoFixActionType = 
+  | 'set_nullable' 
+  | 'create_child_table' 
+  | 'reduce_batch_size' 
+  | 'defer_foreign_keys';
+
+export interface AutoFixAction {
+  type: AutoFixActionType;
+  collectionName: string;
+  fieldName?: string;
+  recommendedValue?: unknown;
+  description: string;
+}
+
 export interface RiskItem {
   id: string;
   severity: RiskSeverity;
@@ -83,9 +99,40 @@ export interface RiskItem {
   description: string;
   suggestedFix?: string;
   autoFixAvailable?: boolean;
+  autoFixAction?: AutoFixAction;
   affectedTable?: string;
   affectedField?: string;
   acknowledged?: boolean;
+  fixed?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export type Layer2FeatureType = 'procedure' | 'function' | 'trigger' | 'view' | 'enum' | 'composite_pk';
+
+export interface Layer2FeatureItem {
+  id: string;
+  type: Layer2FeatureType;
+  name: string;
+  targetObject?: string;
+  signature?: string;
+  description: string;
+  whyNotMigrated: string;
+  replacementGuide: string;
+  codeSnippet: string;
+  isAutoApplied?: boolean;
+  acknowledged?: boolean;
+}
+
+export interface RiskAnalysisResult {
+  risks: RiskItem[];
+  layer2Features: Layer2FeatureItem[];
+  metrics: {
+    criticalCount: number;
+    warningCount: number;
+    infoCount: number;
+    recommendedBatchSize: number;
+    hasCircularFk: boolean;
+  };
 }
 
 export interface ProgressEvent {
@@ -140,6 +187,7 @@ export interface PostgresTableInfo {
   table_name: string;
   columns: string[];
   column_types: string[];
+  is_nullables?: string[];
 }
 
 export interface PostgresIndexInfo {
@@ -181,3 +229,47 @@ export interface IPCResponse<T = unknown> {
   data?: T;
   error?: string;
 }
+
+// AI Schema Mapping Types
+export type MappingBadge = 'AI Suggested' | 'Auto Rule-Mapped';
+
+export interface AIGenerateMappingResponse {
+  mappings: CollectionMapping[];
+  badge: MappingBadge;
+  batchCount?: number;
+  processingTimeMs?: number;
+}
+
+export interface AIHealthScoreResponse {
+  score: number; // 0-100
+  deductions: Array<{
+    reason: string;
+    points: number;
+    severity: 'high' | 'medium' | 'low';
+  }>;
+  summaryTip: string;
+}
+
+// ── AI Usage & Token Tracking Types ──────────────────────────────────────────
+export interface AIUsageLogEntry {
+  id: string;
+  timestamp: string;      // ISO string
+  feature: 'Schema Inference' | 'Health Score' | 'Copilot Tweak' | 'Database Q&A' | 'Risk Analysis';
+  model: string;          // e.g. 'gemini-1.5-flash'
+  promptSnippet: string;  // First 100 chars of instruction or operation
+  promptTokens: number;   // estimated input tokens
+  responseTokens: number; // estimated output tokens
+  totalTokens: number;    // combined tokens
+  status: 'success' | 'cached' | 'fallback' | 'rate-limited' | 'error';
+  durationMs: number;     // execution time
+}
+
+export interface AIUsageStats {
+  requestsToday: number;
+  dailyLimit: number;     // 1,500 requests for Gemini Flash free tier
+  tokensToday: number;
+  lifetimeRequests: number;
+  lifetimeTokens: number;
+  lastUsedTimestamp: string | null;
+}
+
