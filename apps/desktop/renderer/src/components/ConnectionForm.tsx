@@ -137,8 +137,9 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
   };
 
   // Explicit Save Connection Button handler
-  const handleSaveConnectionNow = async () => {
-    if (!connectionName.trim()) {
+  const handleSaveConnectionNow = async (overrideName?: string) => {
+    const nameToSave = (overrideName || connectionName).trim();
+    if (!nameToSave) {
       setSaveMessage({ type: 'error', text: 'Please enter a name for this connection.' });
       return;
     }
@@ -150,18 +151,19 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     try {
       const response = await window.electronAPI.invoke<SavedConnection>(
         'store:save-connection',
-        { name: connectionName.trim(), config }
+        { name: nameToSave, config }
       );
 
       if (response.success && response.data) {
         setSavedConnections((prev) => {
-          const filtered = prev.filter((c) => c.name.toLowerCase() !== connectionName.trim().toLowerCase());
+          const filtered = prev.filter((c) => c.name.toLowerCase() !== nameToSave.toLowerCase());
           return [...filtered, response.data!];
         });
         setSelectedSavedId(response.data.id);
-        setSaveMessage({ type: 'success', text: `Saved "${connectionName.trim()}" for future use!` });
+        setSaveMessage({ type: 'success', text: `Saved "${nameToSave}" for future use!` });
         setShouldSave(false);
-        if (onSave) onSave(connectionName.trim(), config);
+        if (!connectionName.trim()) setConnectionName(nameToSave); // update input if it was empty
+        if (onSave) onSave(nameToSave, config);
       } else {
         setSaveMessage({ type: 'error', text: response.error || 'Failed to save connection' });
       }
@@ -177,9 +179,17 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     const config = buildConfig();
     await onConnect(config);
 
-    // If shouldSave is checked and a name was given, auto-save during connect as well
-    if (shouldSave && connectionName.trim()) {
-      handleSaveConnectionNow();
+    // If shouldSave is checked, auto-save during connect as well
+    if (shouldSave) {
+      if (connectionName.trim()) {
+        handleSaveConnectionNow();
+      } else {
+        // Auto-generate a name if they left it blank
+        const autoName = tab === 'string'
+          ? `Saved ${dbType === 'mongodb' ? 'MongoDB' : 'PostgreSQL'} Connection`
+          : `${host}:${port} (${database})`;
+        handleSaveConnectionNow(autoName);
+      }
     }
   };
 
@@ -490,7 +500,7 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
             />
             <button
               type="button"
-              onClick={handleSaveConnectionNow}
+              onClick={() => handleSaveConnectionNow()}
               disabled={isSaving || !connectionName.trim()}
               style={{
                 backgroundColor: '#0F172A',

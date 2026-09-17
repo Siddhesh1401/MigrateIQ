@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import type {
   RiskItem,
   Layer2FeatureItem,
@@ -216,9 +216,63 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
     toggleAcknowledgeRisk,
     toggleAcknowledgeLayer2,
     applyAutoFix,
+    applyAllAutoFixes,
+    acknowledgeAllOfType,
   } = useWizardStore();
 
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  // Tracks which "What if I ignore this?" panel is open
+  const [openImpactId, setOpenImpactId] = useState<string | null>(null);
+
+  // ── Impact Priority Weights (Feature 5: Prioritization Sort) ─────────────
+  // data loss first (1) > performance (2) > manual work (3)
+  const IMPACT_WEIGHTS: Record<string, number> = {
+    create_child_table: 1,   // data loss: arrays silently dropped
+    set_nullable: 1,         // data loss: rows rejected on insert
+    change_column_type: 1,   // data loss: integer overflow crash
+    defer_foreign_keys: 2,   // performance: constraint deferred
+    reduce_batch_size: 2,    // performance: slower streaming
+    rename_target_table: 2,  // performance: app queries break
+    rename_target_column: 2, // performance: app queries break
+  };
+
+  /** Returns sort weight for a risk: lower = shown first */
+  const getRiskSortWeight = (risk: RiskItem): number => {
+    const typeWeight = risk.autoFixAction ? (IMPACT_WEIGHTS[risk.autoFixAction.type] ?? 3) : 3;
+    return typeWeight;
+  };
+
+  /** Feature 4: Estimated fix time label */
+  const getEstimatedFixTime = (risk: RiskItem): string => {
+    if (!risk.autoFixAvailable) return '';
+    const type = risk.autoFixAction?.type;
+    if (type === 'reduce_batch_size') return '< 1 second';
+    if (type === 'set_nullable') return '< 1 second';
+    if (type === 'change_column_type') return '< 1 second';
+    if (type === 'rename_target_table') return '< 1 second';
+    if (type === 'rename_target_column') return '< 1 second';
+    if (type === 'defer_foreign_keys') return '< 1 second';
+    if (type === 'create_child_table') return '~2 seconds';
+    return '< 1 second';
+  };
+
+  /** Feature 2: "What if I ignore this?" impact text */
+  const getIgnoreImpact = (risk: RiskItem): string => {
+    const type = risk.autoFixAction?.type;
+    if (type === 'create_child_table')
+      return `⚠️ Impact: The "${risk.affectedField}" array will be silently dropped or cause a PostgreSQL type mismatch error. Nested object data will be permanently lost for all ${risk.affectedTable} records.`;
+    if (type === 'set_nullable')
+      return `⚠️ Impact: Every document missing "${risk.affectedField}" will trigger a NOT NULL constraint violation. These rows will be skipped during migration, causing silent data loss.`;
+    if (type === 'change_column_type')
+      return `⚠️ Impact: Any value exceeding 2,147,483,647 in column "${risk.affectedField}" will crash the PostgreSQL insert with ERROR: integer out of range. Migration halts at that batch.`;
+    if (type === 'defer_foreign_keys')
+      return `⚠️ Impact: Tables with circular dependencies cannot be created in the right order. Migration will fail immediately with FK constraint violation errors.`;
+    if (type === 'reduce_batch_size')
+      return `⚠️ Impact: Streaming 500 large binary documents simultaneously can exceed available RAM and crash the Electron process mid-migration. Partial data will be written but uncommitted.`;
+    if (type === 'rename_target_table' || type === 'rename_target_column')
+      return `⚠️ Impact: Using "${risk.affectedTable || risk.affectedField}" as an unquoted identifier in PostgreSQL SQL will cause syntax errors on every query. Your application will be unable to read or write data.`;
+    return `⚠️ Impact: This issue may cause unexpected failures during data transfer. Proceed only if you have validated this case manually.`;
+  };
 
   // Active filter tab
   const [activeTab, setActiveTab] = useState<'all' | 'critical' | 'warning' | 'info' | 'layer2'>('all');
@@ -233,13 +287,21 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
   // Copied code feedback
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Trigger live IPC analysis
   const runLiveAnalysis = useCallback(async () => {
     if (!schemaMapping || !sourceSchema) return;
     if (typeof window === 'undefined' || !window.electronAPI) return;
 
+    if (isAnalyzing) return; // Prevent concurrent requests
+    setIsAnalyzing(true);
+    
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
-      setIsAnalyzing(true);
       const res = await window.electronAPI.invoke<RiskAnalysisResult>('risk:analyze', {
         sourceSchema,
         mapping: schemaMapping,
@@ -248,15 +310,19 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
         targetConfig,
       });
 
-      if (res.success && res.data) {
+      if (!abortController.signal.aborted && res.success && res.data) {
         setRiskAnalysis(res.data);
       }
     } catch (err) {
-      console.error('Failed to run live risk analysis:', err);
+      if (!abortController.signal.aborted) {
+        console.error('Failed to run live risk analysis:', err);
+      }
     } finally {
-      setIsAnalyzing(false);
+      if (!abortController.signal.aborted) {
+        setIsAnalyzing(false);
+      }
     }
-  }, [schemaMapping, sourceSchema, direction, sourceConfig, targetConfig, setRiskAnalysis]);
+  }, [schemaMapping, sourceSchema, direction, sourceConfig, targetConfig, setRiskAnalysis, isAnalyzing]);
 
   useEffect(() => {
     // Only run if not already analyzed or when mappings/schema exist
@@ -320,14 +386,30 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
 
   const isContinueDisabled = unacknowledgedCritical.length > 0;
 
-  // Filtered lists
+  // Filtered + sorted lists (Feature 5: prioritization sort within each tier)
   const filteredRisks = useMemo(() => {
-    if (activeTab === 'critical') return criticalIssues;
-    if (activeTab === 'warning') return warningIssues;
-    if (activeTab === 'info') return infoIssues;
-    if (activeTab === 'layer2') return [];
-    return risks;
+    let base: RiskItem[];
+    if (activeTab === 'critical') base = criticalIssues;
+    else if (activeTab === 'warning') base = warningIssues;
+    else if (activeTab === 'info') base = infoIssues;
+    else if (activeTab === 'layer2') base = [];
+    else base = risks;
+
+    // Within each severity tier, sort by impact weight (data loss first)
+    return [...base].sort((a, b) => {
+      const sevOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+      const sevDiff = (sevOrder[a.severity] ?? 2) - (sevOrder[b.severity] ?? 2);
+      if (sevDiff !== 0) return sevDiff;
+      return getRiskSortWeight(a) - getRiskSortWeight(b);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, risks, criticalIssues, warningIssues, infoIssues]);
+
+  // Count of fixable (non-critical, auto-fixable, not yet fixed) warnings — for batch button
+  const fixableWarningCount = useMemo(
+    () => warningIssues.filter((r) => r.autoFixAvailable && !r.fixed).length,
+    [warningIssues]
+  );
 
   // Is PostgreSQL -> MongoDB direction active?
   const isPgToMongo = direction === 'postgres-to-mongo';
@@ -458,6 +540,17 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
         </div>
 
         <div className="risk-expand-controls">
+          {/* Feature 1: Auto-Fix All Non-Breaking Warnings batch button */}
+          {fixableWarningCount > 0 && (
+            <button
+              type="button"
+              className="btn-autofix-all"
+              onClick={applyAllAutoFixes}
+              title={`Automatically apply all ${fixableWarningCount} fixable warning resolutions in one click`}
+            >
+              ⚡ Auto-Fix All Warnings ({fixableWarningCount})
+            </button>
+          )}
           <button
             type="button"
             className="btn-ghost-sm"
@@ -527,6 +620,12 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
                         {risk.affectedField ? `.${risk.affectedField}` : ''}
                       </span>
                     )}
+                    {/* Feature 4: Estimated fix time chip */}
+                    {risk.autoFixAvailable && !isFixed && (
+                      <span className="risk-fix-time-chip">
+                        ⏱️ Auto-fix: {getEstimatedFixTime(risk)}
+                      </span>
+                    )}
                   </div>
 
                   <div className="risk-card-header-right">
@@ -553,6 +652,26 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
                       <div className="risk-suggested-fix-box">
                         <span className="risk-suggested-fix-label">Suggested Resolution</span>
                         <span className="risk-suggested-fix-text">{risk.suggestedFix}</span>
+                      </div>
+                    )}
+
+                    {/* Feature 2: "What if I ignore this?" impact simulator */}
+                    {!isFixed && (
+                      <div className="risk-ignore-impact-row">
+                        <button
+                          type="button"
+                          className="btn-what-if"
+                          onClick={() =>
+                            setOpenImpactId(openImpactId === risk.id ? null : risk.id)
+                          }
+                        >
+                          {openImpactId === risk.id ? '▲ Hide Impact' : '▼ What if I ignore this?'}
+                        </button>
+                        {openImpactId === risk.id && (
+                          <div className="risk-ignore-impact-panel">
+                            {getIgnoreImpact(risk)}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -598,6 +717,29 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
                               >
                                 {isAcknowledged ? '✓ Ignored' : 'Ignore Warning'}
                               </button>
+                            )}
+
+                            {/* Feature 3: Ignore All of This Type button */}
+                            {risk.severity === 'warning' && !isAcknowledged && risk.autoFixAction && (
+                              (() => {
+                                const sameTypeCount = warningIssues.filter(
+                                  (r) =>
+                                    r.autoFixAction?.type === risk.autoFixAction!.type &&
+                                    !r.fixed &&
+                                    !acknowledgedRiskIds.includes(r.id) &&
+                                    r.id !== risk.id
+                                ).length;
+                                return sameTypeCount >= 1 ? (
+                                  <button
+                                    type="button"
+                                    className="btn-ignore-all-type"
+                                    onClick={() => acknowledgeAllOfType(risk.autoFixAction!.type)}
+                                    title={`Ignore all ${sameTypeCount + 1} warnings of this type at once`}
+                                  >
+                                    Ignore All {sameTypeCount + 1} of This Type
+                                  </button>
+                                ) : null;
+                              })()
                             )}
                           </>
                         )}
@@ -666,14 +808,15 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
 
           {/* Layer 2 Cards */}
           <div className="layer2-cards-list">
-            {layer2Features.map((feat) => {
+            {layer2Features.map((feat, index) => {
               const isAcknowledged =
                 feat.isAutoApplied || acknowledgedLayer2Ids.includes(feat.id);
               const isOpen = expandedCards[feat.id] ?? false;
-
+              const uniqueKey = `layer2-${feat.type}-${feat.name}-${index}`;
+              
               return (
                 <div
-                  key={feat.id}
+                  key={uniqueKey}
                   className={`layer2-card ${feat.isAutoApplied ? 'auto-applied' : ''} ${
                     isAcknowledged ? 'acknowledged' : ''
                   }`}
@@ -783,7 +926,7 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
               <strong>{layer2Features.length}</strong> application features acknowledged
             </span>
             <span className="layer2-counter-hint">
-              💡 These are manual checklist actions and do not block continuing to Dry Run.
+              💡 These are manual checklist actions and do not block continuing to Dry Run. A complete Layer 2 Migration Guide with all the above instructions will be included in your downloadable Refactoring Kit.
             </span>
           </div>
         </div>

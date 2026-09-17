@@ -82,7 +82,10 @@ export type AutoFixActionType =
   | 'set_nullable' 
   | 'create_child_table' 
   | 'reduce_batch_size' 
-  | 'defer_foreign_keys';
+  | 'defer_foreign_keys'
+  | 'change_column_type'
+  | 'rename_target_column'
+  | 'rename_target_table';
 
 export interface AutoFixAction {
   type: AutoFixActionType;

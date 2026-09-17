@@ -17,6 +17,7 @@ import type {
   RiskItem,
   AutoFixAction,
 } from '@migrateiq/shared';
+import { PG_RESERVED_WORDS } from './ruleEngine';
 
 export interface RiskAnalysisInput {
   sourceSchema: SourceSchema[];
@@ -25,6 +26,7 @@ export interface RiskAnalysisInput {
   existingTargetTables?: string[];
   docSizeAverages?: Record<string, number>; // in bytes
   fieldMissingCounts?: Record<string, Record<string, number>>; // collection -> field -> missing count
+  fieldOverflows?: Record<string, string[]>; // collection -> field names exceeding 2.14B int limit
 }
 
 export interface RiskAnalysisOutput {
@@ -74,40 +76,67 @@ export function detectFkCycles(mappings: CollectionMapping[]): string[][] {
     }
   }
 
-  const cycles: string[][] = [];
-  const visited = new Set<string>();
-  const recursionStack = new Set<string>();
-  const currentPath: string[] = [];
+  interface GraphNode {
+    index: number;
+    lowLink: number;
+    onStack: boolean;
+  }
 
-  function dfs(node: string) {
-    visited.add(node);
-    recursionStack.add(node);
-    currentPath.push(node);
+  const nodes = new Map<string, GraphNode>();
+  const stack: string[] = [];
+  const sccs: string[][] = [];
+  let index = 0;
 
-    const neighbors = graph.get(node) || new Set();
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor)) {
-        dfs(neighbor);
-      } else if (recursionStack.has(neighbor)) {
-        // Cycle detected: slice from neighbor to end of currentPath
-        const cycleStartIndex = currentPath.indexOf(neighbor);
-        if (cycleStartIndex !== -1) {
-          cycles.push(currentPath.slice(cycleStartIndex).concat(neighbor));
+  function strongconnect(v: string) {
+    nodes.set(v, { index, lowLink: index, onStack: true });
+    index++;
+    stack.push(v);
+
+    const neighbors = graph.get(v) || new Set<string>();
+    for (const w of neighbors) {
+      if (!nodes.has(w)) {
+        strongconnect(w);
+        const nodeV = nodes.get(v)!;
+        const nodeW = nodes.get(w)!;
+        nodeV.lowLink = Math.min(nodeV.lowLink, nodeW.lowLink);
+      } else {
+        const nodeW = nodes.get(w)!;
+        if (nodeW.onStack) {
+          const nodeV = nodes.get(v)!;
+          nodeV.lowLink = Math.min(nodeV.lowLink, nodeW.index);
         }
       }
     }
 
-    currentPath.pop();
-    recursionStack.delete(node);
-  }
+    const nodeV = nodes.get(v)!;
+    if (nodeV.lowLink === nodeV.index) {
+      const scc: string[] = [];
+      let w: string;
+      do {
+        w = stack.pop()!;
+        const nodeW = nodes.get(w)!;
+        nodeW.onStack = false;
+        scc.push(w);
+      } while (w !== v);
 
-  for (const node of graph.keys()) {
-    if (!visited.has(node)) {
-      dfs(node);
+      if (scc.length > 1) {
+        sccs.push(scc);
+      } else {
+        // Handle self-loops
+        if (graph.get(v)?.has(v)) {
+          sccs.push([v, v]);
+        }
+      }
     }
   }
 
-  return cycles;
+  for (const node of graph.keys()) {
+    if (!nodes.has(node)) {
+      strongconnect(node);
+    }
+  }
+
+  return sccs;
 }
 
 /**
@@ -122,6 +151,7 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
     existingTargetTables = [],
     docSizeAverages = {},
     fieldMissingCounts = {},
+    fieldOverflows = {},
   } = input;
 
   const risks: RiskItem[] = [];
@@ -397,6 +427,111 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
           autoFixAvailable: false,
           affectedTable: colMapping.targetTableName || colMapping.collectionName,
         });
+      }
+    }
+  }
+
+  // ── RULE 11 (🟡 Warning): PostgreSQL Reserved Words & Identifier Length ────
+  if (direction === 'mongodb-to-postgres') {
+    for (const colMapping of mapping) {
+      const targetTable = (colMapping.targetTableName || colMapping.collectionName).trim();
+      if (PG_RESERVED_WORDS.has(targetTable.toLowerCase())) {
+        risks.push({
+          id: `risk-reserved-table-${targetTable.toLowerCase()}`,
+          severity: 'warning',
+          title: `Target Table "${targetTable}" is a PostgreSQL Reserved Keyword`,
+          description: `The table name "${targetTable}" is a reserved SQL keyword. Using unquoted "${targetTable}" in SQL queries will trigger syntax errors.`,
+          suggestedFix: `Rename target table to "${targetTable}s" or ensure strict double-quoting in all queries.`,
+          autoFixAvailable: true,
+          autoFixAction: {
+            type: 'rename_target_table',
+            collectionName: colMapping.collectionName,
+            recommendedValue: `${targetTable}s`,
+            description: `Rename table to "${targetTable}s"`,
+          },
+          affectedTable: targetTable,
+        });
+      }
+
+      if (targetTable.length > 63) {
+        risks.push({
+          id: `risk-table-len-${targetTable.slice(0, 20)}`,
+          severity: 'warning',
+          title: `Target Table Name Exceeds 63-Byte Limit: "${targetTable}"`,
+          description: `PostgreSQL identifiers are capped at 63 bytes (NAMEDATALEN - 1). Names longer than 63 bytes are silently truncated to "${targetTable.slice(0, 63)}".`,
+          suggestedFix: `Shorten the table name to under 63 characters in Step 4 Schema Mapper.`,
+          autoFixAvailable: false,
+          affectedTable: targetTable,
+        });
+      }
+
+      for (const field of colMapping.fields) {
+        if (!field.include) continue;
+        const targetCol = (field.targetColumn || field.sourceField).trim();
+        if (PG_RESERVED_WORDS.has(targetCol.toLowerCase())) {
+          risks.push({
+            id: `risk-reserved-col-${colMapping.collectionName}-${targetCol.toLowerCase()}`,
+            severity: 'warning',
+            title: `Target Column "${targetCol}" is a PostgreSQL Reserved Keyword`,
+            description: `Column "${targetCol}" in table "${targetTable}" is a reserved SQL word. Unquoted queries referencing "${targetCol}" will fail with syntax errors.`,
+            suggestedFix: `Rename column to "${targetCol}_col" or keep wrapped in double quotes.`,
+            autoFixAvailable: true,
+            autoFixAction: {
+              type: 'rename_target_column',
+              collectionName: colMapping.collectionName,
+              fieldName: field.sourceField,
+              recommendedValue: `${targetCol}_col`,
+              description: `Rename column to "${targetCol}_col"`,
+            },
+            affectedTable: targetTable,
+            affectedField: targetCol,
+          });
+        }
+
+        if (targetCol.length > 63) {
+          risks.push({
+            id: `risk-col-len-${colMapping.collectionName}-${targetCol.slice(0, 20)}`,
+            severity: 'warning',
+            title: `Target Column Name Exceeds 63-Byte Limit: "${targetCol}"`,
+            description: `PostgreSQL silently truncates column names exceeding 63 bytes to "${targetCol.slice(0, 63)}".`,
+            suggestedFix: `Shorten the column name to under 63 characters.`,
+            autoFixAvailable: false,
+            affectedTable: targetTable,
+            affectedField: targetCol,
+          });
+        }
+      }
+    }
+  }
+
+  // ── RULE 12 (🔴 Critical): Integer Overflow Risk (Int32 vs BigInt) ────────
+  if (direction === 'mongodb-to-postgres') {
+    for (const colMapping of mapping) {
+      const overflowCols = fieldOverflows[colMapping.collectionName] || [];
+      for (const field of colMapping.fields) {
+        if (!field.include || field.isChildTable) continue;
+        const targetTypeUpper = (field.targetType || '').toUpperCase().trim();
+        const isStandardInt = ['INTEGER', 'INT', 'INT4', 'SMALLINT', 'INT2'].includes(targetTypeUpper);
+
+        if (overflowCols.includes(field.sourceField) && isStandardInt) {
+          risks.push({
+            id: `risk-overflow-${colMapping.collectionName}-${field.sourceField}`,
+            severity: 'critical',
+            title: `Integer Overflow Hazard in Column "${field.targetColumn || field.sourceField}"`,
+            description: `Sample documents in "${colMapping.collectionName}.${field.sourceField}" contain numeric values exceeding the 32-bit integer ceiling (2,147,483,647). Mapping to ${targetTypeUpper} will cause immediate PostgreSQL runtime error: "ERROR: integer out of range".`,
+            suggestedFix: `Upgrade target column type from ${targetTypeUpper} to BIGINT (64-bit integer, safe up to 9.22 quintillion).`,
+            autoFixAvailable: true,
+            autoFixAction: {
+              type: 'change_column_type',
+              collectionName: colMapping.collectionName,
+              fieldName: field.sourceField,
+              recommendedValue: 'BIGINT',
+              description: `Change "${field.targetColumn || field.sourceField}" to BIGINT`,
+            },
+            affectedTable: colMapping.targetTableName || colMapping.collectionName,
+            affectedField: field.targetColumn || field.sourceField,
+          });
+        }
       }
     }
   }

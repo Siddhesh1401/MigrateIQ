@@ -251,6 +251,13 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
     new Set(initialMappings.map((m) => m.collectionName))
   );
 
+  // Synchronize when initialMappings is updated externally (e.g. from Auto-Fix)
+  useEffect(() => {
+    if (initialMappings && initialMappings.length > 0) {
+      setMappings(initialMappings);
+    }
+  }, [initialMappings]);
+
   // Search / Filter and Child Table Expansion State
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedChildTables, setExpandedChildTables] = useState<Set<string>>(new Set());

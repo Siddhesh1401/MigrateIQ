@@ -1363,8 +1363,8 @@ Fields marked as `mixed` trigger amber warning badges in `SchemaMapper.tsx` and 
 <a id="sec-2-3-3"></a>
 ### 2.3.3 DNS SRV Lookup Failures: Diagnosing Port 53 Blocking in Corporate Networks
 When developers connect to cloud-hosted MongoDB Atlas clusters, they typically supply a connection string using the modern `mongodb+srv://` prefix:
-```
-mongodb+srv://admin:secret@cluster0.abcde.mongodb.net/production
+```text
+mongodb+srv://<username>:<password>@cluster0.example.com/production
 ```
 
 **The DNS SRV Problem in Educational and Corporate Environments**:
@@ -1372,8 +1372,8 @@ mongodb+srv://admin:secret@cluster0.abcde.mongodb.net/production
 2. A `mongodb+srv://` URI specifies a virtual hostname. The driver must issue a **DNS SRV (Service Record)** query and a **DNS TXT query** over UDP Port 53 to resolve the actual hostnames of the underlying replica set members.
 3. In university campuses, corporate offices, and institutional Wi-Fi networks, network firewalls frequently block UDP Port 53 SRV record lookups or fail to resolve multi-string TXT records.
 4. When this occurs, the native driver throws an opaque error:
-   ```
-   querySrv ENOTFOUND _mongodb._tcp.cluster0.abcde.mongodb.net
+   ```text
+   querySrv ENOTFOUND _mongodb._tcp.cluster0.example.com
    ```
 Junior developers and students are baffled by this error, assuming their credentials or database clusters are broken.
 
@@ -5187,7 +5187,7 @@ The 22 challenges are organized into **5 core architectural categories**:
 
 #### 🟢 Layer 1: Plain-English Concept ("What this actually means")
 - **The Analogy: The Corporate Firewall Blocking the Phone Directory.**
-  When you connect to MongoDB Atlas in the cloud, the connection string starts with `mongodb+srv://cluster0.abcde.mongodb.net`.
+  When you connect to MongoDB Atlas in the cloud, the connection string starts with `mongodb+srv://cluster0.example.com`.
   
   The `+srv` part means: *"Before connecting, ask the internet's phone directory (DNS) to look up the hidden list of 3 separate replica set database servers."*
   

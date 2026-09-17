@@ -29,6 +29,7 @@ export interface WizardState {
   acknowledgedRiskIds: string[];
   acknowledgedLayer2Ids: string[];
   recommendedBatchSize: number;
+  deferForeignKeys: boolean;
   wizardStep: number; // 1-8
   isDemoMode: boolean;
 
@@ -40,9 +41,12 @@ export interface WizardState {
   setSchemaMapping: (mapping: CollectionMapping[]) => void;
   setLayer2Features: (features: Layer2Features) => void;
   setRiskAnalysis: (result: RiskAnalysisResult | null) => void;
+  setDeferForeignKeys: (defer: boolean) => void;
   toggleAcknowledgeRisk: (riskId: string) => void;
   toggleAcknowledgeLayer2: (featureId: string) => void;
   applyAutoFix: (action: AutoFixAction) => void;
+  applyAllAutoFixes: () => void;
+  acknowledgeAllOfType: (autoFixType: string) => void;
   setWizardStep: (step: number) => void;
   setIsDemoMode: (isDemoMode: boolean) => void;
   reset: () => void;
@@ -60,6 +64,7 @@ const initialState = {
   acknowledgedRiskIds: [],
   acknowledgedLayer2Ids: [],
   recommendedBatchSize: 500,
+  deferForeignKeys: false,
   wizardStep: 1,
   isDemoMode: false,
 };
@@ -103,11 +108,13 @@ export const useWizardStore = create<WizardState>((set, get) => ({
 
   setTargetConfig: (config) => set({ targetConfig: config }),
 
-  setSchemaMapping: (mapping) => set({ schemaMapping: mapping }),
+  setSchemaMapping: (mapping) => set({ schemaMapping: mapping, riskAnalysis: null, acknowledgedRiskIds: [] }),
 
   setLayer2Features: (features) => set({ layer2Features: features }),
 
   setRiskAnalysis: (result) => set({ riskAnalysis: result }),
+
+  setDeferForeignKeys: (defer) => set({ deferForeignKeys: defer }),
 
   toggleAcknowledgeRisk: (riskId) => {
     const { acknowledgedRiskIds } = get();
@@ -167,6 +174,43 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     } else if (action.type === 'reduce_batch_size') {
       const newSize = typeof action.recommendedValue === 'number' ? action.recommendedValue : 50;
       set({ recommendedBatchSize: newSize });
+    } else if (action.type === 'defer_foreign_keys') {
+      set({ deferForeignKeys: true });
+    } else if (action.type === 'change_column_type' && action.fieldName) {
+      const newType = typeof action.recommendedValue === 'string' ? action.recommendedValue : 'BIGINT';
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, targetType: newType }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'rename_target_column' && action.fieldName) {
+      const newName = typeof action.recommendedValue === 'string' ? action.recommendedValue : `${action.fieldName}_col`;
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, targetColumn: newName }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'rename_target_table') {
+      const newName = typeof action.recommendedValue === 'string' ? action.recommendedValue : `${action.collectionName}s`;
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName) return col;
+        return {
+          ...col,
+          targetTableName: newName,
+        };
+      });
     }
 
     // Update risk item status to fixed
@@ -206,6 +250,35 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       schemaMapping: updatedMappings,
       riskAnalysis: updatedRiskAnalysis,
     });
+  },
+
+  // ── Batch Auto-Fix: Apply ALL fixable warnings in one click ─────────────
+  applyAllAutoFixes: () => {
+    const { riskAnalysis, applyAutoFix } = get();
+    if (!riskAnalysis) return;
+    const fixableRisks = riskAnalysis.risks.filter(
+      (r) => r.autoFixAvailable && r.autoFixAction && !r.fixed && r.severity !== 'critical'
+    );
+    // Apply each fix sequentially — each call is a pure mutation so order is safe
+    for (const risk of fixableRisks) {
+      applyAutoFix(risk.autoFixAction!);
+    }
+  },
+
+  // ── Acknowledge All of Same Type: batch-ignore identical warning categories ─
+  acknowledgeAllOfType: (autoFixType: string) => {
+    const { riskAnalysis, acknowledgedRiskIds } = get();
+    if (!riskAnalysis) return;
+    const sameTypeIds = riskAnalysis.risks
+      .filter(
+        (r) =>
+          r.severity === 'warning' &&
+          !r.fixed &&
+          (r.autoFixAction?.type === autoFixType || (!r.autoFixAction && autoFixType === 'none'))
+      )
+      .map((r) => r.id);
+    const merged = Array.from(new Set([...acknowledgedRiskIds, ...sameTypeIds]));
+    set({ acknowledgedRiskIds: merged });
   },
 
   setWizardStep: (step) => {

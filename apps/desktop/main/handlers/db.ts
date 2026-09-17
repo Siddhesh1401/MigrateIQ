@@ -269,6 +269,7 @@ export function setupPostgresqlHandler(): void {
         client = new PgClient({
           connectionString: config.connectionString.trim(),
           connectionTimeoutMillis: 5000,
+          statement_timeout: 10000,
         });
       } else {
         client = new PgClient({
@@ -278,12 +279,14 @@ export function setupPostgresqlHandler(): void {
           password: config.password,
           database: config.database,
           connectionTimeoutMillis: 5000,
+          statement_timeout: 10000,
         });
       }
 
       // Test connection and measure ping latency
       const startTime = Date.now();
       await client.connect();
+      await client.query('SET statement_timeout = 10000;');
       const latencyMs = Date.now() - startTime;
 
       // Check permissions on target schema
@@ -505,7 +508,7 @@ export function setupClearTargetHandler(): void {
       let client: PgClient | null = null;
       try {
         if (config.connectionString && config.connectionString.trim().length > 0) {
-          client = new PgClient({ connectionString: config.connectionString.trim(), connectionTimeoutMillis: 5000 });
+          client = new PgClient({ connectionString: config.connectionString.trim(), connectionTimeoutMillis: 5000, statement_timeout: 10000 });
         } else {
           client = new PgClient({
             host: config.host || 'localhost',
@@ -514,9 +517,11 @@ export function setupClearTargetHandler(): void {
             password: config.password,
             database: config.database,
             connectionTimeoutMillis: 5000,
+            statement_timeout: 10000,
           });
         }
         await client.connect();
+        await client.query('SET statement_timeout = 10000;');
 
         const targetSchema = config.schema?.trim() || 'public';
 

@@ -176,6 +176,68 @@ const collisionRisk = result5.risks.find((r) => r.id.includes('risk-table-collis
 assert(collisionRisk !== undefined, 'Existing target table collision detected');
 assert(collisionRisk?.severity === 'warning', 'Table collision severity is WARNING');
 
+// ── Test 6: Reserved Word Collision (🟡 Warning) ───────────────────────────
+console.log('\n--- Test 6: PostgreSQL Reserved Word Collision ---');
+const sampleSchema6 = [
+  {
+    collectionName: 'orders',
+    documentCount: 10,
+    fields: [{ name: '_id', bsonType: 'ObjectId', isNullable: false, isArray: false }],
+  },
+];
+const sampleMapping6 = [
+  {
+    collectionName: 'orders',
+    targetTableName: 'order', // reserved word!
+    fields: [
+      { id: 'f1', sourceField: 'user', sourceType: 'string', targetColumn: 'user', targetType: 'VARCHAR(50)', isNullable: true, include: true },
+    ],
+    indexes: [],
+  },
+];
+const result6 = analyzeRisks({
+  sourceSchema: sampleSchema6,
+  mapping: sampleMapping6,
+  direction: 'mongodb-to-postgres',
+});
+const reservedTableRisk = result6.risks.find((r) => r.id.includes('risk-reserved-table-order'));
+const reservedColRisk = result6.risks.find((r) => r.id.includes('risk-reserved-col-orders-user'));
+assert(reservedTableRisk !== undefined, 'Detected PostgreSQL reserved word table name');
+assert(reservedTableRisk?.autoFixAction?.type === 'rename_target_table', 'Auto-fix action is rename_target_table');
+assert(reservedColRisk !== undefined, 'Detected PostgreSQL reserved word column name');
+
+// ── Test 7: Integer Overflow Hazard (🔴 Critical) ───────────────────────────
+console.log('\n--- Test 7: Integer Overflow Hazard (>2.14 Billion) ---');
+const sampleSchema7 = [
+  {
+    collectionName: 'metrics',
+    documentCount: 100,
+    fields: [{ name: '_id', bsonType: 'ObjectId', isNullable: false, isArray: false }],
+  },
+];
+const sampleMapping7 = [
+  {
+    collectionName: 'metrics',
+    targetTableName: 'metrics',
+    fields: [
+      { id: 'm1', sourceField: 'timestamp_ms', sourceType: 'int', targetColumn: 'timestamp_ms', targetType: 'INTEGER', isNullable: false, include: true },
+    ],
+    indexes: [],
+  },
+];
+const result7 = analyzeRisks({
+  sourceSchema: sampleSchema7,
+  mapping: sampleMapping7,
+  direction: 'mongodb-to-postgres',
+  fieldOverflows: {
+    metrics: ['timestamp_ms'],
+  },
+});
+const overflowRisk = result7.risks.find((r) => r.id.includes('risk-overflow-metrics-timestamp_ms'));
+assert(overflowRisk !== undefined, 'Detected integer overflow risk for timestamp_ms');
+assert(overflowRisk?.severity === 'critical', 'Integer overflow severity is CRITICAL');
+assert(overflowRisk?.autoFixAction?.type === 'change_column_type', 'Auto-fix action is change_column_type to BIGINT');
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log('\n====================================================');
 console.log(`📊 Test Results: ${passedTests} of ${totalTests} assertions passed (${Math.round((passedTests / totalTests) * 100)}%)`);

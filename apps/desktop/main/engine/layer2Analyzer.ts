@@ -61,6 +61,10 @@ export async function introspectLayer2Catalogs(
       FROM pg_proc p
       JOIN pg_namespace n ON p.pronamespace = n.oid
       WHERE n.nspname = $1 AND p.prokind = 'p'
+        AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND n.nspname NOT LIKE 'pg_temp%'
+        AND p.proname NOT LIKE 'pg_%'
+        AND p.proname NOT LIKE '_pg%'
       ORDER BY p.proname;
       `,
       [targetSchema]
@@ -76,7 +80,10 @@ export async function introspectLayer2Catalogs(
       FROM pg_proc p
       JOIN pg_namespace n ON p.pronamespace = n.oid
       WHERE n.nspname = $1 AND p.prokind = 'f'
+        AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND n.nspname NOT LIKE 'pg_temp%'
         AND p.proname NOT LIKE 'pg_%'
+        AND p.proname NOT LIKE '_pg%'
       ORDER BY p.proname;
       `,
       [targetSchema]

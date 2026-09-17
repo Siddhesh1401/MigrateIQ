@@ -12,8 +12,8 @@ This folder contains the complete, phase-by-phase technical documentation genera
 | **Phase 3** | [`phase-03-home-dashboard.md`](./phase-03-home-dashboard.md) | Dashboard entry cards, recent migrations table, resume banner | ✅ Completed |
 | **Phase 4** | [`phase-04-database-connectivity.md`](./phase-04-database-connectivity.md) | MongoDB & PostgreSQL IPC connection handlers, Step 2 & 3 | ✅ Completed |
 | **Phase 5** | [`phase-05-ai-schema-mapping.md`](./phase-05-ai-schema-mapping.md) <br> [`advanced-ai-schema-engine.md`](./advanced-ai-schema-engine.md) | Bidirectional AI schema mapping (MongoDB ↔ PostgreSQL), BSON type system, `$jsonSchema` script generator, Copilot Workspace, & AI Quota Monitor | ✅ Completed |
-| **Phase 6** | [`phase-06-ai-integration-rule-engine.md`](./phase-06-ai-integration-rule-engine.md) | Gemini AI mapping integration & fallback rule engine | ⏳ Pending |
-| **Phase 7** | [`phase-07-risk-report.md`](./phase-07-risk-report.md) | Pre-migration risk analysis engine & Layer 2 inspection | ⏳ Pending |
+| **Phase 6** | [`phase-05-ai-schema-mapping.md`](./phase-05-ai-schema-mapping.md#phase-summary--goal) | Gemini AI mapping integration, fallback rule engine, & natural language refinement (integrated into Phase 5) | ✅ Completed |
+| **Phase 7** | [`phase-07-risk-report.md`](./phase-07-risk-report.md) | Pre-migration risk analysis engine (12 rules, 30-hazard matrix), DFS cycle detection, & Layer 2 inspection | ✅ Completed |
 | **Phase 8** | [`phase-08-dry-run-simulation.md`](./phase-08-dry-run-simulation.md) | Transactional dry run simulation engine & results screen | ⏳ Pending |
 | **Phase 9** | [`phase-09-live-migration-engine.md`](./phase-09-live-migration-engine.md) | Topological sort, streaming ETL engine, rollback pre-gen | ⏳ Pending |
 | **Phase 10** | [`phase-10-completion-downloads-erd.md`](./phase-10-completion-downloads-erd.md) | Summary screen, ERD diagram generation, audit report PDF | ⏳ Pending |

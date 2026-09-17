@@ -73,6 +73,7 @@ export function setupRiskHandlers(): void {
         const existingTargetTables: string[] = [];
         const docSizeAverages: Record<string, number> = {};
         const fieldMissingCounts: Record<string, Record<string, number>> = {};
+        const fieldOverflows: Record<string, string[]> = {};
         let layer2Features: Layer2FeatureItem[] = [];
 
         // ── 1. Inspect Target PostgreSQL for Table Collisions ──────────────
@@ -210,15 +211,37 @@ export function setupRiskHandlers(): void {
                 });
                 docSizeAverages[colMapping.collectionName] = Math.round(totalBytes / sampleDocs.length);
 
-                // Count missing / null fields for NOT NULL checks
+                // Count missing / null fields and detect large integer overflow (>2,147,483,647)
                 fieldMissingCounts[colMapping.collectionName] = {};
+                const overflowCols = new Set<string>();
+
                 for (const field of colMapping.fields) {
                   let missing = 0;
                   sampleDocs.forEach((doc) => {
-                    const val = doc[field.sourceField];
-                    if (val === null || val === undefined) missing++;
+                    const val = (doc as Record<string, unknown>)[field.sourceField];
+                    if (val === null || val === undefined) {
+                      missing++;
+                    } else if (val !== null && val !== undefined) {
+                      try {
+                        let bigVal: bigint;
+                        if (typeof val === 'number') {
+                          bigVal = !Number.isSafeInteger(val) ? BigInt(val.toFixed(0)) : BigInt(val);
+                        } else {
+                          bigVal = BigInt(String(val));
+                        }
+                        if (bigVal > 2147483647n || bigVal < -2147483648n) {
+                          overflowCols.add(field.sourceField);
+                        }
+                      } catch {
+                        // ignore if string/object cannot be parsed as a BigInt
+                      }
+                    }
                   });
                   fieldMissingCounts[colMapping.collectionName][field.sourceField] = missing;
+                }
+
+                if (overflowCols.size > 0) {
+                  fieldOverflows[colMapping.collectionName] = Array.from(overflowCols);
                 }
               }
             }
@@ -259,6 +282,7 @@ export function setupRiskHandlers(): void {
           existingTargetTables,
           docSizeAverages,
           fieldMissingCounts,
+          fieldOverflows,
         });
 
         // If no Layer 2 features detected in live DB, provide sample items for UI exploration

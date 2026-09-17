@@ -1452,7 +1452,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
                 </div>
             ) : (
               <SchemaMapper
-                initialMappings={aiMapping?.mappings || []}
+                initialMappings={wizardStore.schemaMapping || aiMapping?.mappings || []}
                 badge={mappingBadge}
                 sourceSchema={wizardStore.sourceSchema}
                 direction={wizardStore.direction || 'mongodb-to-postgres'}
