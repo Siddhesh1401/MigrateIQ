@@ -4,7 +4,8 @@ import type {
   SourceSchema, 
   CollectionMapping, 
   RiskAnalysisResult, 
-  AutoFixAction 
+  AutoFixAction,
+  DryRunResult,
 } from '@migrateiq/shared';
 
 export interface Layer2Features {
@@ -26,10 +27,12 @@ export interface WizardState {
   schemaMapping: CollectionMapping[] | null;
   layer2Features: Layer2Features | null;
   riskAnalysis: RiskAnalysisResult | null;
+  dryRunResult: DryRunResult | null;
   acknowledgedRiskIds: string[];
   acknowledgedLayer2Ids: string[];
   recommendedBatchSize: number;
   deferForeignKeys: boolean;
+  quarantinePolicyAcknowledged: boolean;
   wizardStep: number; // 1-8
   isDemoMode: boolean;
 
@@ -41,10 +44,13 @@ export interface WizardState {
   setSchemaMapping: (mapping: CollectionMapping[]) => void;
   setLayer2Features: (features: Layer2Features) => void;
   setRiskAnalysis: (result: RiskAnalysisResult | null) => void;
+  setDryRunResult: (result: DryRunResult | null) => void;
   setDeferForeignKeys: (defer: boolean) => void;
+  setQuarantinePolicyAcknowledged: (acknowledged: boolean) => void;
   toggleAcknowledgeRisk: (riskId: string) => void;
   toggleAcknowledgeLayer2: (featureId: string) => void;
   applyAutoFix: (action: AutoFixAction) => void;
+  applyDefaultValue: (tableName: string, fieldName: string, defaultValue: string) => void;
   applyAllAutoFixes: () => void;
   acknowledgeAllOfType: (autoFixType: string) => void;
   setWizardStep: (step: number) => void;
@@ -61,10 +67,12 @@ const initialState = {
   schemaMapping: null,
   layer2Features: null,
   riskAnalysis: null,
+  dryRunResult: null,
   acknowledgedRiskIds: [],
   acknowledgedLayer2Ids: [],
   recommendedBatchSize: 500,
   deferForeignKeys: false,
+  quarantinePolicyAcknowledged: false,
   wizardStep: 1,
   isDemoMode: false,
 };
@@ -102,19 +110,43 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     persistWizardState({ direction: dir, wizardStep: s.wizardStep, sourceConfig: s.sourceConfig, targetConfig: s.targetConfig, status: 'in-progress' });
   },
 
-  setSourceConfig: (config) => set({ sourceConfig: config }),
+  setSourceConfig: (config) => {
+    set({ sourceConfig: config });
+    const s = get();
+    persistWizardState({
+      direction: s.direction,
+      wizardStep: s.wizardStep,
+      sourceConfig: config,
+      targetConfig: s.targetConfig,
+      status: 'in-progress',
+    });
+  },
 
   setSourceSchema: (schema) => set({ sourceSchema: schema }),
 
-  setTargetConfig: (config) => set({ targetConfig: config }),
+  setTargetConfig: (config) => {
+    set({ targetConfig: config });
+    const s = get();
+    persistWizardState({
+      direction: s.direction,
+      wizardStep: s.wizardStep,
+      sourceConfig: s.sourceConfig,
+      targetConfig: config,
+      status: 'in-progress',
+    });
+  },
 
-  setSchemaMapping: (mapping) => set({ schemaMapping: mapping, riskAnalysis: null, acknowledgedRiskIds: [] }),
+  setSchemaMapping: (mapping) => set({ schemaMapping: mapping, riskAnalysis: null, dryRunResult: null, acknowledgedRiskIds: [] }),
 
   setLayer2Features: (features) => set({ layer2Features: features }),
 
   setRiskAnalysis: (result) => set({ riskAnalysis: result }),
 
+  setDryRunResult: (result) => set({ dryRunResult: result }),
+
   setDeferForeignKeys: (defer) => set({ deferForeignKeys: defer }),
+
+  setQuarantinePolicyAcknowledged: (acknowledged) => set({ quarantinePolicyAcknowledged: acknowledged }),
 
   toggleAcknowledgeRisk: (riskId) => {
     const { acknowledgedRiskIds } = get();
@@ -144,12 +176,25 @@ export const useWizardStore = create<WizardState>((set, get) => ({
 
     if (action.type === 'set_nullable' && action.fieldName) {
       updatedMappings = updatedMappings.map((col) => {
-        if (col.collectionName !== action.collectionName) return col;
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
         return {
           ...col,
           fields: col.fields.map((f) =>
             f.sourceField === action.fieldName || f.targetColumn === action.fieldName
               ? { ...f, isNullable: true }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'set_default_value' && action.fieldName) {
+      const defVal = typeof action.recommendedValue === 'string' ? action.recommendedValue : 'Unknown';
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, defaultValue: defVal, isNullable: false }
               : f
           ),
         };
@@ -250,6 +295,93 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       schemaMapping: updatedMappings,
       riskAnalysis: updatedRiskAnalysis,
     });
+  },
+
+  applyDefaultValue: (tableName: string, fieldName: string, defaultValue: string) => {
+    const { schemaMapping, dryRunResult } = get();
+    if (!schemaMapping) return;
+
+    const lowerTable = tableName.toLowerCase();
+    const lowerField = fieldName.toLowerCase();
+
+    const updated = schemaMapping.map((col) => {
+      const matchTable =
+        col.collectionName.toLowerCase() === lowerTable ||
+        col.targetTableName.toLowerCase() === lowerTable;
+      if (!matchTable) return col;
+
+      const fieldIdx = col.fields.findIndex(
+        (f) =>
+          f.sourceField.toLowerCase() === lowerField ||
+          f.targetColumn.toLowerCase() === lowerField ||
+          (lowerField === 'name' && (f.sourceField.toLowerCase() === 'fullname' || f.targetColumn.toLowerCase() === 'fullname'))
+      );
+
+      if (fieldIdx >= 0) {
+        return {
+          ...col,
+          fields: col.fields.map((f, idx) =>
+            idx === fieldIdx
+              ? { ...f, defaultValue, isNullable: false }
+              : f
+          ),
+        };
+      } else {
+        // Field not present (e.g. simulated anomaly field) -> append with default
+        return {
+          ...col,
+          fields: [
+            ...col.fields,
+            {
+              id: `field_${Date.now()}`,
+              sourceField: fieldName,
+              sourceType: 'string',
+              targetColumn: fieldName,
+              targetType: 'VARCHAR(255)',
+              isNullable: false,
+              include: true,
+              defaultValue,
+            },
+          ],
+        };
+      }
+    });
+
+    // Also optimistically resolve dryRunResult in store if present
+    let updatedDryRun = dryRunResult;
+    if (dryRunResult) {
+      const updatedTables = dryRunResult.tables.map((tbl) => {
+        const matchTable =
+          tbl.targetTableName.toLowerCase() === lowerTable ||
+          tbl.collectionName.toLowerCase() === lowerTable;
+        if (matchTable && tbl.sampleFailed > 0) {
+          return {
+            ...tbl,
+            samplePassed: tbl.samplePassed + tbl.sampleFailed,
+            sampleFailed: 0,
+            projectedMigrateCount: tbl.totalEstimatedRows,
+            projectedSkipCount: 0,
+            status: 'passed' as const,
+            skippedRows: [],
+          };
+        }
+        return tbl;
+      });
+
+      const remainingSkipped = updatedTables.flatMap((t) => t.skippedRows);
+      updatedDryRun = {
+        ...dryRunResult,
+        tables: updatedTables,
+        totalSamplePassed: updatedTables.reduce((a, b) => a + b.samplePassed, 0),
+        totalSampleFailed: updatedTables.reduce((a, b) => a + b.sampleFailed, 0),
+        totalProjectedMigrate: updatedTables.reduce((a, b) => a + b.projectedMigrateCount, 0),
+        totalProjectedSkip: updatedTables.reduce((a, b) => a + b.projectedSkipCount, 0),
+        overallStatus: remainingSkipped.length > 0 ? 'warning' : 'passed',
+        allSkippedRows: remainingSkipped,
+      };
+    }
+
+    set({ schemaMapping: updated, dryRunResult: updatedDryRun });
   },
 
   // ── Batch Auto-Fix: Apply ALL fixable warnings in one click ─────────────

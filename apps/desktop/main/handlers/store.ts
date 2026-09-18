@@ -51,11 +51,24 @@ export function setupStoreHandlers(): void {
       try {
         const existing: SavedConnection[] = store.get('savedConnections', []);
 
+        let connType: 'mongodb' | 'postgresql' = 'mongodb';
+        if (payload.config.type === 'postgresql' || payload.config.type === 'mongodb') {
+          connType = payload.config.type;
+        } else if (payload.config.connectionString) {
+          connType = payload.config.connectionString.startsWith('postgres') ? 'postgresql' : 'mongodb';
+        } else if (payload.config.port === 5432) {
+          connType = 'postgresql';
+        }
+
         const newConn: SavedConnection = {
           id: `conn_${Date.now()}`,
           name: payload.name.trim(),
-          type: payload.config.type ?? (payload.config.connectionString?.startsWith('mongodb') ? 'mongodb' : 'postgresql'),
-          config: payload.config,
+          type: connType,
+          config: {
+            ...payload.config,
+            type: connType,
+            name: payload.name.trim(),
+          },
           savedAt: new Date().toISOString(),
         };
 
@@ -84,7 +97,12 @@ export function setupStoreHandlers(): void {
     ): Promise<IPCResponse<SavedConnection[]>> => {
       try {
         const all: SavedConnection[] = store.get('savedConnections', []);
-        const result = dbType ? all.filter((c) => c.type === dbType) : all;
+        const result = dbType
+          ? all.filter((c) => {
+              const t = c.type || (c.config?.type) || (c.config?.connectionString?.startsWith('postgres') ? 'postgresql' : 'mongodb');
+              return t === dbType;
+            })
+          : all;
         return { success: true, data: result };
       } catch (err) {
         return {

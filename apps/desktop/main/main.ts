@@ -5,6 +5,7 @@ import { setupStoreHandlers } from './handlers/store';
 import { setupAIHandlers } from './handlers/ai';
 import { setupAIUsageHandlers } from './handlers/aiUsageStore';
 import { setupRiskHandlers } from './handlers/risk';
+import { setupDryRunHandlers } from './handlers/dryRun';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -55,6 +56,9 @@ app.whenReady().then(() => {
 
   // Setup IPC handlers for pre-migration risk analysis (Step 5)
   setupRiskHandlers();
+
+  // Setup IPC handlers for dry run simulation (Step 6)
+  setupDryRunHandlers();
 
   createWindow();
 

@@ -16,6 +16,7 @@
     "shared:build": "npm run build --workspace=@migrateiq/shared",
     "seed:sample": "node scripts/seed-sample-dbs.js",
     "seed:phase7": "node scripts/seed-phase7-testbed.js",
+    "seed:phase8": "node scripts/seed-phase8-testbed.js",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

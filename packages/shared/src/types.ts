@@ -51,6 +51,7 @@ export interface FieldMapping {
   targetType: string;
   isNullable: boolean;
   include: boolean;
+  defaultValue?: string;
   isChildTable?: boolean;
   childTableName?: string;
   foreignKeyToParent?: string;
@@ -63,8 +64,17 @@ export interface CollectionMapping {
   collectionName: string;
   targetTableName: string;
   fields: FieldMapping[];
-  indexes: IndexMapping[];
+  indexes?: IndexMapping[];
   childTables?: CollectionMapping[];
+}
+
+export interface TargetIndexPlan {
+  indexName: string;
+  tableName: string;
+  columns: string[];
+  isUnique: boolean;
+  isConcurrently: boolean;
+  isGin?: boolean;
 }
 
 export interface IndexMapping {
@@ -80,6 +90,7 @@ export type RiskSeverity = 'critical' | 'warning' | 'info';
 
 export type AutoFixActionType = 
   | 'set_nullable' 
+  | 'set_default_value'
   | 'create_child_table' 
   | 'reduce_batch_size' 
   | 'defer_foreign_keys'
@@ -274,5 +285,87 @@ export interface AIUsageStats {
   lifetimeRequests: number;
   lifetimeTokens: number;
   lastUsedTimestamp: string | null;
+}
+
+// ── Dry Run Simulation Types (Phase 8 / Step 6) ───────────────────────────
+export type DryRunStatus = 'passed' | 'warning' | 'failed';
+
+export interface DryRunSkippedRow {
+  documentId: string;
+  collection: string;
+  targetTable: string;
+  field?: string;
+  reason: string;
+  sampleValue?: unknown;
+  rawSampleSnippet?: string;
+}
+
+export interface DryRunTableResult {
+  collectionName: string;
+  targetTableName: string;
+  columnsCount: number;
+  isChildTable?: boolean;
+  parentTable?: string;
+  schemaValid: boolean;
+  sampleTested: number;
+  samplePassed: number;
+  sampleFailed: number;
+  totalEstimatedRows: number;
+  projectedMigrateCount: number;
+  projectedSkipCount: number;
+  status: DryRunStatus;
+  skippedRows: DryRunSkippedRow[];
+  durationMs: number;
+  ddlPreview?: string;
+}
+
+export interface StorageHeadroomInfo {
+  currentDbSizeBytes: number;
+  projectedSizeBytes: number;
+  sufficientSpace: boolean;
+  formattedCurrentDbSize: string;
+  formattedProjectedSize: string;
+}
+
+export interface DryRunResult {
+  simulationId: string;
+  timestamp: string;
+  direction: 'mongodb-to-postgres' | 'postgres-to-mongo';
+  tables: DryRunTableResult[];
+  totalTables: number;
+  totalSampleTested: number;
+  totalSamplePassed: number;
+  totalSampleFailed: number;
+  totalProjectedMigrate: number;
+  totalProjectedSkip: number;
+  overallStatus: DryRunStatus;
+  allSkippedRows: DryRunSkippedRow[];
+  executionTimeMs: number;
+  rollbackVerified: boolean;
+  isDemoMode?: boolean;
+  // Enterprise Telemetry & Capacity Checks
+  throughputRowsPerSec?: number;
+  projectedDurationSec?: number;
+  projectedTotalSizeBytes?: number;
+  storageHeadroom?: StorageHeadroomInfo;
+}
+
+export interface DryRunProgressPayload {
+  stage: 'init' | 'schema' | 'sample_data' | 'rollback' | 'complete' | 'error';
+  tableName?: string;
+  message: string;
+  status: 'info' | 'success' | 'warning' | 'error';
+  timestamp: number;
+}
+
+export interface DryRunOptions {
+  mapping: CollectionMapping[];
+  sourceConfig: ConnectionConfig | null;
+  targetConfig: ConnectionConfig | null;
+  sourceSchema: SourceSchema[] | null;
+  direction?: 'mongodb-to-postgres' | 'postgres-to-mongo';
+  isDemoMode?: boolean;
+  singleTableName?: string;
+  onProgress?: (progress: DryRunProgressPayload) => void;
 }
 

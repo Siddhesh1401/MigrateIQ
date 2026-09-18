@@ -738,7 +738,7 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
         collection.collectionName === collectionName
           ? {
               ...collection,
-              indexes: collection.indexes.map((idx, i) =>
+              indexes: (collection.indexes || []).map((idx, i) =>
                 (idx.sourceIndexName === indexName || idx.targetIndexName === indexName || `index_${i + 1}` === indexName)
                   ? { ...idx, ...updates }
                   : idx
@@ -956,7 +956,7 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                       border: '1px solid var(--border-subtle, #E2E8F0)',
                     }}
                   >
-                    {collection.fields.length} fields · {collection.indexes.length} indexes
+                    {collection.fields.length} fields · {(collection.indexes || []).length} indexes
                   </span>
                 </div>
               </button>
@@ -1235,7 +1235,7 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                   </table>
 
                   {/* Index Section */}
-                  {collection.indexes.length > 0 && (
+                  {collection.indexes && collection.indexes.length > 0 && (
                     <div className="indexes-section">
                       <div className="indexes-header">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1255,7 +1255,7 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                           </tr>
                         </thead>
                         <tbody>
-                          {collection.indexes.map((idx, i) => {
+                          {(collection.indexes || []).map((idx, i) => {
                             let targetFieldName = 'id';
                             const pkField = collection.fields.find((f) => f.sourceField === 'id' || f.targetColumn === 'id');
                             const uniqueCandidate = collection.fields.find((f) => f.sourceField === 'email' || f.targetColumn === 'email');

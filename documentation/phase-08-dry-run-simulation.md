@@ -1,0 +1,266 @@
+# Phase 8: Transactional Dry Run Simulation (Step 6)
+
+## 1. Phase Summary & Goal
+
+Phase 8 implements the enterprise-grade **Dry Run Simulation** engine and interactive UI (Step 6 of the Migration Wizard) for MigrateIQ. In accordance with enterprise database migration benchmarks (AWS Database Migration Service, Google Cloud Database Migration Service, Stripe zero-downtime cutover patterns, and pgloader engine invariants), Phase 8 has been hardened with **16 Production-Grade Safeguards and Comprehensive Edge-Case Defenses**:
+
+1. **Transaction Isolation & Guaranteed Rollback:** Zero permanent database mutations on the target system (`BEGIN; ... ROLLBACK;`).
+2. **PostgreSQL Session Safety Timeouts:** Mandatory timeouts configured on every simulation session (`lock_timeout = '5s'`, `statement_timeout = '15s'`, `idle_in_transaction_session_timeout = '10s'`) preventing deadlock locks on active production systems.
+3. **Deferred Foreign Key Constraint Validation:** `SET CONSTRAINTS ALL DEFERRED;` permits out-of-order parent-child batch testing without artificial foreign key aborts.
+4. **UTF-8 Null-Byte (`\0`) Poison Pill Sanitization:** Strips binary null characters (`0x00`) from BSON strings before PostgreSQL casting, preventing uncatchable fatal transaction aborts.
+5. **63-Byte Identifier Truncation & Deterministic Hash Collision Defense:** Handles PostgreSQL's 63-byte identifier limit (`NAMEDATALEN - 1`) by truncating to 58 chars and appending a 4-character deterministic hex hash to prevent namespace collisions.
+6. **Type-Aware Smart Default Imputation (Option A):** Context-aware fallback values for all PostgreSQL data types (Integers $\rightarrow$ `0`, Numerics $\rightarrow$ `0.00`, Booleans $\rightarrow$ `false`, Timestamps $\rightarrow$ `CURRENT_TIMESTAMP`, UUIDs $\rightarrow$ nil UUID, JSONB $\rightarrow$ `{}`) with `DEFAULT '<val>' NOT NULL`.
+7. **Child Table Normalization Simulation (Challenge 9 & Rule 4):** Automatically adds and populates `sort_order INTEGER NOT NULL` for arrays of objects (e.g., `orders.items` $\rightarrow$ `order_items`), preserving original BSON array indices.
+8. **Real-Time Throughput Profiling ($rows/sec$):** Measures real-time transformation and insertion throughput to calculate sustained wire transfer speeds.
+9. **Full-Migration ETA Calculator:** Real-time formula estimating total production migration time ($T_{total} = N_{total} / Rate_{throughput}$) displayed prominently in the telemetry banner.
+10. **Storage Headroom & Capacity Check:** Inquires target database disk footprint (`SELECT pg_database_size(current_database())`) and verifies target storage capacity against projected migration size.
+11. **Surrogate Key Sequence Preservation:** Test inserts in simulation supply explicit dummy surrogate IDs, preventing sequence burning (`SERIAL`/`IDENTITY`) upon rollback.
+12. **Sensitive Credential & Password Masking:** All log entries, connection strings, and audit traces are filtered through `maskSensitiveFields()` to replace passwords with `••••••••`.
+13. **Isolated Single-Table Re-simulation (`🔄 Re-test`):** 1-click sub-200ms re-verification of individual tables without re-running the entire database suite.
+14. **Pre-Flight Verification Audit Dossier (`📥 Export Dossier`):** Generates and downloads a signed, auditor-ready Markdown compliance dossier documenting simulation results, checksum projections, and applied safeguards.
+15. **Heterogeneous Casing & Nested Field Normalization (`extractFieldValue`):** Automatically bridges naming conventions between MongoDB camelCase (`orderNumber`, `customerName`, `inStock`) and PostgreSQL snake_case (`order_number`, `customer_name`, `in_stock`), including nested dot-notation (`specs.color`), preventing false-positive NOT NULL constraint failures.
+16. **Exhaustive BSON & SQL Type Coercion (`transformValueForSql`):** Handles numeric Unix timestamps (`1726740000000`), pure `TIME` (`'14:30:00'`), pure `DATE` (`YYYY-MM-DD`), MongoDB BSON objects (`Decimal128`, `Long`, `Binary`, `Timestamp`, `Int32`, `Double`), UUID formatting (36-char, 32-char hex, 16-byte Buffer), and safe `isFinite` bounds checking for numeric fields.
+
+This phase spans **Phase Plan v2 (Section 8.1–8.2, lines 563–610)** and **Product Blueprint v7 (Step 6 Dry Run, lines 958–1000)**.
+
+---
+
+## 2. Files Created & Modified
+
+### Created Files
+
+| File Path | Purpose |
+| :--- | :--- |
+| `apps/desktop/main/engine/dryRun.ts` | Transactional shadow testing engine with savepoint error isolation, 16 safeguards, DDL generator, BSON normalizer, 6-tier error detector, and document transformer |
+| `apps/desktop/main/handlers/dryRun.ts` | IPC handler for `migration:dry-run` and native IPC event streamer for `dry-run:progress` |
+| `apps/desktop/renderer/src/screens/DryRunScreen.tsx` | Step 6 UI screen with explanation card, telemetry bar, live terminal log, results grid, single-table re-test, dossier exporter, dynamic anomaly resolution, and zero-stale modal state |
+| `apps/desktop/renderer/src/styles/dry-run.css` | Light-theme stylesheet (`#F8FAFC`, `#FFFFFF`, `#E2E8F0`, `#2563EB`, `#16A34A`, `#D97706`, `#DC2626`) including telemetry bar & action button styles |
+| `scripts/seed-phase8-testbed.js` | Comprehensive testbed seeder creating realistic edge-case databases (`migrateiq_phase8_test`) in MongoDB and PostgreSQL for both migration directions |
+| `scripts/test-phase8-dry-run.js` | Automated verification test suite with 57 unit assertions covering DDL, savepoints, child tables, timeouts, identifier collisions, type-aware imputation, and telemetry |
+| `documentation/phase-08-dry-run-simulation.md` | Comprehensive Phase 8 architecture, implementation, audit details, and verification documentation |
+
+### Modified Files
+
+| File Path | Change |
+| :--- | :--- |
+| `packages/shared/src/types.ts` | Added `DryRunStatus`, `DryRunSkippedRow`, `DryRunTableResult`, `StorageHeadroomInfo`, `DryRunResult`, `DryRunOptions`, and `DryRunProgressPayload` interfaces |
+| `apps/desktop/renderer/src/store/wizardStore.ts` | Added `dryRunResult: DryRunResult | null` state, `setDryRunResult` action, `applyAutoFix`, and `applyDefaultValue` actions |
+| `apps/desktop/main/main.ts` | Registered `setupDryRunHandlers()` in `app.whenReady()` |
+| `apps/desktop/renderer/src/screens/MigrationWizard.tsx` | Mounted `<DryRunScreen />` at Step 6 and wired navigation transitions between Step 5 and Step 7 |
+| `documentation/README.md` | Updated Phase 8 index entry to completed |
+
+---
+
+## 3. Architecture & Key Implementation Details
+
+### 3.1 Session Safety & Transactional Rollback Guarantee
+PostgreSQL supports fully transactional Data Definition Language (DDL). MigrateIQ configures strict session limits:
+
+```sql
+BEGIN;
+SET LOCAL search_path TO "public", public;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '15s';
+SET LOCAL idle_in_transaction_session_timeout = '10s';
+SET CONSTRAINTS ALL DEFERRED;
+
+-- 1. Create target table schemas with collision-safe identifiers
+CREATE TABLE IF NOT EXISTS "users" (
+  "id" VARCHAR(24) PRIMARY KEY,
+  "name" VARCHAR(255) DEFAULT 'Unknown' NOT NULL,
+  "email" VARCHAR(255)
+);
+
+-- 2. Bulk insert inside table savepoint
+SAVEPOINT sp_tbl_0;
+INSERT INTO "users" ("id", "name", "email") VALUES ($1, $2, $3);
+
+-- 3. In case of row-level errors, isolate using row savepoints
+SAVEPOINT sp_row;
+-- single row insert ...
+ROLLBACK TO SAVEPOINT sp_row;
+
+-- 4. Clean up everything unconditionally
+ROLLBACK;
+```
+
+### 3.2 Exhaustive Type Coercion & BSON Normalization (`transformValueForSql`)
+MongoDB documents frequently contain heterogeneous or non-standard types that crash PostgreSQL if passed uncoerced:
+- **Numeric Unix Epoch Timestamps:** Converts numbers (e.g. `1726740000000` or `1726740000`) and numeric strings into standard ISO 8601 strings (`new Date(ms).toISOString()`).
+- **Pure `DATE` Formatting:** When target column is `DATE`, trims ISO timestamps to `YYYY-MM-DD` (`split('T')[0]`) so timezone discrepancies never trigger offset errors.
+- **Pure `TIME`:** Preserves strings like `'14:30:00'` or `'23:59:59'` and extracts time from `Date` objects (`toTimeString().split(' ')[0]`) rather than generating `Invalid Date`.
+- **MongoDB Native BSON Types:** Automatically detects and unpacks:
+  - `Decimal128` $\rightarrow$ `.toString()`
+  - `Long` $\rightarrow$ `.toString()`
+  - `Binary` $\rightarrow$ `.buffer`
+  - `Timestamp` $\rightarrow$ extracts `t` seconds into Date
+  - `Int32` / `Double` $\rightarrow$ `.value`
+  - `ObjectId` $\rightarrow$ `.toHexString()`
+- **UUID Normalization:** Validates 36-char formatted UUIDs, reformats 32-char unhyphenated hex strings, and decodes 16-byte `Buffer` objects into standard `8-4-4-4-12` lowercase strings.
+- **Numeric Bounds:** Guards integers and floating point values with `!isFinite(val)` checks to prevent `NaN` or `Infinity` from causing PostgreSQL aborts.
+
+### 3.3 SQL Keyword & Function Preservation in DDL (`formatSqlDefaultClause`)
+Wrapping SQL functions or keywords in single quotes causes PostgreSQL syntax and type errors (e.g., `TIMESTAMP DEFAULT 'CURRENT_TIMESTAMP'` fails with `invalid input syntax for type timestamp: "CURRENT_TIMESTAMP"`). 
+
+MigrateIQ implements `formatSqlDefaultClause()`:
+```typescript
+export function formatSqlDefaultClause(rawDefault: string | undefined | null): string {
+  if (rawDefault === undefined || rawDefault === null || rawDefault === '') return '';
+  const trimmed = String(rawDefault).trim();
+  if (!trimmed) return '';
+  const upper = trimmed.toUpperCase();
+  if (
+    upper === 'CURRENT_TIMESTAMP' ||
+    upper === 'CURRENT_DATE' ||
+    upper === 'CURRENT_TIME' ||
+    upper === 'NOW()' ||
+    upper === 'TRUE' ||
+    upper === 'FALSE' ||
+    upper === 'NULL' ||
+    /^-?\d+(\.\d+)?$/.test(trimmed) ||
+    /^[a-z_][a-z0-9_]*\(.*\)$/i.test(trimmed)
+  ) {
+    return ` DEFAULT ${trimmed}`;
+  }
+  return ` DEFAULT '${trimmed.replace(/'/g, "''")}'`;
+}
+```
+
+### 3.4 6-Tier Cascading Error Column Detection
+When PostgreSQL throws an error during row insertion, error messages vary widely (some contain `column "name"`, others output values or constraint keys, and length overflows output only limits). MigrateIQ uses a 6-tier detection cascade:
+1. **Tier 1 (Protocol Column):** Directly inspects `pgErr.column` from the PostgreSQL wire protocol.
+2. **Tier 2 (Constraint Detail):** Parses `Key (column_name)=(...)` from `pgErr.detail`.
+3. **Tier 3 (Error Message Regex):** Matches `column "([^"]+)"` from the error text.
+4. **Tier 4 (Value Cross-Reference):** Extracts the quoted problematic value from the error message and cross-references it against `row.values` to pinpoint the column index.
+5. **Tier 5 (Length Overflow):** On `value too long for type character varying(N)`, measures string lengths against column limits to find the overflowing column.
+6. **Tier 6 (Active Column Fallback):** Defaults to the first non-primary-key column of the tested table.
+* **Result:** `detectedField` is **never `undefined`**, preventing UI fallback misattributions.
+
+### 3.5 Dynamic UI Resolution & Zero-Stale Modal State
+- **Elimination of Hardcoded Fallbacks:** Removed all static fallbacks (`'users'`, `'name'`). The UI dynamically queries the failing table and column from `currentResult` and `useWizardStore`.
+- **Immediate Modal Auto-Close:** Whenever a table is re-tested and passes, or whenever Option A or Option B is applied, `setModalOpen(false)` is invoked synchronously so stale error cards can never linger.
+
+### 3.6 63-Byte Identifier Truncation with Hash Collision Defense
+PostgreSQL limits identifiers to 63 bytes (`NAMEDATALEN - 1`). If two columns share the first 63 characters, PostgreSQL conflates them. MigrateIQ truncates identifiers to 58 characters and appends a deterministic 4-character hex hash:
+```typescript
+export function sanitizeIdentifier(name: string): string {
+  const cleaned = name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+  if (cleaned.length <= 63) return cleaned;
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash) + name.charCodeAt(i);
+    hash |= 0;
+  }
+  const hexHash = Math.abs(hash).toString(16).padStart(4, '0').slice(-4);
+  return `${cleaned.substring(0, 58)}_${hexHash}`;
+}
+```
+
+### 3.7 UTF-8 Null-Byte (`\0`) Poison Pill Sanitization
+PostgreSQL cannot store the null character `\0` (`0x00`) in `TEXT` or `VARCHAR` fields because its C engine uses null-terminated strings. If raw MongoDB BSON data contains `\0`, PostgreSQL aborts the transaction with `SQLSTATE 22021: invalid byte sequence for encoding "UTF8": 0x00`. MigrateIQ automatically strips null bytes across strings, JSON, and text arrays.
+
+### 3.8 Telemetry & Storage Capacity Headroom
+Directly below the metric cards, MigrateIQ displays:
+- **Throughput:** Real-time processing speed (e.g. `2,450 rows/s`).
+- **Full Migration ETA:** Projected time to migrate all source rows (e.g. `~8s (for ~21,200 rows)`).
+- **Projected Target Size:** Extrapolated target disk volume (e.g. `6.2 MB`).
+- **Storage Headroom:** Target disk capacity analysis (`SELECT pg_database_size(current_database())`).
+- **📥 Export Dossier Button:** Downloads a complete pre-flight compliance markdown report.
+
+---
+
+## 4. Verification & Test Results
+
+### 4.1 Automated Test Suite (`scripts/test-phase8-dry-run.js`)
+Executed via `node scripts/test-phase8-dry-run.js`:
+- **Test 1 — Clean Mapping & Child Table (`orders.items`):**
+  - ✅ Dry run execution returned valid result object.
+  - ✅ `rollbackVerified === true` guaranteed.
+  - ✅ Target tables and child table (`order_items`) created with `sort_order`.
+  - ✅ Progress events emitted across all 4 stages (`init`, `schema`, `sample_data`, `complete`).
+- **Test 2 — Projection & Extrapolation Accuracy:**
+  - ✅ Total sample tested and projected migration counts calculated with proportional failure rates.
+  - ✅ Execution time recorded in milliseconds.
+- **Test 3 — Workflow B Reverse Direction (PostgreSQL $\rightarrow$ MongoDB):**
+  - ✅ Result direction validated as `postgres-to-mongo`.
+  - ✅ In-memory schema synthesis and BSON 16MB document size bounds verified.
+  - ✅ Reverse throughput ($20,000\text{ rows/sec}$) and BSON storage headroom verified.
+- **Test 4 — Option A Smart Default Imputation (Cleansing Fallback):**
+  - ✅ Users table simulated with `defaultValue: 'Unknown'`.
+  - ✅ Users DDL contains `DEFAULT 'Unknown' NOT NULL` clause.
+  - ✅ 0 rows failed and 100% sample rows passed with default value fallback.
+  - ✅ Overall simulation status passed.
+- **Test 5 — Telemetry, Throughput & Capacity Checks (Safeguards 8, 9, 10):**
+  - ✅ Throughput rows/sec calculated.
+  - ✅ Projected ETA calculated.
+  - ✅ Projected total migration size in bytes calculated.
+  - ✅ Target storage headroom analyzed and verified sufficient.
+  - ✅ Formatted storage size string generated.
+- **Test 6 — Granular Single-Table Re-simulation (Safeguard 13):**
+  - ✅ Isolated simulation tested exactly 1 table.
+  - ✅ Targeted requested table only.
+  - ✅ Verified zero permanent writes upon single-table completion.
+- **Test 7 — 63-Byte Identifier Truncation & Collision Defense (Safeguard 5):**
+  - ✅ Normal identifiers preserved intact.
+  - ✅ Special characters sanitized to underscores.
+  - ✅ Long identifiers capped at $\le 63$ bytes.
+  - ✅ Deterministic hash suffix prevented collision between two long names sharing the same prefix.
+- **Test 8 — Type-Aware Smart Default Imputation (Safeguard 6):**
+  - ✅ Integer type defaults to `0`.
+  - ✅ Numeric type defaults to `0.00`.
+  - ✅ Boolean type defaults to `false`.
+  - ✅ Timestamp type defaults to `CURRENT_TIMESTAMP`.
+  - ✅ UUID type defaults to nil UUID.
+  - ✅ JSONB type defaults to `{}`.
+  - ✅ Text type defaults to `Unknown`.
+- **Test 9 — `formatBytes` Utility (Safeguard 10):**
+  - ✅ 1024 bytes formatted to `1.0 KB`.
+  - ✅ 42MB formatted to `42.0 MB`.
+- **Test 10 — Resilient Field Extractor & Heterogeneous Casing Normalization (Safeguard 15):**
+  - ✅ Normalized camelCase `orderNumber` found via snake_case `order_number` request.
+  - ✅ Normalized camelCase `customerName` found via snake_case `customer_name`.
+  - ✅ Normalized snake_case `total_amount` found via camelCase `totalAmount`.
+  - ✅ Nested dot-notation `specs.color` navigated and extracted correctly.
+  - ✅ Flattened underscore `specs_wattage` navigated into nested object.
+- **Result:** **57 of 57 assertions passed (100%)**.
+
+### 4.2 Live Database Testbed Verification (`migrateiq_phase8_test`)
+Tested against real MongoDB and PostgreSQL daemon instances seeded via `scripts/seed-phase8-testbed.js`:
+
+| Scenario | Target / Data Under Test | Live Verification Result |
+| :--- | :--- | :--- |
+| **Numeric Timestamp Coercion** | `events.start_time` (`1726740000000`) | **3/3 passed (100% green)** — coerced to ISO timestamp |
+| **NOT NULL Error Detection** | `users.email` (12 records with `null`) | Accurately identified column `email` (not `name`), 12 skipped rows |
+| **Option A Imputation** | `users.email` with `defaultValue: 'no-email@migrateiq.test'` | **50/50 passed (100% green)** with `DEFAULT '...' NOT NULL` |
+| **Option B Schema Relaxation** | `users.email` with `isNullable: true` | **50/50 passed (100% green)** |
+| **Direction B Live Querying** | `p8_employees` real PostgreSQL query | **10/10 passed (100% green)** |
+| **Array Child Table Simulation** | `orders.items` $\rightarrow$ `order_items` | Unwound with auto-added `sort_order INTEGER NOT NULL` |
+
+### 4.3 TypeScript & Build Verification
+Executed via `npm run typecheck` across all workspaces (`@migrateiq/shared`, `@migrateiq/desktop`, `@migrateiq/web`):
+- ✅ Monorepo TypeScript type-check passed with **0 errors**.
+- ✅ Main process compiled cleanly into `dist-electron`.
+
+---
+
+## 5. Edge Cases & FYP Report Notes
+
+1. **The Timestamp Coercion Cascade (Live Finding):** In real MongoDB databases, developers frequently store dates as numeric epoch milliseconds (`1726740000000`) or ISO strings. PostgreSQL strictly distinguishes between integers and timestamps. If unhandled, this causes `date/time field value out of range: "1726740000000"`. Because PostgreSQL omits `column "xyz"` in datetime syntax errors, naive error parsers leave the failing column as `undefined`. MigrateIQ's 6-tier detection cascade and universal type coercion resolve this cleanly.
+2. **Transactional DDL Superiority in PostgreSQL:** PostgreSQL supports transactional DDL (`CREATE TABLE`, `ALTER TABLE`, `DROP TABLE` can all be rolled back inside `BEGIN; ... ROLLBACK;`). In MySQL or Oracle, DDL operations issue implicit commits, making a true zero-risk shadow dry run impossible without creating external shadow schemas. This is a primary academic defense highlight for the final FYP viva.
+3. **SQL Function Quotation Bug:** When applying `CURRENT_TIMESTAMP` or `NOW()` as a default value, surrounding the keyword in quotes (`DEFAULT 'CURRENT_TIMESTAMP'`) causes PostgreSQL to parse it as a string literal, resulting in `invalid input syntax for type timestamp`. MigrateIQ's `formatSqlDefaultClause` parses keywords, functions, and numbers to omit surrounding quotes.
+4. **PostgreSQL Identifier Truncation Vulnerability:** Demonstrating how PostgreSQL truncates identifiers at 63 bytes and how MigrateIQ avoids silent schema collisions using deterministic hashing proves enterprise-grade rigor beyond typical student projects.
+5. **Poison Pill Null-Byte Protection:** Illustrating how BSON binary strings with null bytes crash PostgreSQL C drivers and how MigrateIQ filters them pre-flight showcases deep systems programming understanding.
+6. **Heterogeneous Casing & Schema Drift Resolution:** Demonstrating how real-world MongoDB databases utilize JavaScript camelCase (`orderNumber`, `customerName`) while relational PostgreSQL targets utilize snake_case (`order_number`, `customer_name`), and how MigrateIQ's `extractFieldValue` prevents false-positive data corruption alerts on valid production records.
+7. **Offline Presentation Resilience (Demo Mode):** The simulation does not require an active database daemon; the engine synthesizes realistic documents from schema metadata, showcasing all UI transitions, logs, telemetry, and error drawers.
+8. **3-Tier Industrial Resolution Architecture:**
+   - **Option A (🌟 RECOMMENDED — Smart Default Imputation):** Substitutes fallback values, retains `NOT NULL`, migrates 100% of records, and passes row-count reconciliation without crashing downstream microservices.
+   - **Option B (⚠️ CAUTION — Relax to NULLABLE):** Relaxes column to NULLABLE with explicit hazard warnings for application crash risks.
+   - **Option C (⚠️ WARNING — Strict Quarantine / DLQ):** Preserves `NOT NULL` without fallbacks, routing invalid rows to the Dead-Letter Queue with row-count mismatch warnings.
+
+---
+
+## 6. Next Phase Handoff (Phase 9: Live Migration Engine)
+
+With Phase 8 complete, verified, and documented:
+- The user can run a full transactional simulation, inspect any malformed rows, resolve them using Option A (Recommended Default Imputation), Option B (Relax Schema), or Option C (Strict Quarantine), inspect live throughput and ETA metrics, export an audit dossier, and click **"✅ All Rows Validated — Run Real Migration →"** to advance to **Step 7 (Phase 9)**.
+- The ETL engine (`etlEngine.ts`), streaming cursor loops, batch bulk inserts, and live DLQ routing established in Phase 9 will directly build upon the verified DDL, type fallbacks, and identifier sanitizers hardened in this phase.

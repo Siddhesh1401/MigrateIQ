@@ -13,6 +13,7 @@ import { StepProgressBar } from '../components/StepProgressBar';
 import { ConnectionForm } from '../components/ConnectionForm';
 import { SchemaMapper } from './SchemaMapper';
 import { RiskReport } from './RiskReport';
+import { DryRunScreen } from './DryRunScreen';
 import '../styles/wizard.css';
 
 export interface MigrationWizardProps {}
@@ -389,7 +390,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceMongoPreview, setSourceMongoPreview] = useState<SourceSchema[] | null>(
-    wizardStore.sourceSchema
+    wizardStore.direction === 'mongodb-to-postgres' ? wizardStore.sourceSchema : null
   );
   const [sourcePgPreview, setSourcePgPreview] = useState<PostgresIntrospectionResult | null>(null);
   const [targetTableCount, setTargetTableCount] = useState<number | null>(null);
@@ -557,6 +558,9 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
   const handleDirectionSelect = (direction: 'mongodb-to-postgres' | 'postgres-to-mongo') => {
     wizardStore.setDirection(direction);
+    wizardStore.setSourceSchema([]);
+    wizardStore.setSourceConfig(null as any);
+    wizardStore.setTargetConfig(null as any);
     setError(null);
     setSourceMongoPreview(null);
     setSourcePgPreview(null);
@@ -619,7 +623,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const sourceDbType = wizardStore.direction === 'mongodb-to-postgres' ? 'mongodb' : 'postgresql';
   const targetDbType = wizardStore.direction === 'mongodb-to-postgres' ? 'postgresql' : 'mongodb';
 
-  const handleSourceConnect = async (config: ConnectionConfig) => {
+  const handleSourceConnect = async (config: ConnectionConfig): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
     const startTime = performance.now();
@@ -631,26 +635,29 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
         if (!response.success || !response.data) {
           setError(response.error || 'Connection failed');
-          return;
+          return false;
         }
 
         setSourceLatencyMs(elapsed);
+        setSourcePgPreview(null);
         wizardStore.setSourceConfig(config);
         wizardStore.setSourceSchema(response.data);
         setSourceMongoPreview(response.data);
 
         // Trigger async health score (non-blocking)
         fetchHealthScoreAsync(response.data);
+        return true;
       } else {
         const response = await window.electronAPI.invoke<PostgresIntrospectionResult>('db:connect-postgresql', config);
         const elapsed = Math.round(performance.now() - startTime);
 
         if (!response.success || !response.data) {
           setError(response.error || 'Connection failed');
-          return;
+          return false;
         }
 
         setSourceLatencyMs(elapsed);
+        setSourceMongoPreview(null);
         wizardStore.setSourceConfig(config);
         setSourcePgPreview(response.data);
 
@@ -669,15 +676,17 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             compositePrimaryKeys: [],
           });
         }
+        return true;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection failed');
+      return false;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleTargetConnect = async (config: ConnectionConfig) => {
+  const handleTargetConnect = async (config: ConnectionConfig): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
     const startTime = performance.now();
@@ -689,10 +698,11 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
         if (!response.success || !response.data) {
           setError(response.error || 'Connection failed');
-          return;
+          return false;
         }
 
         setTargetLatencyMs(elapsed);
+        setTargetMongoPreview(null);
         wizardStore.setTargetConfig(config);
         setTargetPgPreview(response.data);
         const count = response.data.tables.length;
@@ -708,16 +718,18 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             `Connected successfully to PostgreSQL schema "${schemaName}" (Clean schema with 0 tables). Permissions verified!`
           );
         }
+        return true;
       } else {
         const response = await window.electronAPI.invoke<SourceSchema[]>('db:connect-mongodb', config);
         const elapsed = Math.round(performance.now() - startTime);
 
         if (!response.success) {
           setError(response.error || 'Connection failed');
-          return;
+          return false;
         }
 
         setTargetLatencyMs(elapsed);
+        setTargetPgPreview(null);
         wizardStore.setTargetConfig(config);
         setTargetMongoPreview(response.data || []);
         const count = response.data?.length || 0;
@@ -725,9 +737,11 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         setTargetSuccessMessage(
           `Connected successfully to MongoDB (${count} existing collection${count > 1 ? 's' : ''}). Ready to receive data!`
         );
+        return true;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection failed');
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -742,8 +756,8 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   };
 
   const isSourceConnected = sourceDbType === 'mongodb'
-    ? !!(sourceMongoPreview && sourceMongoPreview.length > 0) || !!wizardStore.sourceSchema
-    : !!sourcePgPreview;
+    ? (!!sourceMongoPreview && sourceMongoPreview.length > 0) || (wizardStore.direction === 'mongodb-to-postgres' && !!wizardStore.sourceSchema && wizardStore.sourceSchema.length > 0)
+    : !!sourcePgPreview || (wizardStore.direction === 'postgres-to-mongo' && !!wizardStore.sourceConfig && !!wizardStore.sourceSchema && wizardStore.sourceSchema.length > 0);
   const isTargetConnected = !!targetSuccessMessage || !!wizardStore.targetConfig;
 
   return (
@@ -1004,11 +1018,18 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             </p>
 
             <ConnectionForm
+              key={`source-${sourceDbType}`}
               dbType={sourceDbType}
               isLoading={isLoading}
               initialConfig={wizardStore.sourceConfig}
               buttonText="Test Connection & Read Schema"
               onConnect={handleSourceConnect}
+              onSave={(name, config) => {
+                wizardStore.setSourceConfig({ ...config, name });
+              }}
+              onChange={() => {
+                setError(null);
+              }}
             />
 
             {/* Error card */}
@@ -1023,7 +1044,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             )}
 
             {/* MongoDB success card with collapsible schema */}
-            {(sourceMongoPreview || wizardStore.sourceSchema) && (
+            {sourceDbType === 'mongodb' && (sourceMongoPreview || (wizardStore.direction === 'mongodb-to-postgres' && wizardStore.sourceSchema)) && (
               <div className="success-card">
                 <span className="success-icon">✅</span>
                 <div style={{ flex: 1 }}>
@@ -1074,7 +1095,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             )}
 
             {/* PostgreSQL success card with collapsible schema + Layer 2 banner */}
-            {sourcePgPreview && (
+            {sourceDbType === 'postgresql' && sourcePgPreview && (
               <>
                 <div className="success-card">
                   <span className="success-icon">✅</span>
@@ -1135,11 +1156,18 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             </p>
 
             <ConnectionForm
+              key={`target-${targetDbType}`}
               dbType={targetDbType}
               isLoading={isLoading}
               initialConfig={wizardStore.targetConfig}
               buttonText="Test Connection"
               onConnect={handleTargetConnect}
+              onSave={(name, config) => {
+                wizardStore.setTargetConfig({ ...config, name });
+              }}
+              onChange={() => {
+                setError(null);
+              }}
             />
 
             {/* Error card */}
@@ -1253,7 +1281,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
                   )}
 
                   {/* Existing Tables / Collections Collapsible Preview */}
-                  {targetPgPreview && targetPgPreview.tables.length > 0 && (
+                  {targetDbType === 'postgresql' && targetPgPreview && targetPgPreview.tables.length > 0 && (
                     <div style={{ marginTop: '0.875rem' }}>
                       <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.375rem' }}>
                         Existing Tables in Target Database ({targetPgPreview.tables.length}):
@@ -1262,7 +1290,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
                     </div>
                   )}
 
-                  {targetMongoPreview && targetMongoPreview.length > 0 && (
+                  {targetDbType === 'mongodb' && targetMongoPreview && targetMongoPreview.length > 0 && (
                     <div style={{ marginTop: '0.875rem' }}>
                       <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.375rem' }}>
                         Existing Collections in Target Database ({targetMongoPreview.length}):
@@ -1477,12 +1505,25 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
           />
         )}
 
-        {/* ── Steps 6+ (Placeholder for future phases) ── */}
-        {wizardStore.wizardStep > 5 && (
+        {/* ── Step 6: Dry Run Simulation ── */}
+        {wizardStore.wizardStep === 6 && (
+          <DryRunScreen
+            onBack={handleBackStep}
+            onContinue={() => {
+              wizardStore.setWizardStep(7);
+            }}
+            onSkip={() => {
+              wizardStore.setWizardStep(7);
+            }}
+          />
+        )}
+
+        {/* ── Steps 7+ (Placeholder for Phase 9) ── */}
+        {wizardStore.wizardStep > 6 && (
           <div className="wizard-step">
             <h2 className="step-heading">Step {wizardStore.wizardStep} of 8</h2>
             <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>
-              This step will be built in future phases (Phase 8: Dry Run Simulation, Phase 9: Live ETL).
+              This step will be built in Phase 9: Live ETL Migration Engine.
             </p>
             <div className="wizard-buttons">
               <button className="btn-secondary" onClick={handleBackStep}>

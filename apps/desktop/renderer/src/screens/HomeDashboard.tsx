@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { ConnectionConfig } from '@migrateiq/shared';
 import { useWizardStore } from '../store/wizardStore';
 import '../styles/dashboard.css';
 
@@ -15,8 +16,8 @@ interface Migration {
 interface WizardStateSnapshot {
   direction: 'mongodb-to-postgres' | 'postgres-to-mongo' | null;
   wizardStep: number;
-  sourceConfig: unknown;
-  targetConfig: unknown;
+  sourceConfig: ConnectionConfig | null;
+  targetConfig: ConnectionConfig | null;
   status: 'in-progress' | 'completed' | 'cancelled';
   savedAt: string;
 }
@@ -44,6 +45,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   const handleResume = () => {
     if (inProgressState?.direction) {
       wizardStore.setDirection(inProgressState.direction);
+      if (inProgressState.sourceConfig) {
+        wizardStore.setSourceConfig(inProgressState.sourceConfig);
+      }
+      if (inProgressState.targetConfig) {
+        wizardStore.setTargetConfig(inProgressState.targetConfig);
+      }
       wizardStore.setWizardStep(inProgressState.wizardStep);
     }
     navigate('/migrate');
