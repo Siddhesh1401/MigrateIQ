@@ -2,6 +2,9 @@
 
 This folder contains the complete, phase-by-phase technical documentation generated after each development milestone is built, tested, and verified.
 
+## Master Context & Architecture Guide
+- 🌟 **[CHATGPT_PROJECT_CONTEXT.md](./CHATGPT_PROJECT_CONTEXT.md)**: **The Complete Master Project Bible for ChatGPT & LLMs.** Contains exhaustive architectural details, the 3 workflows, 22 database migration challenges, completed vs upcoming phases, codebase file map, and AI collaboration directives. (Also accessible at root: [`../CHATGPT_PROJECT_CONTEXT.md`](../CHATGPT_PROJECT_CONTEXT.md)).
+
 ## Documentation Index
 
 | Phase | Document | Description | Status |

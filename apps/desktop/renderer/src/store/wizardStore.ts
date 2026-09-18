@@ -326,25 +326,8 @@ export const useWizardStore = create<WizardState>((set, get) => ({
               : f
           ),
         };
-      } else {
-        // Field not present (e.g. simulated anomaly field) -> append with default
-        return {
-          ...col,
-          fields: [
-            ...col.fields,
-            {
-              id: `field_${Date.now()}`,
-              sourceField: fieldName,
-              sourceType: 'string',
-              targetColumn: fieldName,
-              targetType: 'VARCHAR(255)',
-              isNullable: false,
-              include: true,
-              defaultValue,
-            },
-          ],
-        };
       }
+      return col;
     });
 
     // Also optimistically resolve dryRunResult in store if present

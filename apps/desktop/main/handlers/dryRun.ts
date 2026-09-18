@@ -14,7 +14,20 @@ export function setupDryRunHandlers(): void {
     'migration:dry-run',
     async (event, payload: DryRunOptions): Promise<IPCResponse<DryRunResult>> => {
       try {
-        const result = await executeDryRunSimulation({
+        let runSimulation = executeDryRunSimulation;
+        // In development mode, dynamically invalidate require cache so engine updates reload without restarting Electron
+        if (process.env.NODE_ENV !== 'production') {
+          try {
+            const enginePath = require.resolve('../engine/dryRun');
+            delete require.cache[enginePath];
+            const freshEngine = require('../engine/dryRun');
+            if (freshEngine && freshEngine.executeDryRunSimulation) {
+              runSimulation = freshEngine.executeDryRunSimulation;
+            }
+          } catch {}
+        }
+
+        const result = await runSimulation({
           ...payload,
           onProgress: (progress: DryRunProgressPayload) => {
             // Push real-time event directly to caller's webContents
