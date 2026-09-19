@@ -330,25 +330,38 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       return col;
     });
 
-    // Also optimistically resolve dryRunResult in store if present
+    // Also resolve dryRunResult in store for rows associated with this specific field
     let updatedDryRun = dryRunResult;
     if (dryRunResult) {
       const updatedTables = dryRunResult.tables.map((tbl) => {
         const matchTable =
           tbl.targetTableName.toLowerCase() === lowerTable ||
           tbl.collectionName.toLowerCase() === lowerTable;
-        if (matchTable && tbl.sampleFailed > 0) {
-          return {
-            ...tbl,
-            samplePassed: tbl.samplePassed + tbl.sampleFailed,
-            sampleFailed: 0,
-            projectedMigrateCount: tbl.totalEstimatedRows,
-            projectedSkipCount: 0,
-            status: 'passed' as const,
-            skippedRows: [],
-          };
-        }
-        return tbl;
+        if (!matchTable) return tbl;
+
+        // Only resolve skipped rows associated with this field
+        const remainingTableSkipped = tbl.skippedRows.filter((r) => {
+          const f = (r.field || '').toLowerCase();
+          return f !== lowerField && f !== (lowerField === 'name' ? 'fullname' : '');
+        });
+        const resolvedCount = tbl.skippedRows.length - remainingTableSkipped.length;
+        if (resolvedCount <= 0 && tbl.sampleFailed === 0) return tbl;
+
+        const newSampleFailed = Math.max(0, tbl.sampleFailed - (resolvedCount > 0 ? resolvedCount : tbl.sampleFailed));
+        const newSamplePassed = tbl.sampleTested - newSampleFailed;
+        const failureRate = tbl.sampleTested > 0 ? newSampleFailed / tbl.sampleTested : 0;
+        const newProjectedSkip = Math.round(tbl.totalEstimatedRows * failureRate);
+        const newProjectedMigrate = Math.max(0, tbl.totalEstimatedRows - newProjectedSkip);
+
+        return {
+          ...tbl,
+          samplePassed: newSamplePassed,
+          sampleFailed: newSampleFailed,
+          projectedMigrateCount: newProjectedMigrate,
+          projectedSkipCount: newProjectedSkip,
+          status: newSampleFailed > 0 ? ('warning' as const) : ('passed' as const),
+          skippedRows: remainingTableSkipped,
+        };
       });
 
       const remainingSkipped = updatedTables.flatMap((t) => t.skippedRows);

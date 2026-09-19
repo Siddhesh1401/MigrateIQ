@@ -67,11 +67,16 @@ export function getTypeAwareDefaultValue(targetType: string): string {
 /**
  * Formats a SQL DEFAULT clause, preserving functions/keywords (CURRENT_TIMESTAMP, NOW(), TRUE, numbers)
  * without surrounding single quotes that cause PostgreSQL syntax/type errors.
+ * Ensures security: only safe parameterless SQL functions or numeric/boolean literals are permitted unquoted.
  */
 export function formatSqlDefaultClause(rawDefault: string | undefined | null): string {
   if (rawDefault === undefined || rawDefault === null || rawDefault === '') return '';
-  const trimmed = String(rawDefault).trim();
+  let trimmed = String(rawDefault).trim();
   if (!trimmed) return '';
+  // Strip outer single quotes if user or mapper already supplied them
+  if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
   const upper = trimmed.toUpperCase();
   if (
     upper === 'CURRENT_TIMESTAMP' ||
@@ -82,7 +87,7 @@ export function formatSqlDefaultClause(rawDefault: string | undefined | null): s
     upper === 'FALSE' ||
     upper === 'NULL' ||
     /^-?\d+(\.\d+)?$/.test(trimmed) ||
-    /^[a-z_][a-z0-9_]*\(.*\)$/i.test(trimmed)
+    /^[a-z_][a-z0-9_]*\(\s*\)$/i.test(trimmed)
   ) {
     return ` DEFAULT ${trimmed}`;
   }
@@ -113,7 +118,9 @@ export function sanitizeIdentifier(name: string): string {
 }
 
 /**
- * Build PostgreSQL CREATE TABLE DDL from field mappings
+ * Build PostgreSQL CREATE TABLE DDL from field mappings.
+ * Guarantees unique column names (prevents PostgreSQL "column duplicated" error)
+ * and strips any unsafe characters from SQL types.
  */
 function generateCreateTableDdl(
   tableName: string,
@@ -124,31 +131,48 @@ function generateCreateTableDdl(
   const activeFields = fields.filter((f) => f.include);
 
   const columnDefs: string[] = [];
+  const usedColNames = new Set<string>();
+  const deduplicatedActiveColumns: FieldMapping[] = [];
 
   // Ensure primary key exists
   let hasPk = false;
   activeFields.forEach((f) => {
-    const colName = sanitizeIdentifier(f.targetColumn || f.sourceField);
-    const colType = (f.targetType || 'TEXT').toUpperCase();
+    let rawColName = sanitizeIdentifier(f.targetColumn || f.sourceField);
+    // Deduplicate column name if already taken by another field
+    let colName = rawColName;
+    let collisionCounter = 2;
+    while (usedColNames.has(colName)) {
+      colName = `${rawColName}_${collisionCounter++}`;
+    }
+    usedColNames.add(colName);
+
+    // Sanitize targetType to prevent SQL injection via malicious type strings
+    const rawType = (f.targetType || 'TEXT').toUpperCase().replace(/[^A-Z0-9_(),\s\[\]]/g, '').trim();
+    const colType = rawType || 'TEXT';
     const isNullable = f.isNullable ? '' : ' NOT NULL';
-    const isPk = colName === 'id' || colName === '_id';
+    const isPk = (colName === 'id' || colName === '_id') && !hasPk;
     const defaultClause = formatSqlDefaultClause(f.defaultValue);
 
-    if (isPk && !hasPk) {
+    if (isPk) {
       hasPk = true;
       columnDefs.push(`  "${colName}" ${colType} PRIMARY KEY`);
     } else {
       columnDefs.push(`  "${colName}" ${colType}${defaultClause}${isNullable}`);
     }
+
+    deduplicatedActiveColumns.push({
+      ...f,
+      targetColumn: colName,
+    });
   });
 
   // If child table and no explicit sort_order column found, append it as mandated by Rule 4 & Challenge 9
-  if (isChildTable && !activeFields.some((f) => f.targetColumn === 'sort_order')) {
+  if (isChildTable && !usedColNames.has('sort_order')) {
     columnDefs.push(`  "sort_order" INTEGER NOT NULL DEFAULT 0`);
   }
 
   const sql = `CREATE TABLE IF NOT EXISTS "${safeTableName}" (\n${columnDefs.join(',\n')}\n);`;
-  return { sql, activeColumns: activeFields };
+  return { sql, activeColumns: deduplicatedActiveColumns };
 }
 
 /**
@@ -182,13 +206,13 @@ export function extractFieldValue(
   // 3. Dot-notation navigation (e.g. "specs.color" or "customer.address.city")
   if (sourceField.includes('.')) {
     const parts = sourceField.split('.');
-    let current: any = doc;
+    let current: unknown = doc;
     for (const p of parts) {
       if (current === null || current === undefined || typeof current !== 'object') {
         current = undefined;
         break;
       }
-      current = current[p];
+      current = (current as Record<string, unknown>)[p];
     }
     if (current !== undefined) return current;
   }
@@ -211,13 +235,13 @@ export function extractFieldValue(
   // e.g. sourceField is "specs_color", and doc has { specs: { color: "Black" } }
   if (sourceField.includes('_')) {
     const parts = sourceField.split('_');
-    let current: any = doc;
+    let current: unknown = doc;
     for (const p of parts) {
       if (current === null || current === undefined || typeof current !== 'object') {
         current = undefined;
         break;
       }
-      current = current[p];
+      current = (current as Record<string, unknown>)[p];
     }
     if (current !== undefined) return current;
   }
@@ -228,7 +252,7 @@ export function extractFieldValue(
 /**
  * Transform a MongoDB document value to SQL-compatible parameter
  */
-function transformValueForSql(value: unknown, targetType: string): unknown {
+export function transformValueForSql(value: unknown, targetType: string): unknown {
   if (value === null || value === undefined) {
     return null;
   }
@@ -277,7 +301,7 @@ function transformValueForSql(value: unknown, targetType: string): unknown {
     }
     if (typeof value === 'number') {
       if (isNaN(value) || !isFinite(value)) return null;
-      const ms = value < 10000000000 ? value * 1000 : value;
+      const ms = Math.abs(value) < 10000000000 ? value * 1000 : value;
       const d = new Date(ms);
       if (isNaN(d.getTime())) return null;
       return isDateOnly ? d.toISOString().split('T')[0] : d.toISOString();
@@ -292,9 +316,9 @@ function transformValueForSql(value: unknown, targetType: string): unknown {
       if (upper === 'CURRENT_DATE') {
         return new Date().toISOString().split('T')[0];
       }
-      if (/^\d+$/.test(cleaned)) {
+      if (/^-?\d+$/.test(cleaned)) {
         const num = parseInt(cleaned, 10);
-        const ms = num < 10000000000 ? num * 1000 : num;
+        const ms = Math.abs(num) < 10000000000 ? num * 1000 : num;
         const d = new Date(ms);
         if (isNaN(d.getTime())) return null;
         return isDateOnly ? d.toISOString().split('T')[0] : d.toISOString();
@@ -335,6 +359,10 @@ function transformValueForSql(value: unknown, targetType: string): unknown {
     if (typeof value === 'string') {
       const cleaned = value.replace(/\0/g, '').trim();
       if (!cleaned) return null;
+      const num = Number(cleaned);
+      if (isFinite(num) && !isNaN(num)) {
+        return Math.floor(num);
+      }
       const parsed = parseInt(cleaned, 10);
       return isNaN(parsed) ? null : parsed;
     }
@@ -350,6 +378,10 @@ function transformValueForSql(value: unknown, targetType: string): unknown {
     if (typeof value === 'string') {
       const cleaned = value.replace(/\0/g, '').trim();
       if (!cleaned) return null;
+      const num = Number(cleaned);
+      if (isFinite(num) && !isNaN(num)) {
+        return num;
+      }
       const parsed = parseFloat(cleaned);
       return isNaN(parsed) ? null : parsed;
     }
@@ -489,13 +521,14 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
     ? mapping.filter(
         (m) =>
           m.targetTableName.toLowerCase() === singleTableName.toLowerCase() ||
-          m.collectionName.toLowerCase() === singleTableName.toLowerCase()
+          m.collectionName.toLowerCase() === singleTableName.toLowerCase() ||
+          m.fields.some((f) => f.isChildTable && f.childTableName && f.childTableName.toLowerCase() === singleTableName.toLowerCase())
       )
     : mapping;
 
   try {
     // 1. Establish PostgreSQL connection
-    const targetSchema = targetConfig.schema?.trim() || 'public';
+    const targetSchema = sanitizeIdentifier(targetConfig.schema?.trim() || 'public');
     emitProgress('init', `🔌 Connecting to target PostgreSQL (${maskSensitiveFields(targetConfig.connectionString || targetConfig.host || 'localhost')})...`, 'info');
 
     if (targetConfig.connectionString) {
@@ -540,7 +573,7 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
     }
 
     // 3. Connect to MongoDB (unless in demo mode)
-    let mongoDb: any = null;
+    let mongoDb: import('mongodb').Db | null = null;
     if (!isDemoMode && sourceConfig) {
       try {
         let connStr = sourceConfig.connectionString;
@@ -578,22 +611,38 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
       // Read sample documents (up to 500)
       let sampleDocs: Record<string, unknown>[] = [];
       let totalEstimatedRows = 500;
+      let isGenuinelyEmpty = false;
 
       if (mongoDb && !isDemoMode) {
         try {
           const coll = mongoDb.collection(colMapping.collectionName);
-          totalEstimatedRows = await coll.countDocuments();
-          sampleDocs = await coll.find({}).limit(500).toArray();
+          if (typeof coll.estimatedDocumentCount === 'function') {
+            try {
+              totalEstimatedRows = await coll.estimatedDocumentCount();
+            } catch {
+              totalEstimatedRows = await coll.countDocuments();
+            }
+          } else {
+            totalEstimatedRows = await coll.countDocuments();
+          }
+          if (totalEstimatedRows === 0) {
+            isGenuinelyEmpty = true;
+            sampleDocs = [];
+          } else {
+            sampleDocs = await coll.find({}).limit(500).toArray();
+          }
         } catch {
           sampleDocs = [];
         }
       }
 
-      // If no live documents retrieved, synthesize realistic sample batch from schema
-      if (sampleDocs.length === 0) {
+      // If live documents could not be queried and collection is not genuinely empty, synthesize realistic sample batch
+      if (sampleDocs.length === 0 && !isGenuinelyEmpty) {
         const matchingSchema = (sourceSchema || []).find((s) => s.collectionName === colMapping.collectionName);
         totalEstimatedRows = matchingSchema?.documentCount || 500;
-        sampleDocs = synthesizeSampleDocs(colMapping, Math.min(500, totalEstimatedRows));
+        if (totalEstimatedRows > 0) {
+          sampleDocs = synthesizeSampleDocs(colMapping, Math.min(500, totalEstimatedRows));
+        }
       }
 
       const sampleTested = sampleDocs.length;
@@ -658,7 +707,10 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
       if (transformedRows.length > 0 && columnNames.length > 0) {
         try {
           // Attempt batch insertion
-          const batchSize = 100;
+          // Clamp batch size to guarantee we never exceed PostgreSQL's 65,535 bind parameter limit
+          const maxParamsPerBatch = 65000;
+          const maxBatchByColumns = Math.max(1, Math.floor(maxParamsPerBatch / Math.max(1, columnNames.length)));
+          const batchSize = Math.min(100, maxBatchByColumns);
           for (let b = 0; b < transformedRows.length; b += batchSize) {
             const batch = transformedRows.slice(b, b + batchSize);
             const valuePlaceholders: string[] = [];
@@ -814,6 +866,18 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
     }
   }
 
+  if (singleTableName) {
+    const filtered = tableResults.filter(
+      (t) => t.targetTableName.toLowerCase() === singleTableName.toLowerCase()
+    );
+    if (filtered.length > 0) {
+      tableResults.length = 0;
+      tableResults.push(...filtered);
+      allSkippedRows.length = 0;
+      allSkippedRows.push(...tableResults.flatMap((t) => t.skippedRows));
+    }
+  }
+
   const totalSampleTested = tableResults.reduce((acc, t) => acc + t.sampleTested, 0);
   const totalSamplePassed = tableResults.reduce((acc, t) => acc + t.samplePassed, 0);
   const totalSampleFailed = tableResults.reduce((acc, t) => acc + t.sampleFailed, 0);
@@ -894,16 +958,69 @@ async function simulateChildTables(
 );`;
 
     await pgClient.query(childDdl);
-    emitProgress('schema', `✅ Schema check: CREATE TABLE "${childTableName}" (with sort_order INTEGER NOT NULL) — Valid`, 'success', childTableName);
+    const childIdxSql = `CREATE INDEX IF NOT EXISTS "${childTableName}_${parentTable}_id_idx" ON "${childTableName}" ("${parentTable}_id");`;
+    await pgClient.query(childIdxSql);
+    emitProgress('schema', `✅ Schema check: CREATE TABLE "${childTableName}" (with sort_order INTEGER NOT NULL & index) — Valid`, 'success', childTableName);
 
     // Unpack array items from parentDocs using resilient field extractor
     let childItemsTested = 0;
-    parentDocs.forEach((pDoc) => {
+    const childRowsToInsert: { id: string; parentId: string; sortOrder: number; data: string }[] = [];
+
+    parentDocs.forEach((pDoc, docIdx) => {
+      const pId = pDoc._id instanceof ObjectId ? pDoc._id.toHexString() : String(pDoc._id || `p_${docIdx}`);
       const arr = extractFieldValue(pDoc, childField.sourceField, childField.targetColumn);
       if (Array.isArray(arr)) {
-        childItemsTested += arr.length;
+        arr.forEach((item, sortOrder) => {
+          childItemsTested++;
+          const childId = (item && typeof item === 'object' && (item as Record<string, unknown>)._id)
+            ? String((item as Record<string, unknown>)._id)
+            : new ObjectId().toHexString();
+          childRowsToInsert.push({
+            id: childId.substring(0, 24),
+            parentId: pId.substring(0, 24),
+            sortOrder,
+            data: JSON.stringify(item || {}).replace(/\0/g, ''),
+          });
+        });
       }
     });
+
+    // Test batch insertion into child table with savepoint
+    let samplePassed = 0;
+    let sampleFailed = 0;
+    const skippedRows: DryRunSkippedRow[] = [];
+
+    if (childRowsToInsert.length > 0) {
+      const childSavepoint = `sp_child_${childTableName}`;
+      await pgClient.query(`SAVEPOINT ${childSavepoint};`);
+      try {
+        const batchSize = 100;
+        for (let b = 0; b < childRowsToInsert.length; b += batchSize) {
+          const batch = childRowsToInsert.slice(b, b + batchSize);
+          const placeholders: string[] = [];
+          const values: unknown[] = [];
+          batch.forEach((row, rIdx) => {
+            const baseIdx = rIdx * 4;
+            placeholders.push(`($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4})`);
+            values.push(row.id, row.parentId, row.sortOrder, row.data);
+          });
+          const childInsertSql = `INSERT INTO "${childTableName}" ("id", "${parentTable}_id", "sort_order", "data") VALUES ${placeholders.join(', ')};`;
+          await pgClient.query(childInsertSql, values);
+        }
+        samplePassed = childRowsToInsert.length;
+        await pgClient.query(`RELEASE SAVEPOINT ${childSavepoint};`);
+      } catch (childErr) {
+        await pgClient.query(`ROLLBACK TO SAVEPOINT ${childSavepoint};`);
+        sampleFailed = childRowsToInsert.length;
+        skippedRows.push({
+          documentId: childRowsToInsert[0]?.id || 'unknown',
+          collection: `${parentMapping.collectionName}.${childField.sourceField}`,
+          targetTable: childTableName,
+          field: 'sort_order',
+          reason: (childErr as Error).message.substring(0, 180),
+        });
+      }
+    }
 
     childResults.push({
       collectionName: `${parentMapping.collectionName}.${childField.sourceField}`,
@@ -913,13 +1030,13 @@ async function simulateChildTables(
       parentTable,
       schemaValid: true,
       sampleTested: childItemsTested,
-      samplePassed: childItemsTested,
-      sampleFailed: 0,
+      samplePassed,
+      sampleFailed,
       totalEstimatedRows: childItemsTested * 10,
-      projectedMigrateCount: childItemsTested * 10,
-      projectedSkipCount: 0,
-      status: 'passed',
-      skippedRows: [],
+      projectedMigrateCount: samplePassed * 10,
+      projectedSkipCount: sampleFailed * 10,
+      status: sampleFailed > 0 ? 'warning' : 'passed',
+      skippedRows,
       durationMs: Date.now() - colStart,
       ddlPreview: childDdl,
     });
@@ -1011,7 +1128,7 @@ async function executePostgresToMongoDryRun(
   try {
     for (let idx = 0; idx < targetMappings.length; idx++) {
       const col = targetMappings[idx];
-      const sourceTbl = col.collectionName || col.targetTableName;
+      const sourceTbl = sanitizeIdentifier(col.collectionName || col.targetTableName);
       emitProgress('schema', `📐 Checking MongoDB collection model: "${col.targetTableName}"...`, 'info', col.targetTableName);
 
       let sampleTested = 500;
@@ -1118,7 +1235,8 @@ async function executeDemoModeDryRun(
     ? mapping.filter(
         (m) =>
           (m.targetTableName || '').toLowerCase() === singleTableName.toLowerCase() ||
-          (m.collectionName || '').toLowerCase() === singleTableName.toLowerCase()
+          (m.collectionName || '').toLowerCase() === singleTableName.toLowerCase() ||
+          m.fields.some((f) => f.isChildTable && f.childTableName && f.childTableName.toLowerCase() === singleTableName.toLowerCase())
       )
     : mapping;
 
@@ -1137,8 +1255,10 @@ async function executeDemoModeDryRun(
     emitProgress('schema', `✅ Schema check: CREATE TABLE "${targetTable}" (${activeColumns.length} columns) — Valid`, 'success', targetTable);
 
     const matchingSchema = (sourceSchema || []).find((s) => s.collectionName === col.collectionName);
-    const totalEstimatedRows = matchingSchema?.documentCount || (targetTable === 'users' ? 2000 : targetTable === 'orders' ? 5000 : 850);
-    const sampleDocs = synthesizeSampleDocs(col, Math.min(500, totalEstimatedRows));
+    const totalEstimatedRows = matchingSchema?.documentCount !== undefined
+      ? matchingSchema.documentCount
+      : (targetTable === 'users' ? 2000 : targetTable === 'orders' ? 5000 : 850);
+    const sampleDocs = totalEstimatedRows > 0 ? synthesizeSampleDocs(col, Math.min(500, totalEstimatedRows)) : [];
     const sampleTested = sampleDocs.length;
     let samplePassed = 0;
     let sampleFailed = 0;
@@ -1241,6 +1361,18 @@ async function executeDemoModeDryRun(
 
   emitProgress('rollback', '↩️ Issuing ROLLBACK — 100% of simulation objects deleted from target DB.', 'info');
   emitProgress('complete', '🛡️ ROLLBACK verified. Zero permanent mutations remain on target PostgreSQL.', 'success');
+
+  if (singleTableName) {
+    const filtered = tableResults.filter(
+      (t) => t.targetTableName.toLowerCase() === singleTableName.toLowerCase()
+    );
+    if (filtered.length > 0) {
+      tableResults.length = 0;
+      tableResults.push(...filtered);
+      allSkippedRows.length = 0;
+      allSkippedRows.push(...tableResults.flatMap((t) => t.skippedRows));
+    }
+  }
 
   const totalSampleTested = tableResults.reduce((a, b) => a + b.sampleTested, 0);
   const totalSamplePassed = tableResults.reduce((a, b) => a + b.samplePassed, 0);

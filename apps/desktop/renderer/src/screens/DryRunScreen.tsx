@@ -47,7 +47,10 @@ export function generateDdlForMapping(col: CollectionMapping): string {
     .map((f) => {
       let colDef = `  "${f.targetColumn}" ${f.targetType}`;
       if (f.defaultValue !== undefined && f.defaultValue !== null && f.defaultValue !== '') {
-        const trimmed = String(f.defaultValue).trim();
+        let trimmed = String(f.defaultValue).trim();
+        if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
+          trimmed = trimmed.slice(1, -1).trim();
+        }
         const upper = trimmed.toUpperCase();
         if (
           upper === 'CURRENT_TIMESTAMP' ||
@@ -58,7 +61,7 @@ export function generateDdlForMapping(col: CollectionMapping): string {
           upper === 'FALSE' ||
           upper === 'NULL' ||
           /^-?\d+(\.\d+)?$/.test(trimmed) ||
-          /^[a-z_][a-z0-9_]*\(.*\)$/i.test(trimmed)
+          /^[a-z_][a-z0-9_]*\(\s*\)$/i.test(trimmed)
         ) {
           colDef += ` DEFAULT ${trimmed}`;
         } else {
@@ -297,51 +300,17 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
     // 1. Update store mapping with defaultValue and keep NOT NULL
     applyDefaultValue(targetTbl, targetFld, val);
 
-    // 2. Fetch fresh mappings from store (or fallback to current schemaMapping)
-    const freshMappings = useWizardStore.getState().schemaMapping || schemaMapping || [];
-
-    // 3. Immediately construct 100% resolved DryRunResult
-    const baseResult = currentResult || generateMockDryRunResult(freshMappings, direction || 'mongodb-to-postgres');
-    const resolvedTables = baseResult.tables.map((tbl) => {
-      const isMatch =
-        tbl.targetTableName.toLowerCase() === targetTbl ||
-        tbl.collectionName.toLowerCase() === targetTbl;
-      const matchingCol = freshMappings.find(
-        (c) =>
-          c.targetTableName.toLowerCase() === tbl.targetTableName.toLowerCase() ||
-          c.collectionName.toLowerCase() === tbl.targetTableName.toLowerCase()
-      );
-      if (isMatch || tbl.sampleFailed > 0) {
-        return {
-          ...tbl,
-          samplePassed: tbl.sampleTested,
-          sampleFailed: 0,
-          projectedMigrateCount: tbl.totalEstimatedRows,
-          projectedSkipCount: 0,
-          status: 'passed' as const,
-          skippedRows: [],
-          ddlPreview: matchingCol ? generateDdlForMapping(matchingCol) : tbl.ddlPreview,
-        };
+    // 2. Read the precisely updated dryRunResult from the store
+    const storeUpdatedResult = useWizardStore.getState().dryRunResult;
+    if (storeUpdatedResult) {
+      setDryRunResult(storeUpdatedResult);
+      if (storeUpdatedResult.allSkippedRows.length === 0) {
+        setModalOpen(false);
       }
-      return tbl;
-    });
+    }
 
-    const resolvedResult: DryRunResult = {
-      ...baseResult,
-      tables: resolvedTables,
-      totalSamplePassed: resolvedTables.reduce((a, b) => a + b.samplePassed, 0),
-      totalSampleFailed: 0,
-      totalProjectedMigrate: resolvedTables.reduce((a, b) => a + b.projectedMigrateCount, 0),
-      totalProjectedSkip: 0,
-      overallStatus: 'passed',
-      allSkippedRows: [],
-    };
-
-    // 4. Update both store and local simulation state synchronously
-    setDryRunResult(resolvedResult);
     setSimState('completed');
     setQuarantinePolicyAcknowledged(false);
-    setModalOpen(false);
 
     setNotification({
       message: `🌟 Applied Smart Default: Column "${targetFld}" in table "${targetTbl}" configured with DEFAULT '${val}' NOT NULL. All records passed validation!`,
@@ -353,13 +322,13 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       {
         id: `log_${Date.now()}_default`,
         time: new Date().toLocaleTimeString(),
-        message: `⚡ Smart Default applied: Table "${targetTbl}" column "${targetFld}" configured with DEFAULT '${val}' NOT NULL (0 skipped).`,
+        message: `⚡ Smart Default applied: Table "${targetTbl}" column "${targetFld}" configured with DEFAULT '${val}' NOT NULL.`,
         status: 'success',
       },
       {
         id: `log_${Date.now()}_pass`,
         time: new Date().toLocaleTimeString(),
-        message: `✅ All 500 sample records transformed and validated. Zero permanent changes committed.`,
+        message: `✅ Sample records transformed and validated. Zero permanent changes committed.`,
         status: 'success',
       },
     ]);
@@ -375,47 +344,67 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       recommendedValue: true,
     });
 
-    const freshMappings = useWizardStore.getState().schemaMapping || schemaMapping || [];
-    const baseResult = currentResult || generateMockDryRunResult(freshMappings, direction || 'mongodb-to-postgres');
-    const resolvedTables = baseResult.tables.map((tbl) => {
-      const isMatch =
-        tbl.targetTableName.toLowerCase() === tableName.toLowerCase() ||
-        tbl.collectionName.toLowerCase() === tableName.toLowerCase();
-      const matchingCol = freshMappings.find(
-        (c) =>
-          c.targetTableName.toLowerCase() === tbl.targetTableName.toLowerCase() ||
-          c.collectionName.toLowerCase() === tbl.targetTableName.toLowerCase()
-      );
-      if (isMatch || tbl.sampleFailed > 0) {
+    // 2. Resolve skipped rows for this specific table and field
+    const lowerTable = tableName.toLowerCase();
+    const lowerField = fieldName.toLowerCase();
+    const baseResult = currentResult;
+    if (baseResult) {
+      const freshMappings = useWizardStore.getState().schemaMapping || schemaMapping || [];
+      const resolvedTables = baseResult.tables.map((tbl) => {
+        const isMatch =
+          tbl.targetTableName.toLowerCase() === lowerTable ||
+          tbl.collectionName.toLowerCase() === lowerTable;
+        if (!isMatch) return tbl;
+
+        const matchingCol = freshMappings.find(
+          (c) =>
+            c.targetTableName.toLowerCase() === tbl.targetTableName.toLowerCase() ||
+            c.collectionName.toLowerCase() === tbl.targetTableName.toLowerCase()
+        );
+
+        const remainingRows = tbl.skippedRows.filter((r) => {
+          const f = (r.field || '').toLowerCase();
+          return f !== lowerField && f !== (lowerField === 'name' ? 'fullname' : '');
+        });
+        const resolvedCount = tbl.skippedRows.length - remainingRows.length;
+        const newSampleFailed = Math.max(0, tbl.sampleFailed - (resolvedCount > 0 ? resolvedCount : tbl.sampleFailed));
+        const newSamplePassed = tbl.sampleTested - newSampleFailed;
+        const failureRate = tbl.sampleTested > 0 ? newSampleFailed / tbl.sampleTested : 0;
+        const newProjectedSkip = Math.round(tbl.totalEstimatedRows * failureRate);
+        const newProjectedMigrate = Math.max(0, tbl.totalEstimatedRows - newProjectedSkip);
+
         return {
           ...tbl,
-          samplePassed: tbl.sampleTested,
-          sampleFailed: 0,
-          projectedMigrateCount: tbl.totalEstimatedRows,
-          projectedSkipCount: 0,
-          status: 'passed' as const,
-          skippedRows: [],
+          samplePassed: newSamplePassed,
+          sampleFailed: newSampleFailed,
+          projectedMigrateCount: newProjectedMigrate,
+          projectedSkipCount: newProjectedSkip,
+          status: newSampleFailed > 0 ? ('warning' as const) : ('passed' as const),
+          skippedRows: remainingRows,
           ddlPreview: matchingCol ? generateDdlForMapping(matchingCol) : tbl.ddlPreview,
         };
+      });
+
+      const allRemainingSkipped = resolvedTables.flatMap((t) => t.skippedRows);
+      const resolvedResult: DryRunResult = {
+        ...baseResult,
+        tables: resolvedTables,
+        totalSamplePassed: resolvedTables.reduce((a, b) => a + b.samplePassed, 0),
+        totalSampleFailed: resolvedTables.reduce((a, b) => a + b.sampleFailed, 0),
+        totalProjectedMigrate: resolvedTables.reduce((a, b) => a + b.projectedMigrateCount, 0),
+        totalProjectedSkip: resolvedTables.reduce((a, b) => a + b.projectedSkipCount, 0),
+        overallStatus: allRemainingSkipped.length > 0 ? 'warning' : 'passed',
+        allSkippedRows: allRemainingSkipped,
+      };
+
+      setDryRunResult(resolvedResult);
+      if (allRemainingSkipped.length === 0) {
+        setModalOpen(false);
       }
-      return tbl;
-    });
+    }
 
-    const resolvedResult: DryRunResult = {
-      ...baseResult,
-      tables: resolvedTables,
-      totalSamplePassed: resolvedTables.reduce((a, b) => a + b.samplePassed, 0),
-      totalSampleFailed: 0,
-      totalProjectedMigrate: resolvedTables.reduce((a, b) => a + b.projectedMigrateCount, 0),
-      totalProjectedSkip: 0,
-      overallStatus: 'passed',
-      allSkippedRows: [],
-    };
-
-    setDryRunResult(resolvedResult);
     setSimState('completed');
     setQuarantinePolicyAcknowledged(false);
-    setModalOpen(false);
 
     setNotification({
       message: `⚠️ Applied Schema Relaxation: Column "${fieldName}" set to NULLABLE. Downstream applications must guard against NULL values.`,
@@ -474,44 +463,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
         });
 
         if (response.success && response.data) {
-          let adjustedResult = response.data;
-          const hasDefaultsConfigured = effectiveMappings.some((m) =>
-            m.fields.some((f) => Boolean(f.defaultValue))
-          );
-          if (hasDefaultsConfigured) {
-            const updatedTables = adjustedResult.tables.map((tbl) => {
-              const matchingMapping = effectiveMappings.find(
-                (m) =>
-                  m.targetTableName.toLowerCase() === tbl.targetTableName.toLowerCase() ||
-                  m.collectionName.toLowerCase() === tbl.targetTableName.toLowerCase()
-              );
-              const hasTableDefault = matchingMapping?.fields.some((f) => Boolean(f.defaultValue));
-              if (hasTableDefault && tbl.sampleFailed > 0) {
-                return {
-                  ...tbl,
-                  samplePassed: tbl.samplePassed + tbl.sampleFailed,
-                  sampleFailed: 0,
-                  projectedMigrateCount: tbl.totalEstimatedRows,
-                  projectedSkipCount: 0,
-                  status: 'passed' as const,
-                  skippedRows: [],
-                };
-              }
-              return tbl;
-            });
-            const allRemainingSkipped = updatedTables.flatMap((t) => t.skippedRows);
-            adjustedResult = {
-              ...adjustedResult,
-              tables: updatedTables,
-              totalSamplePassed: updatedTables.reduce((a, b) => a + b.samplePassed, 0),
-              totalSampleFailed: updatedTables.reduce((a, b) => a + b.sampleFailed, 0),
-              totalProjectedMigrate: updatedTables.reduce((a, b) => a + b.projectedMigrateCount, 0),
-              totalProjectedSkip: updatedTables.reduce((a, b) => a + b.projectedSkipCount, 0),
-              overallStatus: allRemainingSkipped.length > 0 ? 'warning' : 'passed',
-              allSkippedRows: allRemainingSkipped,
-            };
-          }
-          realResult = adjustedResult;
+          realResult = response.data;
         } else {
           ipcError = response.error || 'Dry run simulation failed on the target database.';
         }
@@ -1082,6 +1034,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
                     style={{ padding: 0 }}
                     onClick={() => {
                       setModalTableFilter('all');
+                      setModalSearch('');
                       setModalOpen(true);
                     }}
                   >
@@ -1363,6 +1316,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
                               className="dry-run-action-link warning"
                               onClick={() => {
                                 setModalTableFilter(tbl.targetTableName);
+                                setModalSearch('');
                                 setModalOpen(true);
                               }}
                             >

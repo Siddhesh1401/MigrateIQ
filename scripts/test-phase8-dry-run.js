@@ -277,6 +277,154 @@ async function runTests() {
     'Flattened underscore specs_wattage navigated into nested object'
   );
 
+  // ── Test 11: Duplicate Column Name Collision in DDL ──────────────────────
+  console.log('\n--- Test 11: Duplicate Column Name Collision & Sanitization ---');
+  const duplicateColMapping = [
+    {
+      collectionName: 'profiles',
+      targetTableName: 'profiles',
+      fields: [
+        { id: 'p1', sourceField: '_id', sourceType: 'objectId', targetColumn: 'id', targetType: 'VARCHAR(24)', isNullable: false, include: true },
+        { id: 'p2', sourceField: 'id', sourceType: 'int', targetColumn: 'id', targetType: 'INTEGER', isNullable: true, include: true },
+        { id: 'p3', sourceField: 'phone-number', sourceType: 'string', targetColumn: 'phone_number', targetType: 'VARCHAR(50)', isNullable: true, include: true },
+        { id: 'p4', sourceField: 'phone_number', sourceType: 'string', targetColumn: 'phone_number', targetType: 'VARCHAR(50)', isNullable: true, include: true },
+      ],
+      indexes: [],
+    },
+  ];
+
+  const result11 = await executeDryRunSimulation({
+    mapping: duplicateColMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [{ collectionName: 'profiles', documentCount: 100, fields: [] }],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+  });
+
+  const profileTable = result11.tables.find((t) => t.targetTableName === 'profiles');
+  assert(profileTable !== undefined, 'Profiles table simulated successfully despite duplicate column names');
+  assert(profileTable.ddlPreview.includes('"id_2"'), 'Duplicate id column deduplicated to "id_2"');
+  assert(profileTable.ddlPreview.includes('"phone_number_2"'), 'Duplicate phone_number column deduplicated to "phone_number_2"');
+
+  // ── Test 12: Genuinely Empty Collection Handling ────────────────────────
+  console.log('\n--- Test 12: Genuinely Empty Collection (0 docs) Handling ---');
+  const emptyColMapping = [
+    {
+      collectionName: 'empty_logs',
+      targetTableName: 'empty_logs',
+      fields: [
+        { id: 'e1', sourceField: '_id', sourceType: 'objectId', targetColumn: 'id', targetType: 'VARCHAR(24)', isNullable: false, include: true },
+        { id: 'e2', sourceField: 'message', sourceType: 'string', targetColumn: 'message', targetType: 'TEXT', isNullable: true, include: true },
+      ],
+      indexes: [],
+    },
+  ];
+
+  const result12 = await executeDryRunSimulation({
+    mapping: emptyColMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [{ collectionName: 'empty_logs', documentCount: 0, fields: [] }],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+  });
+
+  const emptyTable = result12.tables.find((t) => t.targetTableName === 'empty_logs');
+  assert(emptyTable !== undefined, 'Empty collection DDL simulated successfully');
+  assert(emptyTable.sampleTested === 0, 'Empty collection tested 0 sample rows (no fake data invented)');
+  assert(emptyTable.projectedMigrateCount === 0, 'Empty collection projected 0 migrated rows');
+
+  // ── Test 13: SQL Default Clause Security & Injection Resistance ─────────
+  console.log('\n--- Test 13: SQL Default Clause Security & Injection Resistance ---');
+  const { formatSqlDefaultClause } = require('../apps/desktop/dist-electron/engine/dryRun');
+  assert(formatSqlDefaultClause('now()') === ' DEFAULT now()', 'Safe function now() permitted unquoted');
+  assert(formatSqlDefaultClause('CURRENT_TIMESTAMP') === ' DEFAULT CURRENT_TIMESTAMP', 'Keyword CURRENT_TIMESTAMP preserved');
+  assert(formatSqlDefaultClause('42') === ' DEFAULT 42', 'Numeric literal preserved');
+  assert(
+    formatSqlDefaultClause('foo(); DROP TABLE users; ()') === " DEFAULT 'foo(); DROP TABLE users; ()'",
+    'Potentially malicious function call quoted safely as string'
+  );
+
+  // ── Test 14: Child Table Isolated Re-testing ───────────────────────────
+  console.log('\n--- Test 14: Child Table Isolated Re-testing by Name ---');
+  const result14 = await executeDryRunSimulation({
+    mapping: cleanMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [{ collectionName: 'orders', documentCount: 5000, fields: [] }],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+    singleTableName: 'order_items',
+  });
+
+  assert(result14.tables.length > 0, 'Child table order_items found and simulated in single-table mode');
+  assert(
+    result14.tables.some((t) => t.targetTableName === 'order_items'),
+    'Child table order_items present in results'
+  );
+
+  // ── Test 15: Pre-1970 Timestamp Epoch Precision & Scientific Notation ──
+  console.log('\n--- Test 15: Pre-1970 Timestamp Epoch Precision & Scientific Notation ---');
+  const { transformValueForSql } = require('../apps/desktop/dist-electron/engine/dryRun');
+  
+  // Pre-1970 milliseconds timestamp (e.g. -315619200000 -> 1960-01-01)
+  const pre1970Date = transformValueForSql(-315619200000, 'TIMESTAMPTZ');
+  assert(typeof pre1970Date === 'string' && pre1970Date.startsWith('1960-01-01'), `Pre-1970 millisecond timestamp parsed correctly (got ${pre1970Date})`);
+
+  // Pre-1970 seconds timestamp (e.g. -315619200 -> 1960-01-01)
+  const pre1970Seconds = transformValueForSql(-315619200, 'TIMESTAMPTZ');
+  assert(typeof pre1970Seconds === 'string' && pre1970Seconds.startsWith('1960-01-01'), `Pre-1970 second timestamp parsed correctly (got ${pre1970Seconds})`);
+
+  // Pre-1970 string numeric timestamp
+  const pre1970String = transformValueForSql('-315619200000', 'TIMESTAMPTZ');
+  assert(typeof pre1970String === 'string' && pre1970String.startsWith('1960-01-01'), `Pre-1970 string timestamp parsed correctly (got ${pre1970String})`);
+
+  // Scientific notation string for integer (e.g. '1e5' -> 100000)
+  const sciInt = transformValueForSql('1e5', 'INTEGER');
+  assert(sciInt === 100000, `Scientific notation integer string parsed to 100000 (got ${sciInt})`);
+
+  // Scientific notation string for numeric/double (e.g. '1.5e-3' -> 0.0015)
+  const sciFloat = transformValueForSql('1.5e-3', 'NUMERIC(10,4)');
+  assert(sciFloat === 0.0015, `Scientific notation float string parsed to 0.0015 (got ${sciFloat})`);
+
+  // ── Test 16: SQL Default Clause Outer Quotation Stripping ────────────────
+  console.log('\n--- Test 16: SQL Default Clause Outer Quotation Stripping ---');
+  assert(formatSqlDefaultClause("'Unknown'") === " DEFAULT 'Unknown'", "Quoted 'Unknown' stripped and formatted as DEFAULT 'Unknown'");
+  assert(formatSqlDefaultClause("'NOW()'") === ' DEFAULT NOW()', "Quoted 'NOW()' recognized as SQL function");
+  assert(formatSqlDefaultClause("'CURRENT_TIMESTAMP'") === ' DEFAULT CURRENT_TIMESTAMP', "Quoted 'CURRENT_TIMESTAMP' recognized as SQL keyword");
+
+  // ── Test 17: Synchronized allSkippedRows on Single-Table Isolation ────────
+  console.log('\n--- Test 17: Synchronized allSkippedRows on Single-Table Isolation ---');
+  const multiTableMapping = [
+    ...cleanMapping,
+    {
+      collectionName: 'categories',
+      targetTableName: 'categories',
+      fields: [
+        { id: 'c1', sourceField: '_id', sourceType: 'objectId', targetColumn: 'id', targetType: 'VARCHAR(24)', isNullable: false, include: true },
+        { id: 'c2', sourceField: 'title', sourceType: 'string', targetColumn: 'title', targetType: 'VARCHAR(100)', isNullable: false, include: true },
+      ],
+      indexes: [],
+    },
+  ];
+
+  const result17 = await executeDryRunSimulation({
+    mapping: multiTableMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [{ collectionName: 'users', documentCount: 1000, fields: [] }],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+    singleTableName: 'users',
+  });
+
+  assert(result17.tables.length === 1, 'Single-table simulation result contains exactly 1 table');
+  assert(
+    result17.allSkippedRows.every((r) => r.targetTable === 'users'),
+    'allSkippedRows synchronized strictly to isolated single table (no leaked rows from other tables)'
+  );
+
   // ── Summary ────────────────────────────────────────────────────────────
   console.log('\n===========================================================');
   console.log(`🏁 Phase 8 Test Suite Complete: ${passedTests}/${totalTests} Passed`);

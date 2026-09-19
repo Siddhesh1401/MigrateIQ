@@ -99,7 +99,7 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
 | **Phase 5** | **AI Schema Mapping** | AI Schema Mapper canvas, BSON type matrix, Rule Engine, Copilot | ✅ **Completed** |
 | **Phase 6** | **AI Rule Refinement** | Gemini prompt optimization, token guardrails, JSON Schema export | ✅ **Completed** |
 | **Phase 7** | **Risk Analysis Report** | 12 risk rules, 30-hazard matrix, DFS cycle detection, 1-Click Auto-Fix | ✅ **Completed** |
-| **Phase 8** | **Dry Run Simulation** | Transactional shadow run (`ROLLBACK`), 16 safeguards, telemetry bar | ✅ **Completed** |
+| **Phase 8** | **Dry Run Simulation** | Transactional shadow run (`ROLLBACK`), 21 safeguards, 79/79 test assertions, telemetry bar | ✅ **Completed** |
 | **Phase 9** | **Live Migration Engine** | Topological sort DAG, cursor streaming, backpressure, batch savepoints | ⏳ **Next Up** |
 | **Phase 10** | **Completion & Downloads** | Interactive Mermaid ERD, PDF/Markdown audit reports, ORM models | ⏳ Pending |
 | **Phase 11** | **Schema Update Assistant**| Workflow C: NL2DDL, lock tree analysis, forward/rollback scripts | ⏳ Pending |
@@ -183,14 +183,14 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
 - **1-Click Auto-Fix Actions:** Users can click to automatically set nullable, apply default values, create child tables, reduce batch size, or defer foreign keys.
 
 ### Phase 8: Transactional Dry Run Simulation (`apps/desktop/main/engine/dryRun.ts`)
-- **16 Enterprise Safeguards:**
+- **21 Enterprise Safeguards:**
   1. *Transaction Isolation & Guaranteed Rollback:* Opens `BEGIN;`, executes DDL, inserts 500-row sample batches, and guarantees `ROLLBACK;`. Target DB is 100% untouched.
   2. *Session Safety Timeouts:* Sets `lock_timeout = '5s'`, `statement_timeout = '15s'`, and `idle_in_transaction_session_timeout = '10s'` to prevent production locks.
   3. *Deferred Constraint Checks:* `SET CONSTRAINTS ALL DEFERRED;` prevents foreign key ordering failures during shadow testing.
   4. *Null-Byte Poison Pill Stripping:* Strips binary `\0` characters from strings and JSONB before PostgreSQL ingestion.
   5. *63-Byte Identifier Truncation & Hash Collision Defense:* Capped at 58 chars with a 4-char hex hash suffix to prevent duplicate column errors.
   6. *Universal Type Coercion:* Handles numeric Unix epoch timestamps (`1726740000000`), pure `TIME` (`'14:30:00'`), pure `DATE` (`YYYY-MM-DD`), UUID formats (36-char, 32-char hex, 16-byte Buffer), and BSON types (`Decimal128`, `Long`, `Binary`, `Timestamp`, `Int32`, `Double`).
-  7. *Child Table `sort_order`:* Injects `sort_order INTEGER NOT NULL` into child tables (Rule 4 & Challenge 9).
+  7. *Child Table `sort_order` & Shadow Batch Inserts:* Injects `sort_order INTEGER NOT NULL` into child tables (Rule 4 & Challenge 9) and tests shadow inserts with isolated savepoints (`SAVEPOINT sp_child_...`).
   8. *SQL Keyword Preservation in DDL:* Formats defaults without surrounding quotes for SQL functions (`DEFAULT CURRENT_TIMESTAMP`, `DEFAULT NOW()`, `DEFAULT TRUE`, numbers) via `formatSqlDefaultClause()`.
   9. *6-Tier Cascading Error Column Detection:* Wire protocol `pgErr.column` $\to$ constraint detail `Key (...)` $\to$ regex $\to$ value cross-referencing in `row.values` $\to$ length measurement $\to$ table column fallback. `detectedField` is never `undefined`.
   10. *Real-Time Throughput Profiling ($rows/sec$):* Measures wire ingestion speed.
@@ -198,8 +198,13 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
   12. *Storage Headroom Analysis:* Queries `SELECT pg_database_size(current_database())` and compares projected migration footprint against available disk headroom.
   13. *Surrogate Key Preservation:* Prevents sequence burning (`SERIAL`/`IDENTITY`) during rollback testing.
   14. *Credential Masking:* Enforces `maskSensitiveFields()` across all traces.
-  15. *Single-Table Isolated Re-simulation (`🔄 Re-test`):* Sub-200ms isolated test for single tables.
+  15. *Single-Table Isolated Re-simulation (`🔄 Re-test`):* Sub-200ms isolated test for single parent or child tables.
   16. *Pre-Flight Audit Dossier (`📥 Export Dossier`):* Downloads a compliance verification report.
+  17. *Deterministic Column Name Deduplication:* Automatically renames duplicate target columns (`"id_2"`, `"phone_number_2"`) in DDL generation to prevent PostgreSQL error `42701`.
+  18. *Genuinely Empty Collection Guard:* Checks `isGenuinelyEmpty`, bypassing synthetic document generation and avoiding false-positive failures on 0-doc collections.
+  19. *SQL Injection Defense in Default Formatting:* Validates function parens with strict regex `/^[a-z_][a-z0-9_]*\(\s*\)$/i`, escaping and quoting any non-conforming or multi-statement expression.
+  20. *PostgreSQL 65,535 Parameter Limit Clamping:* Dynamically clamps batch size via `Math.floor(65000 / columnCount)` to guarantee prepared statements never exceed PostgreSQL's protocol parameter ceiling.
+  21. *Scoped Anomaly Resolution:* UI Quick-Fixes and store actions resolve skipped rows strictly for the target table and field without masking raw engine results or clearing unrelated table errors.
 - **3-Tier Industrial Resolution Architecture:**
   - **Option A (🌟 RECOMMENDED — Smart Default Imputation):** Imputes missing values with type-aware defaults, keeps `NOT NULL`, migrates 100% of records, and passes row-count reconciliation without crashing downstream services.
   - **Option B (⚠️ CAUTION — Relax to NULLABLE):** Relaxes target column to `NULLABLE` with explicit warnings about downstream application `NullPointerException` crash risks.
@@ -362,7 +367,7 @@ c:\Users\SIDDHESH\Desktop\Int_DB_Migration\
 │   └── phase-08-dry-run-simulation.md          # Phase 8 doc
 ├── scripts\                                    # Verification & Seeder Scripts
 │   ├── seed-phase8-testbed.js                  # Exhaustive testbed seeder for Mongo & Postgres
-│   └── test-phase8-dry-run.js                  # Automated Phase 8 verification suite (57 tests)
+│   └── test-phase8-dry-run.js                  # Automated Phase 8 verification suite (79 tests)
 ├── phase_plan-v2.md                            # Technical specification source of truth
 ├── product_blueprint-v7.md                     # User-facing UX/UI source of truth
 └── AGENTS.md                                   # Strict AI Pair Programming Directives
