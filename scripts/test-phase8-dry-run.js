@@ -17,6 +17,8 @@ const {
   getTypeAwareDefaultValue,
   formatBytes,
   extractFieldValue,
+  transformValueForSql,
+  generateCreateTableDdl,
 } = require('../apps/desktop/dist-electron/engine/dryRun');
 
 console.log('===========================================================');
@@ -441,7 +443,21 @@ async function runTests() {
 
   assert(result18.storageHeadroom !== undefined, 'Storage headroom object returned in result');
   assert(result18.storageHeadroom.projectedSizeBytes > result18.storageHeadroom.currentDbSizeBytes, 'Projected size exceeds current database size for oversized dataset');
-  assert(result18.storageHeadroom.sufficientSpace === false, 'sufficientSpace correctly evaluates to false when projected size exceeds database headroom');
+  assert(result18.storageHeadroom.sufficientSpace === true, 'Standard 1M row migration (~220 MB) correctly passes headroom against standard capacity');
+
+  // Test headroom warning when projected volume breaches safe limit (>500 GB)
+  const result18_oversized = await executeDryRunSimulation({
+    mapping: cleanMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [
+      { collectionName: 'users', documentCount: 1500000000, fields: [] },
+      { collectionName: 'orders', documentCount: 1500000000, fields: [] },
+    ],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+  });
+  assert(result18_oversized.storageHeadroom.sufficientSpace === false, 'sufficientSpace correctly evaluates to false when projected volume breaches 500GB safe capacity');
 
   // ── Test 19: Direction Parameter Preservation in All Modes ───────────────
   console.log('\n--- Test 19: Direction Parameter Preservation in All Modes ---');
@@ -464,6 +480,66 @@ async function runTests() {
     isDemoMode: true,
   });
   assert(result19b.direction === 'mongodb-to-postgres', 'Forward workflow returns direction === "mongodb-to-postgres"');
+
+  // ── Test 20: Strict Integer Type Parsing & Hex Rejection ─────────────────
+  console.log('\n--- Test 20: Strict Integer Type Parsing & Hex Rejection ---');
+  assert(transformValueForSql(42, 'INTEGER') === 42, 'Raw number 42 parses to integer 42');
+  assert(transformValueForSql('1337', 'INTEGER') === 1337, 'Numeric string "1337" parses to integer 1337');
+  assert(transformValueForSql('-50', 'INTEGER') === -50, 'Negative numeric string "-50" parses to integer -50');
+  assert(transformValueForSql('64f1a2b3c4d5e6f708192010', 'INTEGER') === null, 'Hex ObjectId string strictly rejected as INTEGER (not silently coerced to 64)');
+  assert(transformValueForSql('100px', 'INTEGER') === null, 'Alphanumeric string "100px" strictly rejected as INTEGER');
+
+  // ── Test 21: Strict Boolean Token Parsing ────────────────────────────────
+  console.log('\n--- Test 21: Strict Boolean Token Parsing ---');
+  assert(transformValueForSql(true, 'BOOLEAN') === true, 'Native boolean true preserved');
+  assert(transformValueForSql(false, 'BOOLEAN') === false, 'Native boolean false preserved');
+  assert(transformValueForSql('true', 'BOOLEAN') === true, 'String "true" parsed to true');
+  assert(transformValueForSql('FALSE', 'BOOLEAN') === false, 'String "FALSE" parsed to false');
+  assert(transformValueForSql(1, 'BOOLEAN') === true, 'Integer 1 parsed to boolean true');
+  assert(transformValueForSql(0, 'BOOLEAN') === false, 'Integer 0 parsed to boolean false');
+  assert(transformValueForSql('banana', 'BOOLEAN') === null, 'Arbitrary string "banana" strictly rejected as BOOLEAN (not truthy coerced)');
+  assert(transformValueForSql('unknown', 'BOOLEAN') === null, 'Arbitrary string "unknown" strictly rejected as BOOLEAN');
+
+  // ── Test 22: Strict Float / Numeric Token Parsing ────────────────────────
+  console.log('\n--- Test 22: Strict Float / Numeric Token Parsing ---');
+  assert(transformValueForSql(99.95, 'NUMERIC') === 99.95, 'Native float 99.95 preserved');
+  assert(transformValueForSql('45.50', 'NUMERIC') === 45.5, 'Numeric string "45.50" parsed to 45.5');
+  assert(transformValueForSql('-12.34', 'DOUBLE PRECISION') === -12.34, 'Negative numeric float parsed correctly');
+  assert(transformValueForSql('12.50usd', 'NUMERIC') === null, 'String with units "12.50usd" strictly rejected as NUMERIC (not coerced to 12.5)');
+  assert(transformValueForSql('invalid', 'REAL') === null, 'Arbitrary string strictly rejected as REAL');
+
+  // ── Test 23: Fresh Database Headroom Sanity Check ────────────────────────
+  console.log('\n--- Test 23: Fresh Database Headroom Sanity Check ---');
+  const result23 = await executeDryRunSimulation({
+    mapping: cleanMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [{ collectionName: 'users', documentCount: 50000, fields: [] }],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+  });
+  assert(result23.storageHeadroom.sufficientSpace === true, 'Small fresh target DB (~34 MB) does not flag false-positive for 50k row (~11 MB) ingestion');
+
+  // ── Test 24: Default Clause Parameterless Function Whitelist ─────────────
+  console.log('\n--- Test 24: Default Clause Parameterless Function Whitelist ---');
+  const eventFields = [
+    { id: 'e1', sourceField: '_id', sourceType: 'objectId', targetColumn: 'id', targetType: 'VARCHAR(24)', isNullable: false, include: true },
+    { id: 'e2', sourceField: 'created_at', sourceType: 'date', targetColumn: 'created_at', targetType: 'TIMESTAMP', isNullable: false, include: true, defaultValue: 'now()' },
+    { id: 'e3', sourceField: 'uid', sourceType: 'string', targetColumn: 'uid', targetType: 'UUID', isNullable: false, include: true, defaultValue: 'uuid_generate_v4()' },
+    { id: 'e4', sourceField: 'unsafe', sourceType: 'string', targetColumn: 'unsafe', targetType: 'TEXT', isNullable: false, include: true, defaultValue: 'pg_sleep(5)' },
+  ];
+  const { sql: ddlWithSafeFunc } = generateCreateTableDdl('events', eventFields);
+  assert(ddlWithSafeFunc.includes('DEFAULT now()'), 'Safe function now() emitted unquoted as SQL function');
+  assert(ddlWithSafeFunc.includes('DEFAULT uuid_generate_v4()'), 'Safe function uuid_generate_v4() emitted unquoted');
+  assert(ddlWithSafeFunc.includes("DEFAULT 'pg_sleep(5)'"), 'Unapproved arbitrary function pg_sleep(5) safely quoted as literal string');
+
+  // ── Test 25: Child Table Index Name Truncation <= 63 Bytes ───────────────
+  console.log('\n--- Test 25: Child Table Index Name Truncation <= 63 Bytes ---');
+  const longParentTable = 'enterprise_customer_organization_billing_invoices_and_settlements';
+  const longChildCol = 'line_items_and_tax_breakdowns_detailed_entries';
+  const childIndexName = sanitizeIdentifier(`idx_${longParentTable}_${longChildCol}`);
+  assert(Buffer.byteLength(childIndexName, 'utf8') <= 63, `Child index name length <= 63 bytes (length: ${Buffer.byteLength(childIndexName, 'utf8')})`);
+  assert(childIndexName.startsWith('idx_'), 'Child index name retains descriptive prefix');
 
   // ── Summary ────────────────────────────────────────────────────────────
   console.log('\n===========================================================');

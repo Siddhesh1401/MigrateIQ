@@ -69,6 +69,15 @@ export function getTypeAwareDefaultValue(targetType: string): string {
  * without surrounding single quotes that cause PostgreSQL syntax/type errors.
  * Ensures security: only safe parameterless SQL functions or numeric/boolean literals are permitted unquoted.
  */
+const SAFE_SQL_DEFAULT_FUNCTIONS = new Set([
+  'NOW()',
+  'CURRENT_TIMESTAMP',
+  'CURRENT_DATE',
+  'CURRENT_TIME',
+  'GEN_RANDOM_UUID()',
+  'UUID_GENERATE_V4()',
+]);
+
 export function formatSqlDefaultClause(rawDefault: string | undefined | null): string {
   if (rawDefault === undefined || rawDefault === null || rawDefault === '') return '';
   let trimmed = String(rawDefault).trim();
@@ -86,8 +95,8 @@ export function formatSqlDefaultClause(rawDefault: string | undefined | null): s
     upper === 'TRUE' ||
     upper === 'FALSE' ||
     upper === 'NULL' ||
-    /^-?\d+(\.\d+)?$/.test(trimmed) ||
-    /^[a-z_][a-z0-9_]*\(\s*\)$/i.test(trimmed)
+    SAFE_SQL_DEFAULT_FUNCTIONS.has(upper) ||
+    /^-?\d+(\.\d+)?$/.test(trimmed)
   ) {
     return ` DEFAULT ${trimmed}`;
   }
@@ -122,7 +131,7 @@ export function sanitizeIdentifier(name: string): string {
  * Guarantees unique column names (prevents PostgreSQL "column duplicated" error)
  * and strips any unsafe characters from SQL types.
  */
-function generateCreateTableDdl(
+export function generateCreateTableDdl(
   tableName: string,
   fields: FieldMapping[],
   isChildTable = false
@@ -359,12 +368,16 @@ export function transformValueForSql(value: unknown, targetType: string): unknow
     if (typeof value === 'string') {
       const cleaned = value.replace(/\0/g, '').trim();
       if (!cleaned) return null;
-      const num = Number(cleaned);
-      if (isFinite(num) && !isNaN(num)) {
-        return Math.floor(num);
+      // Strictly enforce integer string format (digits only, optional negative sign, or scientific notation like 1e5)
+      if (/^-?\d+$/.test(cleaned)) {
+        const parsed = parseInt(cleaned, 10);
+        return isNaN(parsed) ? null : parsed;
       }
-      const parsed = parseInt(cleaned, 10);
-      return isNaN(parsed) ? null : parsed;
+      if (/^-?\d+[eE]\+?\d+$/.test(cleaned)) {
+        const num = Number(cleaned);
+        return isFinite(num) && !isNaN(num) ? Math.floor(num) : null;
+      }
+      return null;
     }
     return null;
   }
@@ -378,12 +391,12 @@ export function transformValueForSql(value: unknown, targetType: string): unknow
     if (typeof value === 'string') {
       const cleaned = value.replace(/\0/g, '').trim();
       if (!cleaned) return null;
-      const num = Number(cleaned);
-      if (isFinite(num) && !isNaN(num)) {
-        return num;
+      // Strictly enforce numeric float format (e.g. -123.45 or 1.5e-3)
+      if (!/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(cleaned)) {
+        return null;
       }
-      const parsed = parseFloat(cleaned);
-      return isNaN(parsed) ? null : parsed;
+      const num = Number(cleaned);
+      return isFinite(num) && !isNaN(num) ? num : null;
     }
     return null;
   }
@@ -395,9 +408,14 @@ export function transformValueForSql(value: unknown, targetType: string): unknow
       const s = value.trim().toLowerCase();
       if (s === 'true' || s === '1' || s === 'yes') return true;
       if (s === 'false' || s === '0' || s === 'no') return false;
+      return null;
     }
-    if (typeof value === 'number') return value === 1;
-    return Boolean(value);
+    if (typeof value === 'number') {
+      if (value === 1) return true;
+      if (value === 0) return false;
+      return null;
+    }
+    return null;
   }
 
   // 7. Binary (BYTEA)
@@ -588,7 +606,7 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
           : mongoClient.db();
         emitProgress('init', `✅ Connected to source MongoDB (${maskSensitiveFields(sourceConfig.database || 'source')}).`, 'success');
       } catch (mongoErr) {
-        emitProgress('init', `⚠️ Source MongoDB connection unavailable (${(mongoErr as Error).message}). Falling back to schema preview samples.`, 'warning');
+        emitProgress('init', `⚠️ Source MongoDB connection unavailable (${maskSensitiveFields((mongoErr as Error).message)}). Falling back to schema preview samples.`, 'warning');
       }
     }
 
@@ -899,12 +917,11 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
   const estimatedAvgRowBytes = 220;
   const projectedTotalSizeBytes = totalProjectedMigrate * estimatedAvgRowBytes;
 
-  // Warn if the projected migration size exceeds the current database size
-  // (a reasonable heuristic: migration data growing beyond the existing footprint needs attention)
-  const sufficientSpace =
-    projectedTotalSizeBytes <= 0 || currentDbSizeBytes <= 0
-      ? true
-      : projectedTotalSizeBytes < currentDbSizeBytes;
+  // Realistic database headroom check:
+  // PostgreSQL can easily ingest datasets within server volume limits. We flag a capacity warning
+  // only if projected ingestion is extraordinarily large (> 500 GB) or exceeds realistic storage bounds.
+  const MAX_SAFE_INGESTION_BYTES = 500 * 1024 * 1024 * 1024; // 500 GB
+  const sufficientSpace = projectedTotalSizeBytes <= MAX_SAFE_INGESTION_BYTES;
 
   const storageHeadroom = {
     currentDbSizeBytes,
@@ -919,7 +936,7 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
   return {
     simulationId,
     timestamp: new Date().toISOString(),
-    direction: 'mongodb-to-postgres',
+    direction: direction || 'mongodb-to-postgres',
     tables: tableResults,
     totalTables: tableResults.length,
     totalSampleTested,
@@ -970,7 +987,9 @@ async function simulateChildTables(
 
     await pgClient.query(`DROP TABLE IF EXISTS "${childTableName}" CASCADE;`);
     await pgClient.query(childDdl);
-    const childIdxSql = `CREATE INDEX IF NOT EXISTS "${childTableName}_${parentTable}_id_idx" ON "${childTableName}" ("${parentTable}_id");`;
+    const rawIdxName = `${childTableName}_${parentTable}_id_idx`;
+    const childIdxName = sanitizeIdentifier(rawIdxName);
+    const childIdxSql = `CREATE INDEX IF NOT EXISTS "${childIdxName}" ON "${childTableName}" ("${parentTable}_id");`;
     await pgClient.query(childIdxSql);
     emitProgress('schema', `✅ Schema check: CREATE TABLE "${childTableName}" (with sort_order INTEGER NOT NULL & index) — Valid`, 'success', childTableName);
 
@@ -1108,7 +1127,7 @@ async function executePostgresToMongoDryRun(
 ): Promise<DryRunResult> {
   emitProgress('init', '🔍 Starting PostgreSQL → MongoDB in-memory schema synthesis & BSON limit audit...', 'info');
 
-  const { mapping, singleTableName, sourceConfig } = options;
+  const { mapping, singleTableName, sourceConfig, direction } = options;
   const targetMappings = singleTableName
     ? mapping.filter(
         (m) =>
@@ -1203,10 +1222,8 @@ async function executePostgresToMongoDryRun(
   const projectedTotalSizeBytes = totalProjectedMigrate * estimatedAvgRowBytes;
 
   const currentDbSizeBytes = 18 * 1024 * 1024;
-  const sufficientSpace =
-    projectedTotalSizeBytes <= 0 || currentDbSizeBytes <= 0
-      ? true
-      : projectedTotalSizeBytes < currentDbSizeBytes;
+  const MAX_SAFE_INGESTION_BYTES = 500 * 1024 * 1024 * 1024;
+  const sufficientSpace = projectedTotalSizeBytes <= MAX_SAFE_INGESTION_BYTES;
 
   const storageHeadroom = {
     currentDbSizeBytes,
@@ -1219,7 +1236,7 @@ async function executePostgresToMongoDryRun(
   return {
     simulationId,
     timestamp: new Date().toISOString(),
-    direction: 'postgres-to-mongo',
+    direction: direction || 'postgres-to-mongo',
     tables: tableResults,
     totalTables: tableResults.length,
     totalSampleTested,
@@ -1248,7 +1265,7 @@ async function executeDemoModeDryRun(
   simulationId: string,
   startTime: number
 ): Promise<DryRunResult> {
-  const { mapping, sourceSchema, singleTableName } = options;
+  const { mapping, sourceSchema, singleTableName, direction } = options;
   const targetMappings = singleTableName
     ? mapping.filter(
         (m) =>
@@ -1406,10 +1423,8 @@ async function executeDemoModeDryRun(
   const projectedTotalSizeBytes = totalProjectedMigrate * estimatedAvgRowBytes;
 
   const currentDbSizeBytes = 34 * 1024 * 1024;
-  const sufficientSpace =
-    projectedTotalSizeBytes <= 0 || currentDbSizeBytes <= 0
-      ? true
-      : projectedTotalSizeBytes < currentDbSizeBytes;
+  const MAX_SAFE_INGESTION_BYTES = 500 * 1024 * 1024 * 1024;
+  const sufficientSpace = projectedTotalSizeBytes <= MAX_SAFE_INGESTION_BYTES;
 
   const storageHeadroom = {
     currentDbSizeBytes,
@@ -1422,7 +1437,7 @@ async function executeDemoModeDryRun(
   return {
     simulationId,
     timestamp: new Date().toISOString(),
-    direction: 'mongodb-to-postgres',
+    direction: direction || 'mongodb-to-postgres',
     tables: tableResults,
     totalTables: tableResults.length,
     totalSampleTested,

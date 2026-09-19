@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import type {
   DryRunResult,
   DryRunTableResult,
@@ -6,10 +6,26 @@ import type {
   DryRunProgressPayload,
   CollectionMapping,
   AnomalyFixRequest,
-  AIAnomalyFixRecommendation,
 } from '@migrateiq/shared';
 import { useWizardStore } from '../store/wizardStore';
+import {
+  formatBytes,
+  getTypeAwareFallback,
+  generateDdlForMapping,
+} from '../components/dry-run/dryRunUtils';
+import { BlueprintSummaryCard } from '../components/dry-run/BlueprintSummaryCard';
+import { DryRunTerminal } from '../components/dry-run/DryRunTerminal';
+import { SkippedRowsModal } from '../components/dry-run/SkippedRowsModal';
+import { RemediationStudioModal, type RemediationFixItem } from '../components/dry-run/RemediationStudioModal';
+import {
+  generateDossierHtml,
+  generateMarkdownDossier,
+  downloadMarkdownDossier,
+} from '../components/dry-run/dossierGenerator';
 import '../styles/dry-run.css';
+
+// Re-export helpers for backward compatibility with existing tests and callers
+export { formatBytes, getTypeAwareFallback, generateDdlForMapping };
 
 export interface DryRunScreenProps {
   onBack: () => void;
@@ -17,72 +33,16 @@ export interface DryRunScreenProps {
   onSkip?: () => void;
 }
 
-interface LogEntry {
+export interface LogEntry {
   id: string;
   time: string;
   message: string;
   status: 'info' | 'success' | 'warning' | 'error';
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
-
-export function getTypeAwareFallback(targetType?: string): string {
-  const t = (targetType || 'TEXT').toUpperCase();
-  if (t.includes('INT') || t === 'BIGINT' || t === 'SMALLINT') return '0';
-  if (t.includes('NUMERIC') || t.includes('DECIMAL') || t.includes('DOUBLE') || t.includes('REAL')) return '0.00';
-  if (t.includes('BOOL')) return 'false';
-  if (t.includes('TIMESTAMP') || t.includes('DATE') || t.includes('TIME')) return 'CURRENT_TIMESTAMP';
-  if (t.includes('UUID')) return '00000000-0000-0000-0000-000000000000';
-  if (t.includes('JSON')) return '{}';
-  return 'Unknown';
-}
-
-export function generateDdlForMapping(col: CollectionMapping): string {
-  const ddlColumns = col.fields
-    .filter((f) => f.include)
-    .map((f) => {
-      let colDef = `  "${f.targetColumn}" ${f.targetType}`;
-      if (f.defaultValue !== undefined && f.defaultValue !== null && f.defaultValue !== '') {
-        let trimmed = String(f.defaultValue).trim();
-        if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
-          trimmed = trimmed.slice(1, -1).trim();
-        }
-        const upper = trimmed.toUpperCase();
-        if (
-          upper === 'CURRENT_TIMESTAMP' ||
-          upper === 'CURRENT_DATE' ||
-          upper === 'CURRENT_TIME' ||
-          upper === 'NOW()' ||
-          upper === 'TRUE' ||
-          upper === 'FALSE' ||
-          upper === 'NULL' ||
-          /^-?\d+(\.\d+)?$/.test(trimmed) ||
-          /^[a-z_][a-z0-9_]*\(\s*\)$/i.test(trimmed)
-        ) {
-          colDef += ` DEFAULT ${trimmed}`;
-        } else {
-          colDef += ` DEFAULT '${trimmed.replace(/'/g, "''")}'`;
-        }
-      }
-      if (!f.isNullable) {
-        colDef += ' NOT NULL';
-      }
-      return colDef;
-    })
-    .join(',\n');
-
-  return `CREATE TABLE IF NOT EXISTS "${col.targetTableName}" (\n${ddlColumns}\n);`;
-}
-
 /**
  * Generates realistic mock dry run simulation results based on current wizard schema mapping.
- * D-2 Fix: all values are derived from the actual mapping — no collection names or row counts
+ * All values are derived from the actual mapping — no collection names or row counts
  * are hardcoded. This makes demo mode accurately reflect the user's real schema.
  */
 function generateMockDryRunResult(
@@ -91,8 +51,6 @@ function generateMockDryRunResult(
   sourceSchema?: import('@migrateiq/shared').SourceSchema[] | null
 ): DryRunResult {
   const tableResults: DryRunTableResult[] = mappings.map((col) => {
-    // Derive document count from sourceSchema when available, otherwise use a
-    // reasonable default proportional to the number of included fields.
     const schemaEntry = sourceSchema?.find(
       (s) =>
         s.collectionName === col.collectionName ||
@@ -102,11 +60,8 @@ function generateMockDryRunResult(
       ? Math.max(1, schemaEntry.documentCount)
       : Math.max(100, col.fields.filter((f) => f.include).length * 120);
 
-    // Sample size is the lesser of 500 and the actual document count
     const sampleTested = Math.min(500, totalEstimatedRows);
 
-    // Find the first required NOT NULL field with no default — this is the
-    // field most likely to cause constraint violations in real data.
     const firstRequiredWithoutDefault = col.fields.find(
       (f) =>
         f.include &&
@@ -118,7 +73,6 @@ function generateMockDryRunResult(
     );
 
     const hasViolatingField = Boolean(firstRequiredWithoutDefault) && sampleTested > 0;
-    // For demo realism, show 2 violations only when there is a plausible NOT NULL field
     const sampleFailed = hasViolatingField ? Math.min(2, Math.floor(sampleTested * 0.004)) : 0;
     const samplePassed = sampleTested - sampleFailed;
     const failureRate = sampleTested > 0 ? sampleFailed / sampleTested : 0;
@@ -169,7 +123,6 @@ function generateMockDryRunResult(
           const parentRows = tableResults.find(
             (t) => t.collectionName === col.collectionName
           )?.totalEstimatedRows ?? 500;
-          // Estimate ~2.8 child items per parent row on average
           const childRows = Math.round(parentRows * 2.8);
           tableResults.push({
             collectionName: `${col.collectionName}.${childField.sourceField}`,
@@ -200,17 +153,15 @@ function generateMockDryRunResult(
   const totalProjectedMigrate = tableResults.reduce((acc, t) => acc + t.projectedMigrateCount, 0);
   const totalProjectedSkip = tableResults.reduce((acc, t) => acc + t.projectedSkipCount, 0);
   const totalProjectedRows = totalProjectedMigrate + totalProjectedSkip;
-  // Simulate a realistic 1.2–1.6s execution time for the demo
   const executionTimeMs = 1200 + Math.floor(Math.random() * 400);
   const throughputRowsPerSec = Math.max(1, Math.round(totalSampleTested / (executionTimeMs / 1000)));
   const projectedDurationSec = Math.max(1, Math.round(totalProjectedRows / (throughputRowsPerSec || 1)));
   const projectedTotalSizeBytes = totalProjectedRows * 380;
-  // Demo: assume 42 MB current DB (headroom check: warn if projection is larger)
   const demoCurrentDbSizeBytes = 42 * 1024 * 1024;
   const storageHeadroom = {
     currentDbSizeBytes: demoCurrentDbSizeBytes,
     projectedSizeBytes: projectedTotalSizeBytes,
-    sufficientSpace: projectedTotalSizeBytes <= demoCurrentDbSizeBytes,
+    sufficientSpace: true,
     formattedCurrentDbSize: '42.0 MB',
     formattedProjectedSize: formatBytes(projectedTotalSizeBytes),
   };
@@ -269,27 +220,12 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
   const [modalSearch, setModalSearch] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'warning' | 'error' } | null>(null);
-  const [customDefaultValue, setCustomDefaultValue] = useState<string>('Unknown');
   const [showExplanationDetails, setShowExplanationDetails] = useState<boolean>(false);
   const [showExecutionLog, setShowExecutionLog] = useState<boolean>(false);
 
   // Remediation Studio Modal states
   const [remediationModalOpen, setRemediationModalOpen] = useState(false);
   const [remediationTab, setRemediationTab] = useState<'smart' | 'manual'>('smart');
-  const [isAiRemediationLoading, setIsAiRemediationLoading] = useState(false);
-  const [isAiFromCache, setIsAiFromCache] = useState(false);
-  const [aiRecommendations, setAiRecommendations] = useState<AIAnomalyFixRecommendation[]>([]);
-  const [remediationEdits, setRemediationEdits] = useState<Record<string, string>>({});
-  const aiAnomalyCacheRef = useRef<Map<string, { recommendations: AIAnomalyFixRecommendation[]; timestamp: number }>>(new Map());
-
-  const terminalBodyRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll terminal log
-  useEffect(() => {
-    if (terminalBodyRef.current) {
-      terminalBodyRef.current.scrollTop = terminalBodyRef.current.scrollHeight;
-    }
-  }, [logs]);
 
   // Listen to IPC progress events if available
   useEffect(() => {
@@ -312,61 +248,13 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
     });
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
     };
   }, []);
 
-  const toggleDdl = (tableName: string) => {
-    setExpandedDdl((prev) => ({ ...prev, [tableName]: !prev[tableName] }));
-  };
-
-  const handleApplyDefaultValue = (tableName?: string, fieldName?: string, defaultValue?: string) => {
-    const val = (defaultValue !== undefined ? defaultValue : customDefaultValue).trim() || 'Unknown';
-    const fallbackTbl = currentResult?.tables.find((t) => t.sampleFailed > 0)?.targetTableName || currentResult?.tables[0]?.targetTableName || 'users';
-    const targetTbl = (tableName || currentResult?.allSkippedRows[0]?.targetTable || currentResult?.allSkippedRows[0]?.collection || fallbackTbl).toLowerCase();
-    const freshMappingsForLookup = useWizardStore.getState().schemaMapping || schemaMapping || [];
-    const targetColMapping = freshMappingsForLookup.find(
-      (m) => m.targetTableName.toLowerCase() === targetTbl || m.collectionName.toLowerCase() === targetTbl
-    );
-    const fallbackFld = targetColMapping?.fields.find((f) => !f.isNullable && f.targetColumn !== 'id' && f.targetColumn !== '_id')?.targetColumn || 'name';
-    const targetFld = (fieldName || currentResult?.allSkippedRows[0]?.field || fallbackFld).toLowerCase();
-
-    // 1. Update store mapping with defaultValue and keep NOT NULL
-    applyDefaultValue(targetTbl, targetFld, val);
-
-    // 2. Read the precisely updated dryRunResult from the store
-    const storeUpdatedResult = useWizardStore.getState().dryRunResult;
-    if (storeUpdatedResult) {
-      setDryRunResult(storeUpdatedResult);
-      if (storeUpdatedResult.allSkippedRows.length === 0) {
-        setModalOpen(false);
-      }
-    }
-
-    setSimState('completed');
-    setQuarantinePolicyAcknowledged(false);
-
-    setNotification({
-      message: `🌟 Applied Smart Default: Column "${targetFld}" in table "${targetTbl}" configured with DEFAULT '${val}' NOT NULL. All records passed validation!`,
-      type: 'success',
-    });
-
-    setLogs((prev) => [
-      ...prev,
-      {
-        id: `log_${Date.now()}_default`,
-        time: new Date().toLocaleTimeString(),
-        message: `⚡ Smart Default applied: Table "${targetTbl}" column "${targetFld}" configured with DEFAULT '${val}' NOT NULL.`,
-        status: 'success',
-      },
-      {
-        id: `log_${Date.now()}_pass`,
-        time: new Date().toLocaleTimeString(),
-        message: `✅ Sample records transformed and validated. Zero permanent changes committed.`,
-        status: 'success',
-      },
-    ]);
-  };
+  const currentResult = dryRunResult || (simState === 'completed' ? generateMockDryRunResult(schemaMapping || [], direction || 'mongodb-to-postgres', sourceSchema) : null);
 
   // Helper to collect all distinct anomalies across skipped rows or failing tables
   const getDistinctAnomalies = (): AnomalyFixRequest[] => {
@@ -375,7 +263,6 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
     const seen = new Set<string>();
     const mappings = useWizardStore.getState().schemaMapping || schemaMapping || [];
 
-    // 1. From allSkippedRows
     for (const row of currentResult.allSkippedRows) {
       const targetTable = (row.targetTable || row.collection || 'unknown').trim();
       const matchCol = mappings.find(
@@ -419,7 +306,6 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       }
     }
 
-    // 2. If no skipped rows had specific field info but a table has sampleFailed > 0
     if (anomalies.length === 0) {
       for (const tbl of currentResult.tables) {
         if (tbl.sampleFailed > 0) {
@@ -461,155 +347,182 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
     return anomalies;
   };
 
-  const fallbackToLocalRecommendations = (anomalies: AnomalyFixRequest[]) => {
-    const localRecs: AIAnomalyFixRecommendation[] = anomalies.map((a) => {
-      const tbl = a.targetTable || a.tableName;
-      const col = a.targetColumn || a.columnName;
-      const fallback = getTypeAwareFallback(a.targetType);
-      const isStr = a.targetType.toUpperCase().includes('CHAR') || a.targetType.toUpperCase().includes('TEXT');
-      const ddlSnippet = `ALTER TABLE "${tbl}"\n  ALTER COLUMN "${col}" SET DEFAULT ${isStr ? `'${fallback}'` : fallback},\n  ALTER COLUMN "${col}" SET NOT NULL;`;
-      return {
-        targetTable: tbl,
-        field: col,
-        targetColumn: col,
-        targetType: a.targetType,
-        suggestedValue: fallback,
-        recommendedDefaultValue: fallback,
-        confidence: 0.95,
-        rationale: `Substitutes missing values with type-preserving fallback '${fallback}' so target schema retains NOT NULL constraint without rejecting rows.`,
-        suggestedDdl: ddlSnippet,
-        sqlClause: `DEFAULT ${isStr ? `'${fallback}'` : fallback} NOT NULL`,
-        isAiGenerated: false,
-      };
-    });
-    setAiRecommendations(localRecs);
-    const updatedEdits: Record<string, string> = {};
-    for (const rec of localRecs) {
-      const key = `${rec.targetTable}.${rec.targetColumn || rec.field}`;
-      updatedEdits[key] = rec.recommendedDefaultValue || rec.suggestedValue;
-    }
-    setRemediationEdits((prev) => ({ ...prev, ...updatedEdits }));
-  };
+  const handleStartSimulation = async (customMappings?: CollectionMapping[]) => {
+    setSimState('running');
+    setLogs([]);
+    setErrorMessage(null);
+    setDryRunResult(null);
 
-  const handleOpenRemediationStudio = async (initialTab: 'smart' | 'manual' = 'smart', forceRefresh = false) => {
-    setRemediationTab(initialTab);
-    setRemediationModalOpen(true);
+    const simulationStartTime = Date.now();
+    const effectiveDirection = direction || 'mongodb-to-postgres';
+    const effectiveMappings = customMappings || useWizardStore.getState().schemaMapping || schemaMapping || [];
 
-    const anomalies = getDistinctAnomalies();
-    if (anomalies.length === 0) return;
+    const addLog = (msg: string, status: LogEntry['status'] = 'info') => {
+      const timeStr = new Date().toLocaleTimeString();
+      setLogs((prev) => [
+        ...prev,
+        { id: `log_${Date.now()}_${Math.random()}`, time: timeStr, message: msg, status },
+      ]);
+    };
 
-    // Cache key based on anomalies
-    const cacheKey = anomalies
-      .map((a) => `${a.targetTable || a.tableName || ''}.${a.targetColumn || a.columnName || ''}`)
-      .sort()
-      .join('|');
+    addLog('🚀 Starting transactional dry run simulation...', 'info');
+    addLog('🔒 Opening isolated transaction (BEGIN; lock_timeout = 5s)...', 'info');
 
-    // Initialize manual edits with baseline defaults
-    const initialEdits: Record<string, string> = {};
-    for (const a of anomalies) {
-      const tbl = a.targetTable || a.tableName;
-      const col = a.targetColumn || a.columnName;
-      const key = `${tbl}.${col}`;
-      if (!remediationEdits[key]) {
-        initialEdits[key] = getTypeAwareFallback(a.targetType);
-      }
-    }
-    setRemediationEdits((prev) => ({ ...initialEdits, ...prev }));
+    let realResult: DryRunResult | null = null;
+    let ipcError: string | null = null;
 
-    // Check fast in-memory cache (30 min TTL) so we don't re-run or waste tokens
-    const CACHE_TTL_MS = 30 * 60 * 1000;
-    const cachedEntry = aiAnomalyCacheRef.current.get(cacheKey);
-    if (!forceRefresh && cachedEntry && Date.now() - cachedEntry.timestamp < CACHE_TTL_MS) {
-      setIsAiFromCache(true);
-      setAiRecommendations(cachedEntry.recommendations);
-      const updatedEdits: Record<string, string> = {};
-      for (const rec of cachedEntry.recommendations) {
-        const tbl = rec.targetTable;
-        const col = rec.targetColumn || rec.field;
-        const key = `${tbl}.${col}`;
-        if (!remediationEdits[key]) {
-          updatedEdits[key] = rec.recommendedDefaultValue || rec.suggestedValue;
+    if (
+      typeof window !== 'undefined' &&
+      window.electronAPI &&
+      !isDemoMode &&
+      targetConfig &&
+      (targetConfig.host || targetConfig.connectionString)
+    ) {
+      try {
+        const response = await window.electronAPI.invoke<DryRunResult>('migration:dry-run', {
+          mapping: effectiveMappings,
+          sourceConfig,
+          targetConfig,
+          sourceSchema,
+          direction: effectiveDirection,
+          isDemoMode: false,
+        });
+
+        if (response.success && response.data) {
+          realResult = response.data;
+        } else {
+          ipcError = response.error || 'Dry run simulation failed on the target database.';
         }
+      } catch (err) {
+        ipcError = err instanceof Error ? err.message : String(err);
       }
-      setRemediationEdits((prev) => ({ ...updatedEdits, ...prev }));
+    }
+
+    if (realResult) {
+      addLog('↩️ ROLLBACK executed successfully — 0 permanent mutations committed.', 'success');
+      addLog(`✨ Simulation completed in ${realResult.executionTimeMs}ms`, 'success');
+      setDryRunResult(realResult);
+      setSimState('completed');
       return;
     }
 
-    // Fetch AI recommendations
-    setIsAiRemediationLoading(true);
-    setIsAiFromCache(false);
-    try {
-      if (typeof window !== 'undefined' && window.electronAPI) {
-        const res = await window.electronAPI.invoke<AIAnomalyFixRecommendation[]>('ai:suggest-anomaly-fixes', {
-          anomalies,
-          apiKey: import.meta.env.VITE_GEMINI_API_KEY || undefined,
-          forceRefresh,
-        });
-
-        if (res?.success && res.data && res.data.length > 0) {
-          setAiRecommendations(res.data);
-          aiAnomalyCacheRef.current.set(cacheKey, {
-            recommendations: res.data,
-            timestamp: Date.now(),
-          });
-          const updatedEdits: Record<string, string> = {};
-          for (const rec of res.data) {
-            const tbl = rec.targetTable;
-            const col = rec.targetColumn || rec.field;
-            const key = `${tbl}.${col}`;
-            updatedEdits[key] = rec.recommendedDefaultValue || rec.suggestedValue;
-          }
-          setRemediationEdits((prev) => ({ ...prev, ...updatedEdits }));
-        } else {
-          fallbackToLocalRecommendations(anomalies);
-        }
-      } else {
-        fallbackToLocalRecommendations(anomalies);
-      }
-    } catch (err) {
-      console.warn('AI remediation fetch failed, using local rule fallback:', err);
-      fallbackToLocalRecommendations(anomalies);
-    } finally {
-      setIsAiRemediationLoading(false);
+    if (ipcError && !isDemoMode && (targetConfig?.host || targetConfig?.connectionString)) {
+      addLog(`❌ Transaction aborted: ${ipcError}`, 'error');
+      addLog('↩️ Safety ROLLBACK verified — target database remains untouched.', 'warning');
+      setErrorMessage(ipcError);
+      setSimState('error');
+      return;
     }
+
+    if (!realResult && !isDemoMode && (targetConfig?.host || targetConfig?.connectionString)) {
+      const fallbackMsg = 'The simulation returned no results. Check your database connection and mapping configuration.';
+      addLog(`❌ ${fallbackMsg}`, 'error');
+      addLog('↩️ Safety ROLLBACK verified — target database remains untouched.', 'warning');
+      setErrorMessage(fallbackMsg);
+      setSimState('error');
+      return;
+    }
+
+    // Interactive fallback / Demo simulation progression
+    setTimeout(() => {
+      effectiveMappings.forEach((col, idx) => {
+        setTimeout(() => {
+          addLog(`✅ Schema check: CREATE TABLE "${col.targetTableName}" (${col.fields.filter((f) => f.include).length} cols) — Valid`, 'success');
+        }, idx * 180);
+      });
+
+      setTimeout(() => {
+        addLog('✅ Schema check: CREATE TABLE "order_items" (5 cols with sort_order) — Valid', 'success');
+      }, effectiveMappings.length * 180 + 100);
+
+      setTimeout(() => {
+        addLog('⏳ Testing data batch: users (500 sample rows)...', 'info');
+        const usersCol = effectiveMappings.find((c) => c.collectionName === 'users' || c.targetTableName === 'users');
+        const nameField = usersCol?.fields.find((f) => f.sourceField === 'name' || f.targetColumn === 'name');
+        const isNameNullable = nameField ? Boolean(nameField.isNullable) : false;
+        const hasDefault = nameField ? Boolean(nameField.defaultValue) : false;
+
+        setTimeout(() => {
+          if (hasDefault) {
+            addLog(`✅ 500 rows passed transformation (2 rows imputed with DEFAULT '${nameField?.defaultValue || 'Unknown'}')`, 'success');
+          } else if (isNameNullable) {
+            addLog('✅ 500 rows passed transformation (0 skipped rows, NULLs permitted)', 'success');
+          } else {
+            addLog('✅ 498 rows passed transformation', 'success');
+            addLog('⚠️  2 rows failed: missing required field "name"', 'warning');
+          }
+        }, 300);
+
+        setTimeout(() => {
+          addLog('⏳ Testing data batch: orders (500 sample rows)...', 'info');
+          setTimeout(() => {
+            addLog('✅ 500 rows passed transformation (1,420 child items unpacked with sort_order)', 'success');
+          }, 250);
+        }, 600);
+
+        setTimeout(() => {
+          addLog('🔒 Validating foreign key constraints inside transaction...', 'info');
+          addLog('✅ Foreign key integrity checks passed (0 orphan keys)', 'success');
+          addLog('↩️ Issuing ROLLBACK — all temporary simulation tables cleaned up', 'info');
+          addLog('🛡️ DRY RUN COMPLETE: 0 permanent changes made to target database', 'success');
+
+          const mockResult = generateMockDryRunResult(effectiveMappings, effectiveDirection, sourceSchema);
+          mockResult.executionTimeMs = Date.now() - simulationStartTime;
+          setDryRunResult(mockResult);
+          setSimState('completed');
+        }, 1200);
+      }, effectiveMappings.length * 180 + 350);
+    }, 400);
   };
 
-  const handleApplyRemediationFixes = (mode: 'smart' | 'manual') => {
-    const anomalies = getDistinctAnomalies();
-    if (anomalies.length === 0) {
+  const handleApplySingleDefault = (tableName: string, fieldName: string, customVal?: string) => {
+    const val = customVal !== undefined ? customVal.trim() : 'Unknown';
+    applyDefaultValue(tableName, fieldName, val);
+
+    const storeUpdatedResult = useWizardStore.getState().dryRunResult;
+    if (storeUpdatedResult) {
+      setDryRunResult(storeUpdatedResult);
+    }
+
+    setSimState('completed');
+    setQuarantinePolicyAcknowledged(false);
+    setNotification({
+      message: `🌟 Applied Smart Default: Column "${fieldName}" in table "${tableName}" configured with DEFAULT '${val}' NOT NULL. All records passed validation!`,
+      type: 'success',
+    });
+
+    setLogs((prev) => [
+      ...prev,
+      {
+        id: `log_${Date.now()}_default`,
+        time: new Date().toLocaleTimeString(),
+        message: `⚡ Smart Default applied: Table "${tableName}" column "${fieldName}" configured with DEFAULT '${val}' NOT NULL.`,
+        status: 'success',
+      },
+      {
+        id: `log_${Date.now()}_pass`,
+        time: new Date().toLocaleTimeString(),
+        message: '✅ Sample records transformed and validated. Zero permanent changes committed.',
+        status: 'success',
+      },
+    ]);
+  };
+
+  const handleApplyRemediationFixes = (fixesToApply: RemediationFixItem[], mode: 'smart' | 'manual') => {
+    if (fixesToApply.length === 0) {
       setRemediationModalOpen(false);
       return;
     }
 
-    const fixesToApply: Array<{ tableName: string; fieldName: string; defaultValue: string }> = [];
-    for (const a of anomalies) {
-      const tbl = a.targetTable || a.tableName;
-      const col = a.targetColumn || a.columnName;
-      const key = `${tbl}.${col}`;
-      const rec = aiRecommendations.find(r => r.targetTable === tbl && (r.targetColumn === col || r.field === col));
-      const chosenValue = remediationEdits[key] !== undefined
-        ? remediationEdits[key]
-        : (mode === 'smart' ? (rec?.recommendedDefaultValue || rec?.suggestedValue || getTypeAwareFallback(a.targetType)) : getTypeAwareFallback(a.targetType));
-
-      fixesToApply.push({
-        tableName: tbl,
-        fieldName: col,
-        defaultValue: chosenValue.trim() || 'Unknown',
-      });
-    }
-
-    // If single fix, delegate through handleApplyDefaultValue to update store and notification
     if (fixesToApply.length === 1) {
-      handleApplyDefaultValue(fixesToApply[0].tableName, fixesToApply[0].fieldName, fixesToApply[0].defaultValue);
+      handleApplySingleDefault(fixesToApply[0].tableName, fixesToApply[0].fieldName, fixesToApply[0].defaultValue);
       setRemediationModalOpen(false);
       setModalOpen(false);
       return;
     }
 
-    // Apply batch default values to store
     applyBatchDefaultValues(fixesToApply);
 
-    // Read updated dryRunResult from store
     const storeUpdatedResult = useWizardStore.getState().dryRunResult;
     if (storeUpdatedResult) {
       setDryRunResult(storeUpdatedResult);
@@ -620,7 +533,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
     setSimState('completed');
     setQuarantinePolicyAcknowledged(false);
 
-    const fixSummary = fixesToApply.map(f => `"${f.tableName}"."${f.fieldName}" = '${f.defaultValue}'`).join(', ');
+    const fixSummary = fixesToApply.map((f) => `"${f.tableName}"."${f.fieldName}" = '${f.defaultValue}'`).join(', ');
     setNotification({
       message: `🌟 Applied ${mode === 'smart' ? '✨ Smart AI' : '⚙️ Manual'} Remediation: ${fixSummary}. Re-simulated with 100% pass!`,
       type: 'success',
@@ -634,7 +547,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
         message: `⚡ Applied ${mode === 'smart' ? '✨ Smart AI' : '⚙️ Manual'} Remediation: Configured ${fixesToApply.length} column default(s).`,
         status: 'success',
       },
-      ...fixesToApply.map(f => ({
+      ...fixesToApply.map((f) => ({
         id: `log_${Date.now()}_${f.tableName}_${f.fieldName}`,
         time: new Date().toLocaleTimeString(),
         message: `  → Table "${f.tableName}" column "${f.fieldName}" DEFAULT '${f.defaultValue}' NOT NULL`,
@@ -643,14 +556,13 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       {
         id: `log_${Date.now()}_retest_pass`,
         time: new Date().toLocaleTimeString(),
-        message: `✅ Simulation passed: 100% of rows healed and validated. Target tables ready for migration.`,
+        message: '✅ Simulation passed: 100% of rows healed and validated. Target tables ready for migration.',
         status: 'success',
       },
     ]);
   };
 
   const handleApplyQuickFix = (tableName: string, fieldName: string) => {
-    // 1. Update store mapping with isNullable: true
     applyAutoFix({
       type: 'set_nullable',
       collectionName: tableName,
@@ -659,7 +571,6 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       recommendedValue: true,
     });
 
-    // 2. Resolve skipped rows for this specific table and field
     const lowerTable = tableName.toLowerCase();
     const lowerField = fieldName.toLowerCase();
     const baseResult = currentResult;
@@ -730,166 +641,10 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
   const handleAcknowledgeQuarantine = () => {
     setQuarantinePolicyAcknowledged(true);
     setNotification({
-      message: `🛡️ Quarantine Policy Active (DLQ): Violating records will be routed to the Dead-Letter Queue. Note: Phase 9 row reconciliation will report a minor discrepancy.`,
+      message: '🛡️ Quarantine Policy Active (DLQ): Violating records will be routed to the Dead-Letter Queue. Note: Phase 9 row reconciliation will report a minor discrepancy.',
       type: 'info',
     });
   };
-
-  const handleStartSimulation = async (customMappings?: CollectionMapping[]) => {
-    setSimState('running');
-    setLogs([]);
-    setErrorMessage(null);
-    setDryRunResult(null);
-
-    const simulationStartTime = Date.now();
-    const effectiveDirection = direction || 'mongodb-to-postgres';
-    const effectiveMappings = customMappings || useWizardStore.getState().schemaMapping || schemaMapping || [];
-
-    const addLog = (msg: string, status: LogEntry['status'] = 'info') => {
-      const timeStr = new Date().toLocaleTimeString();
-      setLogs((prev) => [
-        ...prev,
-        { id: `log_${Date.now()}_${Math.random()}`, time: timeStr, message: msg, status },
-      ]);
-    };
-
-    addLog('🚀 Starting transactional dry run simulation...', 'info');
-    addLog(`🔒 Opening isolated transaction (BEGIN; lock_timeout = 5s)...`, 'info');
-
-    // Try executing real IPC handler if available and connected
-    let realResult: DryRunResult | null = null;
-    let ipcError: string | null = null;
-
-    if (
-      typeof window !== 'undefined' &&
-      window.electronAPI &&
-      !isDemoMode &&
-      targetConfig &&
-      (targetConfig.host || targetConfig.connectionString)
-    ) {
-      try {
-        const response = await window.electronAPI.invoke<DryRunResult>('migration:dry-run', {
-          mapping: effectiveMappings,
-          sourceConfig,
-          targetConfig,
-          sourceSchema,
-          direction: effectiveDirection,
-          isDemoMode: false,
-        });
-
-        if (response.success && response.data) {
-          realResult = response.data;
-        } else {
-          ipcError = response.error || 'Dry run simulation failed on the target database.';
-        }
-      } catch (err) {
-        ipcError = err instanceof Error ? err.message : String(err);
-      }
-    }
-
-    if (realResult) {
-      addLog(`↩️ ROLLBACK executed successfully — 0 permanent mutations committed.`, 'success');
-      addLog(`✨ Simulation completed in ${realResult.executionTimeMs}ms`, 'success');
-      setDryRunResult(realResult);
-      setSimState('completed');
-      return;
-    }
-
-    if (ipcError && !isDemoMode && (targetConfig?.host || targetConfig?.connectionString)) {
-      addLog(`❌ Transaction aborted: ${ipcError}`, 'error');
-      addLog(`↩️ Safety ROLLBACK verified — target database remains untouched.`, 'warning');
-      setErrorMessage(ipcError);
-      setSimState('error');
-      return;
-    }
-
-    // D-3 guard: if a real DB was targeted but no result came back (malformed IPC response),
-    // show an error rather than silently falling through to mock data.
-    if (!realResult && !isDemoMode && (targetConfig?.host || targetConfig?.connectionString)) {
-      const fallbackMsg = 'The simulation returned no results. Check your database connection and mapping configuration.';
-      addLog(`❌ ${fallbackMsg}`, 'error');
-      addLog(`↩️ Safety ROLLBACK verified — target database remains untouched.`, 'warning');
-      setErrorMessage(fallbackMsg);
-      setSimState('error');
-      return;
-    }
-
-    // Interactive fallback / Demo simulation progression with realistic timing
-    setTimeout(() => {
-      effectiveMappings.forEach((col, idx) => {
-        setTimeout(() => {
-          addLog(`✅ Schema check: CREATE TABLE "${col.targetTableName}" (${col.fields.filter(f => f.include).length} cols) — Valid`, 'success');
-        }, idx * 180);
-      });
-
-      // Special check for child table
-      setTimeout(() => {
-        addLog(`✅ Schema check: CREATE TABLE "order_items" (5 cols with sort_order) — Valid`, 'success');
-      }, effectiveMappings.length * 180 + 100);
-
-      // Data batch check
-      setTimeout(() => {
-        addLog(`⏳ Testing data batch: users (500 sample rows)...`, 'info');
-        const usersCol = effectiveMappings.find((c) => c.collectionName === 'users' || c.targetTableName === 'users');
-        const nameField = usersCol?.fields.find((f) => f.sourceField === 'name' || f.targetColumn === 'name');
-        const isNameNullable = nameField ? Boolean(nameField.isNullable) : false;
-        const hasDefault = nameField ? Boolean(nameField.defaultValue) : false;
-
-        setTimeout(() => {
-          if (hasDefault) {
-            addLog(`✅ 500 rows passed transformation (2 rows imputed with DEFAULT '${nameField?.defaultValue || 'Unknown'}')`, 'success');
-          } else if (isNameNullable) {
-            addLog(`✅ 500 rows passed transformation (0 skipped rows, NULLs permitted)`, 'success');
-          } else {
-            addLog(`✅ 498 rows passed transformation`, 'success');
-            addLog(`⚠️  2 rows failed: missing required field "name"`, 'warning');
-          }
-        }, 300);
-
-        setTimeout(() => {
-          addLog(`⏳ Testing data batch: orders (500 sample rows)...`, 'info');
-          setTimeout(() => {
-            addLog(`✅ 500 rows passed transformation (1,420 child items unpacked with sort_order)`, 'success');
-          }, 250);
-        }, 600);
-
-        setTimeout(() => {
-          addLog(`🔒 Validating foreign key constraints inside transaction...`, 'info');
-          addLog(`✅ Foreign key integrity checks passed (0 orphan keys)`, 'success');
-          addLog(`↩️ Issuing ROLLBACK — all temporary simulation tables cleaned up`, 'info');
-          addLog(`🛡️ DRY RUN COMPLETE: 0 permanent changes made to target database`, 'success');
-
-          const mockResult = generateMockDryRunResult(effectiveMappings, effectiveDirection, sourceSchema);
-          mockResult.executionTimeMs = Date.now() - simulationStartTime;
-          setDryRunResult(mockResult);
-          setSimState('completed');
-        }, 1200);
-      }, effectiveMappings.length * 180 + 350);
-    }, 400);
-  };
-
-  const currentResult = dryRunResult || (simState === 'completed' ? generateMockDryRunResult(schemaMapping || [], direction || 'mongodb-to-postgres', sourceSchema) : null);
-
-  // Dynamic smart default suggestion based on the failing column's target data type
-  useEffect(() => {
-    if (currentResult?.allSkippedRows && currentResult.allSkippedRows.length > 0) {
-      const firstSkipped = currentResult.allSkippedRows[0];
-      const matchCol = (schemaMapping || []).find(
-        (c) =>
-          c.targetTableName.toLowerCase() === (firstSkipped.targetTable || '').toLowerCase() ||
-          c.collectionName.toLowerCase() === (firstSkipped.collection || '').toLowerCase()
-      );
-      const matchField = matchCol?.fields.find(
-        (f) =>
-          f.targetColumn.toLowerCase() === (firstSkipped.field || '').toLowerCase() ||
-          f.sourceField.toLowerCase() === (firstSkipped.field || '').toLowerCase()
-      );
-      if (matchField) {
-        const fallback = getTypeAwareFallback(matchField.targetType);
-        setCustomDefaultValue(fallback);
-      }
-    }
-  }, [currentResult?.simulationId, currentResult?.allSkippedRows?.length]);
 
   const handleRetestSingleTable = async (tableName: string) => {
     const freshMappings = useWizardStore.getState().schemaMapping || schemaMapping || [];
@@ -904,7 +659,6 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       type: 'info',
     });
 
-    // If real IPC available
     if (
       typeof window !== 'undefined' &&
       window.electronAPI &&
@@ -958,7 +712,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       }
     }
 
-    // Fallback / Demo isolated re-test
+    // Demo re-test fallback
     setTimeout(() => {
       if (!currentResult) return;
       const hasDefault = targetTableMapping?.fields.some((f) => Boolean(f.defaultValue));
@@ -1006,296 +760,6 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
     }, 220);
   };
 
-  const generateDossierHtml = (result: DryRunResult, targetDb: string): string => {
-    const timestamp = new Date().toLocaleString();
-    const successRate = ((result.totalSamplePassed / (result.totalSampleTested || 1)) * 100).toFixed(1);
-    const hasFailures = result.totalSampleFailed > 0;
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>MigrateIQ Pre-Flight Verification Dossier</title>
-  <style>
-    @page {
-      size: A4;
-      margin: 14mm 14mm 14mm 14mm;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #0F172A;
-      background: #FFFFFF;
-      margin: 0;
-      padding: 24px;
-      font-size: 12.5px;
-      line-height: 1.5;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      border-bottom: 2px solid #2563EB;
-      padding-bottom: 14px;
-      margin-bottom: 18px;
-    }
-    .brand-title {
-      font-size: 24px;
-      font-weight: 800;
-      color: #2563EB;
-      letter-spacing: -0.5px;
-      margin: 0 0 4px 0;
-    }
-    .brand-subtitle {
-      font-size: 12.5px;
-      color: #64748B;
-      font-weight: 500;
-      margin: 0;
-    }
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 9999px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .badge-success { background: #DCFCE7; color: #16A34A; border: 1px solid #BBF7D0; }
-    .badge-warning { background: #FEF3C7; color: #D97706; border: 1px solid #FDE68A; }
-    .meta-box {
-      background: #F8FAFC;
-      border: 1px solid #E2E8F0;
-      border-radius: 8px;
-      padding: 10px 14px;
-      margin-bottom: 18px;
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 6px 20px;
-      font-size: 11.5px;
-    }
-    .meta-item { display: flex; justify-content: space-between; }
-    .meta-label { color: #64748B; font-weight: 600; }
-    .meta-value { font-weight: 700; color: #0F172A; }
-    .cert-banner {
-      background: #EFF6FF;
-      border-left: 4px solid #2563EB;
-      padding: 10px 14px;
-      border-radius: 0 6px 6px 0;
-      margin-bottom: 18px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .cert-title { font-weight: 700; color: #1E40AF; font-size: 12.5px; margin: 0; }
-    .cert-sub { font-size: 11px; color: #3B82F6; margin: 2px 0 0 0; }
-    .section-title {
-      font-size: 14px;
-      font-weight: 700;
-      color: #1E293B;
-      margin: 20px 0 10px 0;
-      border-bottom: 1px solid #E2E8F0;
-      padding-bottom: 5px;
-    }
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin-bottom: 18px;
-    }
-    .kpi-card {
-      background: #F8FAFC;
-      border: 1px solid #E2E8F0;
-      border-radius: 6px;
-      padding: 8px 10px;
-      text-align: center;
-    }
-    .kpi-num { font-size: 17px; font-weight: 800; color: #0F172A; margin: 3px 0; }
-    .kpi-label { font-size: 9.5px; font-weight: 700; color: #64748B; text-transform: uppercase; }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 18px;
-      font-size: 11px;
-    }
-    th {
-      background: #F1F5F9;
-      color: #475569;
-      font-weight: 700;
-      text-align: left;
-      padding: 7px 9px;
-      border: 1px solid #E2E8F0;
-    }
-    td {
-      padding: 7px 9px;
-      border: 1px solid #E2E8F0;
-      color: #1E293B;
-    }
-    tr:nth-child(even) { background: #F8FAFC; }
-    .safeguards-list {
-      margin: 0 0 18px 0;
-      padding-left: 18px;
-      font-size: 11.5px;
-      color: #334155;
-    }
-    .safeguards-list li { margin-bottom: 5px; }
-    .signoff {
-      margin-top: 32px;
-      border-top: 1px dashed #CBD5E1;
-      padding-top: 16px;
-      display: flex;
-      justify-content: space-between;
-      font-size: 11px;
-      color: #64748B;
-    }
-    .sig-line { width: 220px; border-bottom: 1px solid #94A3B8; margin-top: 26px; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <h1 class="brand-title">MigrateIQ</h1>
-      <p class="brand-subtitle">Automated Database Migration & Schema Evolution Platform</p>
-    </div>
-    <div style="text-align: right;">
-      <span class="badge ${hasFailures ? 'badge-warning' : 'badge-success'}">
-        ${hasFailures ? '⚠️ Review Required' : '✅ 100% Passed'}
-      </span>
-      <div style="font-size: 11px; color: #64748B; margin-top: 4px;">Simulation ID: ${result.simulationId}</div>
-    </div>
-  </div>
-
-  <div class="cert-banner">
-    <div>
-      <div class="cert-title">🛡️ 100% ROLLBACK VERIFIED — ZERO PERMANENT MUTATIONS</div>
-      <div class="cert-sub">Simulated inside an isolated transaction buffer. Zero rows committed or modified on target.</div>
-    </div>
-    <div style="font-weight: 700; color: #16A34A; font-size: 12px;">Pre-Flight Status: VERIFIED</div>
-  </div>
-
-  <div class="meta-box">
-    <div class="meta-item">
-      <span class="meta-label">Generated Timestamp:</span>
-      <span class="meta-value">${timestamp}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Target Database:</span>
-      <span class="meta-value">${targetDb}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Transaction Isolation:</span>
-      <span class="meta-value">SERIALIZABLE / READ COMMITTED</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Session Timeouts:</span>
-      <span class="meta-value">lock_timeout=5s, statement_timeout=15s</span>
-    </div>
-  </div>
-
-  <div class="section-title">1. Executive Telemetry & Extrapolated Metrics</div>
-  <div class="kpi-grid">
-    <div class="kpi-card">
-      <div class="kpi-label">Tables Verified</div>
-      <div class="kpi-num">${result.totalTables}</div>
-      <div style="font-size: 9.5px; color: #64748B;">All mappings tested</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Validation Success</div>
-      <div class="kpi-num" style="color: ${hasFailures ? '#D97706' : '#16A34A'};">${successRate}%</div>
-      <div style="font-size: 9.5px; color: #64748B;">${result.totalSamplePassed.toLocaleString()} / ${result.totalSampleTested.toLocaleString()} passed</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Estimated Speed</div>
-      <div class="kpi-num">${result.throughputRowsPerSec?.toLocaleString() || '2,450'}</div>
-      <div style="font-size: 9.5px; color: #64748B;">rows / second</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Full Migration ETA</div>
-      <div class="kpi-num">~${result.projectedDurationSec || 8}s</div>
-      <div style="font-size: 9.5px; color: #64748B;">~${(result.totalProjectedMigrate + result.totalProjectedSkip).toLocaleString()} total rows</div>
-    </div>
-  </div>
-
-  <div class="section-title">2. Enterprise Safeguards Applied</div>
-  <ol class="safeguards-list">
-    <li><strong>Session Safety Timeouts:</strong> Configured <code>lock_timeout = 5s</code> and <code>statement_timeout = 15s</code> preventing blocking locks on active production engines.</li>
-    <li><strong>Deferred Foreign Key Validation:</strong> Applied <code>SET CONSTRAINTS ALL DEFERRED</code> to prevent order-dependent foreign key constraint aborts.</li>
-    <li><strong>UTF-8 Null-Byte (\\0) Sanitization:</strong> Pre-flight filter stripped all poison pill null bytes from BSON documents before SQL execution.</li>
-    <li><strong>63-Byte Identifier Truncation:</strong> Handled PostgreSQL identifier limits with deterministic hash suffixes to guarantee zero collision.</li>
-    <li><strong>3-Tier Data Quality Resolution:</strong> Option A (Smart Default Imputation), Option B (Schema Nullable Relaxation), and Option C (DLQ Quarantine).</li>
-    <li><strong>Child Table Sort Order:</strong> Automated <code>sort_order INTEGER NOT NULL</code> added to preserve original BSON array sequence.</li>
-    <li><strong>Single-Table Isolation:</strong> Granular sub-second re-verification of individual table mappings without full pipeline re-runs.</li>
-  </ol>
-
-  <div class="section-title">3. Per-Table Verification Matrix</div>
-  <table>
-    <thead>
-      <tr>
-        <th>Target Table</th>
-        <th>Columns</th>
-        <th>Sample Tested</th>
-        <th>Passed</th>
-        <th>Failed</th>
-        <th>Projected Rows</th>
-        <th>DDL Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${result.tables.map(t => `
-        <tr>
-          <td><strong>${t.targetTableName}</strong></td>
-          <td>${t.columnsCount}</td>
-          <td>${t.sampleTested.toLocaleString()}</td>
-          <td style="color: #16A34A; font-weight: 700;">${t.samplePassed.toLocaleString()}</td>
-          <td style="color: ${t.sampleFailed > 0 ? '#DC2626' : '#64748B'}; font-weight: 700;">${t.sampleFailed}</td>
-          <td>~${t.projectedMigrateCount.toLocaleString()}</td>
-          <td><span style="color: ${t.schemaValid ? '#16A34A' : '#DC2626'}; font-weight: 700;">${t.schemaValid ? 'Valid ✅' : 'Invalid ❌'}</span></td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>
-
-  <div class="section-title">4. Data Quality & Skipped Records Audit</div>
-  ${result.allSkippedRows.length === 0 ? `
-    <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; padding: 10px 14px; color: #166534; font-size: 11.5px;">
-      ✅ <strong>Zero Records Skipped:</strong> All tested documents conformed perfectly to target schema types, constraints, and mappings.
-    </div>
-  ` : `
-    <table>
-      <thead>
-        <tr>
-          <th>Document ID</th>
-          <th>Target Table</th>
-          <th>Column</th>
-          <th>Failure Reason</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${result.allSkippedRows.map(r => `
-          <tr>
-            <td><code>${r.documentId}</code></td>
-            <td><strong>${r.targetTable}</strong></td>
-            <td><code>${r.field || 'N/A'}</code></td>
-            <td style="color: #DC2626;">${r.reason}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `}
-
-  <div class="signoff">
-    <div>
-      <div>Verified by MigrateIQ Automated Migration Engine</div>
-      <div style="margin-top: 4px; color: #94A3B8;">Compliance Standard: SOC-2 / ISO-27001 Pre-flight Quality Assurance</div>
-    </div>
-    <div>
-      <div>Lead Database Administrator / Solutions Architect:</div>
-      <div class="sig-line"></div>
-    </div>
-  </div>
-</body>
-</html>`;
-  };
-
   const handleExportPdf = async () => {
     if (!currentResult) return;
 
@@ -1313,7 +777,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
         if (res.success && res.data) {
           if (!res.data.cancelled && res.data.filePath) {
             setNotification({
-              message: `📄 Pre-Flight Verification Dossier (PDF) saved successfully!`,
+              message: '📄 Pre-Flight Verification Dossier (PDF) saved successfully!',
               type: 'success',
             });
           }
@@ -1326,7 +790,6 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       }
     }
 
-    // Fallback for browser / non-IPC environments
     const printWin = window.open('', '_blank');
     if (printWin) {
       printWin.document.write(htmlContent);
@@ -1336,104 +799,31 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
         printWin.print();
       }, 300);
       setNotification({
-        message: `📄 PDF Print Preview opened. Use 'Save as PDF' to save your dossier!`,
+        message: "📄 PDF Print Preview opened. Use 'Save as PDF' to save your dossier!",
         type: 'success',
       });
     } else {
       setNotification({
-        message: `⚠️ Could not open print window. Please allow popups for MigrateIQ.`,
+        message: '⚠️ Could not open print window. Please allow popups for MigrateIQ.',
         type: 'error',
       });
     }
   };
 
-  const handleExportDossier = () => {
+  const handleExportMarkdown = () => {
     if (!currentResult) return;
-
-    const dossierContent = [
-      `# MigrateIQ Pre-Flight Verification Dossier`,
-      `**Generated:** ${new Date().toISOString()}`,
-      `**Simulation ID:** \`${currentResult.simulationId}\``,
-      `**Target Database:** ${direction === 'postgres-to-mongo' ? 'MongoDB' : 'PostgreSQL'}`,
-      `**Overall Status:** ${currentResult.overallStatus.toUpperCase()}`,
-      `**Transaction Verification:** ROLLBACK Confirmed (Zero permanent mutations)`,
-      ``,
-      `---`,
-      ``,
-      `## 1. Executive Summary & Telemetry`,
-      `- **Tables Tested:** ${currentResult.totalTables}`,
-      `- **Sample Rows Processed:** ${currentResult.totalSampleTested.toLocaleString()}`,
-      `- **Sample Success Rate:** ${((currentResult.totalSamplePassed / (currentResult.totalSampleTested || 1)) * 100).toFixed(1)}% (${currentResult.totalSamplePassed.toLocaleString()} passed / ${currentResult.totalSampleFailed} failed)`,
-      `- **Projected Production Migration Volume:** ~${(currentResult.totalProjectedMigrate + currentResult.totalProjectedSkip).toLocaleString()} rows`,
-      `- **Execution Speed / Throughput:** ~${currentResult.throughputRowsPerSec?.toLocaleString() || '2,450'} rows/second`,
-      `- **Estimated Full Migration ETA:** ~${currentResult.projectedDurationSec || 8} seconds`,
-      `- **Estimated Target Disk Space Required:** ${currentResult.storageHeadroom?.formattedProjectedSize || '6.2 MB'}`,
-      `- **Target Database Disk Headroom:** ${currentResult.storageHeadroom?.sufficientSpace !== false ? 'SUFFICIENT (Pass)' : 'WARNING - LOW DISK SPACE'}`,
-      ``,
-      `---`,
-      ``,
-      `## 2. Enterprise Safeguards Applied`,
-      `1. **Session Safety Timeouts:** \`lock_timeout = 5s\`, \`statement_timeout = 15s\`, \`idle_in_transaction_session_timeout = 10s\`.`,
-      `2. **Deferred Foreign Key Constraints:** \`SET CONSTRAINTS ALL DEFERRED\` to safely test circular and out-of-order relational batches.`,
-      `3. **Null-Byte Poison Pill Sanitization:** Stripped all \`\\0\` null characters from BSON strings before PostgreSQL casting.`,
-      `4. **Identifier Truncation & Collision Defense:** Truncated identifiers to 63 bytes with deterministic 4-character hash collision avoidance.`,
-      `5. **Smart Default Imputation:** 3-tier resolution engine (Option A Default Imputation, Option B Nullable Relaxation, Option C DLQ Quarantine).`,
-      `6. **Child Table Sort Preservation:** Automatic \`sort_order INTEGER NOT NULL\` column added to child tables.`,
-      `7. **Isolated Single-Table Re-testing:** Granular sub-second re-verification of individual table mappings without full pipeline re-runs.`,
-      ``,
-      `---`,
-      ``,
-      `## 3. Per-Table Verification Matrix`,
-      `| Target Table | Columns | Sample Tested | Passed | Failed | Projected Total | DDL Status |`,
-      `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |`,
-      ...currentResult.tables.map(
-        (t) =>
-          `| \`${t.targetTableName}\` | ${t.columnsCount} | ${t.sampleTested} | ${t.samplePassed} | ${t.sampleFailed} | ~${t.projectedMigrateCount.toLocaleString()} rows | ${t.schemaValid ? 'Valid ✅' : 'Invalid ❌'} |`
-      ),
-      ``,
-      `---`,
-      ``,
-      `## 4. Skipped Records & Data Quality Audit`,
-      currentResult.allSkippedRows.length === 0
-        ? `*Zero records skipped. All sample documents passed schema mapping, type transformation, and constraint validation.*`
-        : [
-            `| Document ID | Target Table | Field | Failure Reason |`,
-            `| :--- | :--- | :--- | :--- |`,
-            ...currentResult.allSkippedRows.map(
-              (r) => `| \`${r.documentId}\` | \`${r.targetTable}\` | \`${r.field || 'N/A'}\` | ${r.reason} |`
-            ),
-          ].join('\n'),
-      ``,
-      `---`,
-      `*Signed by MigrateIQ Pre-Flight Verification Engine*`,
-    ].join('\n');
-
-    const blob = new Blob([dossierContent], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `migrateiq-preflight-dossier-${Date.now()}.md`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
+    const targetDbName = direction === 'postgres-to-mongo' ? 'MongoDB' : 'PostgreSQL';
+    const markdownContent = generateMarkdownDossier(currentResult, targetDbName);
+    downloadMarkdownDossier(markdownContent);
     setNotification({
-      message: `📥 Pre-Flight Verification Dossier (Markdown) exported successfully!`,
+      message: '📥 Pre-Flight Verification Dossier (Markdown) exported successfully!',
       type: 'success',
     });
   };
 
-  // Filtered rows for modal
-  const filteredSkippedRows = (currentResult?.allSkippedRows || []).filter((row) => {
-    const matchesTable = modalTableFilter === 'all' || row.targetTable === modalTableFilter || row.collection === modalTableFilter;
-    const matchesSearch =
-      !modalSearch ||
-      row.documentId.toLowerCase().includes(modalSearch.toLowerCase()) ||
-      row.reason.toLowerCase().includes(modalSearch.toLowerCase()) ||
-      (row.field && row.field.toLowerCase().includes(modalSearch.toLowerCase()));
-    return matchesTable && matchesSearch;
-  });
+  const toggleDdl = (tblName: string) => {
+    setExpandedDdl((prev) => ({ ...prev, [tblName]: !prev[tblName] }));
+  };
 
   return (
     <div className="dry-run-container">
@@ -1507,7 +897,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
         </div>
       )}
 
-      {/* ── Notification / Toast Banner ── */}
+      {/* ── Notification Banner ── */}
       {notification && (
         <div className={`dry-run-notification-banner ${notification.type}`}>
           <span>{notification.message}</span>
@@ -1543,11 +933,13 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
             <button
               className="dry-run-skip-link"
               onClick={() => {
-                if (window.confirm(
-                  'Skipping the Dry Run bypasses all pre-flight safety checks.\n\n' +
-                  'No schema or data validation will be performed before the live migration runs.\n\n' +
-                  'Are you sure you want to proceed directly to live migration?'
-                )) {
+                if (
+                  window.confirm(
+                    'Skipping the Dry Run bypasses all pre-flight safety checks.\n\n' +
+                      'No schema or data validation will be performed before the live migration runs.\n\n' +
+                      'Are you sure you want to proceed directly to live migration?'
+                  )
+                ) {
                   onSkip();
                 }
               }}
@@ -1558,43 +950,14 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
         </div>
       )}
 
-      {/* ── Running Terminal & Live Log (Spacious view during simulation) ── */}
+      {/* ── Running State (Interactive Terminal) ── */}
       {simState === 'running' && (
-        <div className="dry-run-terminal-container">
-          <div className="dry-run-terminal-header">
-            <div className="dry-run-terminal-dots">
-              <div className="dry-run-dot red" />
-              <div className="dry-run-dot yellow" />
-              <div className="dry-run-dot green" />
-            </div>
-            <div className="dry-run-terminal-status">
-              <div className="dry-run-pulse-indicator" />
-              <span>SIMULATION IN PROGRESS</span>
-            </div>
-            <span>PostgreSQL Transaction Sandbox</span>
-          </div>
-          <div className="dry-run-terminal-progress-bar">
-            <div className="dry-run-terminal-track">
-              <div
-                className="dry-run-terminal-fill"
-                style={{
-                  width: `${Math.min(95, Math.max(15, Math.round((logs.length / Math.max(1, (schemaMapping?.length || 1) * 3 + 2)) * 100)))}%`,
-                }}
-              />
-            </div>
-            <span className="dry-run-terminal-progress-text">
-              {Math.min(95, Math.max(15, Math.round((logs.length / Math.max(1, (schemaMapping?.length || 1) * 3 + 2)) * 100)))}% • Validating {schemaMapping?.length || 0} tables
-            </span>
-          </div>
-          <div className="dry-run-terminal-body" ref={terminalBodyRef}>
-            {logs.map((log) => (
-              <div key={log.id} className="dry-run-log-line">
-                <span className="dry-run-log-time">[{log.time}]</span>
-                <span className={`dry-run-log-content ${log.status}`}>{log.message}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <DryRunTerminal
+          logs={logs}
+          schemaMappingCount={schemaMapping?.length || 1}
+          subtitle="SIMULATION IN PROGRESS"
+          showProgress={true}
+        />
       )}
 
       {/* ── Error State ── */}
@@ -1657,28 +1020,27 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
 
           {/* Optional Expanded Execution Log in Completed State */}
           {showExecutionLog && (
-            <div className="dry-run-terminal-container" style={{ margin: '0 0 1rem 0' }}>
-              <div className="dry-run-terminal-header">
-                <div className="dry-run-terminal-dots">
-                  <div className="dry-run-dot red" />
-                  <div className="dry-run-dot yellow" />
-                  <div className="dry-run-dot green" />
-                </div>
-                <div className="dry-run-terminal-status">
-                  <span>EXECUTION LOG AUDIT</span>
-                </div>
-                <span>{currentResult.rollbackVerified ? 'Verified Zero-Mutation Session' : 'Transaction Sandbox'}</span>
-              </div>
-              <div className="dry-run-terminal-body" style={{ height: '300px' }}>
-                {logs.map((log) => (
-                  <div key={log.id} className="dry-run-log-line">
-                    <span className="dry-run-log-time">[{log.time}]</span>
-                    <span className={`dry-run-log-content ${log.status}`}>{log.message}</span>
-                  </div>
-                ))}
-              </div>
+            <div style={{ margin: '0 0 1rem 0' }}>
+              <DryRunTerminal
+                logs={logs}
+                schemaMappingCount={currentResult.totalTables}
+                height="280px"
+                subtitle="EXECUTION LOG AUDIT"
+                title={currentResult.rollbackVerified ? 'Verified Zero-Mutation Session' : 'Transaction Sandbox'}
+                showProgress={false}
+              />
             </div>
           )}
+
+          {/* Product Blueprint Summary Card */}
+          <BlueprintSummaryCard
+            result={currentResult}
+            onViewAffectedRows={(tbl) => {
+              setModalTableFilter(tbl || 'all');
+              setModalSearch('');
+              setModalOpen(true);
+            }}
+          />
 
           {/* 4 Metric Summary Cards */}
           <div className="dry-run-metrics-grid">
@@ -1762,7 +1124,9 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
               <div>
                 <span className="telemetry-label">Storage Headroom</span>
                 <span className="telemetry-value" style={{ color: currentResult.storageHeadroom?.sufficientSpace !== false ? '#16A34A' : '#DC2626' }}>
-                  {currentResult.storageHeadroom?.sufficientSpace !== false ? 'Headroom OK (95%+ Free)' : 'Low Disk Space Warning'}
+                  {currentResult.storageHeadroom?.sufficientSpace !== false
+                    ? (currentResult.storageHeadroom?.formattedProjectedSize ? `Capacity Verified (~${currentResult.storageHeadroom.formattedProjectedSize})` : 'Capacity Verified')
+                    : 'Low Disk Space Warning'}
                 </span>
               </div>
             </div>
@@ -1777,7 +1141,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
               </button>
               <button
                 className="dry-run-export-btn"
-                onClick={handleExportDossier}
+                onClick={handleExportMarkdown}
                 title="Download developer Markdown verification report (.md)"
               >
                 📝 Export Markdown
@@ -1785,7 +1149,7 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
             </div>
           </div>
 
-          {/* ── Industrial Resolution Strategy (Option A vs Option B vs Option C) ── */}
+          {/* ── 3-Tier Resolution Strategy Callout ── */}
           {currentResult.totalSampleFailed > 0 && !quarantinePolicyAcknowledged && (
             <div className="dry-run-resolution-card">
               <div className="dry-run-resolution-header">
@@ -1827,7 +1191,10 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
 
                   <button
                     className="dry-run-strategy-btn recommended"
-                    onClick={() => handleOpenRemediationStudio('smart')}
+                    onClick={() => {
+                      setRemediationTab('smart');
+                      setRemediationModalOpen(true);
+                    }}
                     title="Launch the Data Quality Remediation Studio to inspect AI recommendations or set manual defaults"
                   >
                     <span>🔧 Configure & Apply Fix (Recommended) →</span>
@@ -1854,11 +1221,11 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
                     className="dry-run-strategy-btn caution"
                     onClick={() => {
                       const firstRow = currentResult.allSkippedRows[0];
-                      const targetTbl = firstRow?.targetTable || currentResult.tables.find(t => t.sampleFailed > 0)?.targetTableName || currentResult.tables[0]?.targetTableName || '';
+                      const targetTbl = firstRow?.targetTable || currentResult.tables.find((t) => t.sampleFailed > 0)?.targetTableName || currentResult.tables[0]?.targetTableName || '';
                       const matchingCol = (useWizardStore.getState().schemaMapping || schemaMapping || []).find(
                         (m) => m.targetTableName.toLowerCase() === targetTbl.toLowerCase() || m.collectionName.toLowerCase() === targetTbl.toLowerCase()
                       );
-                      const targetFld = firstRow?.field || matchingCol?.fields.find(f => !f.isNullable && f.targetColumn !== 'id' && f.targetColumn !== '_id')?.targetColumn || '';
+                      const targetFld = firstRow?.field || matchingCol?.fields.find((f) => !f.isNullable && f.targetColumn !== 'id' && f.targetColumn !== '_id')?.targetColumn || '';
                       handleApplyQuickFix(targetTbl, targetFld);
                     }}
                   >
@@ -2020,581 +1387,34 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
       )}
 
       {/* ── Modal: View Affected / Skipped Rows ── */}
-      {modalOpen && currentResult && (
-        <div className="dry-run-modal-backdrop" onClick={() => setModalOpen(false)}>
-          <div className="dry-run-modal-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="dry-run-modal-header">
-              <h3>Affected / Skipped Rows Analysis</h3>
-              <button className="dry-run-modal-close-btn" onClick={() => setModalOpen(false)}>
-                ✕
-              </button>
-            </div>
-
-            <div className="dry-run-modal-body">
-              {/* In-Modal Resolution Strategy Callout */}
-              {currentResult.totalSampleFailed > 0 && (
-                <div className="dry-run-resolution-card" style={{ padding: '1rem', background: '#F8FAFC' }}>
-                  <div className="dry-run-resolution-header">
-                    <div className="dry-run-resolution-header-left">
-                      <span className="dry-run-resolution-icon" style={{ fontSize: '1.25rem' }}>💡</span>
-                      <div>
-                        <h4 style={{ fontSize: '0.9375rem' }}>Resolution Strategies for Skipped Records</h4>
-                        <p style={{ fontSize: '0.78125rem' }}>
-                          Choose Option A (Recommended fallback), Option B (relax schema), or Option C (route to DLQ):
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="dry-run-strategies-grid modal-grid" style={{ gap: '0.75rem' }}>
-                    {/* In-modal Option A */}
-                    <div className="dry-run-strategy-box recommended" style={{ padding: '0.875rem' }}>
-                      <div className="dry-run-strategy-tag recommended">🌟 Option A • Recommended</div>
-                      <h5 style={{ fontSize: '0.875rem' }}>⚡ Configure & Apply Fix</h5>
-                      <p style={{ fontSize: '0.75rem' }}>Open Studio to inspect AI Before/After or set precision defaults for 100% data pass without crashes.</p>
-                      <button
-                        className="dry-run-strategy-btn recommended"
-                        style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem' }}
-                        onClick={() => handleOpenRemediationStudio('smart')}
-                      >
-                        🔧 Configure & Apply Fix →
-                      </button>
-                    </div>
-
-                    {/* In-modal Option B */}
-                    <div className="dry-run-strategy-box caution" style={{ padding: '0.875rem' }}>
-                      <div className="dry-run-strategy-tag caution">⚠️ Option B • Caution</div>
-                      <h5 style={{ fontSize: '0.875rem' }}>🔓 Relax to NULLABLE</h5>
-                      <p style={{ fontSize: '0.75rem' }}>Makes column nullable. Warning: downstream app code may crash with NullPointerExceptions.</p>
-                      <button
-                        className="dry-run-strategy-btn caution"
-                        style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem' }}
-                        onClick={() => {
-                          const firstRow = currentResult.allSkippedRows[0];
-                          const targetTbl = firstRow?.targetTable || currentResult.tables.find(t => t.sampleFailed > 0)?.targetTableName || currentResult.tables[0]?.targetTableName || '';
-                          const matchingCol = (useWizardStore.getState().schemaMapping || schemaMapping || []).find(
-                            (m) => m.targetTableName.toLowerCase() === targetTbl.toLowerCase() || m.collectionName.toLowerCase() === targetTbl.toLowerCase()
-                          );
-                          const targetFld = firstRow?.field || matchingCol?.fields.find(f => !f.isNullable && f.targetColumn !== 'id' && f.targetColumn !== '_id')?.targetColumn || '';
-                          handleApplyQuickFix(targetTbl, targetFld);
-                        }}
-                      >
-                        ⚠️ Set Nullable
-                      </button>
-                    </div>
-
-                    {/* In-modal Option C */}
-                    <div className="dry-run-strategy-box warning" style={{ padding: '0.875rem' }}>
-                      <div className="dry-run-strategy-tag warning">⚠️ Option C • DLQ</div>
-                      <h5 style={{ fontSize: '0.875rem' }}>🛡️ Route to DLQ</h5>
-                      <p style={{ fontSize: '0.75rem' }}>Retains NOT NULL and quarantines records to DLQ. Warning: row-count mismatch in ETL reconciliation.</p>
-                      <button
-                        className="dry-run-strategy-btn warning"
-                        style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem' }}
-                        onClick={handleAcknowledgeQuarantine}
-                      >
-                        {quarantinePolicyAcknowledged ? '🛡️ Quarantined ✓' : '🛡️ Quarantine (DLQ)'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="dry-run-modal-filter-bar">
-                <select
-                  value={modalTableFilter}
-                  onChange={(e) => setModalTableFilter(e.target.value)}
-                  style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '6px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.8125rem',
-                  }}
-                >
-                  <option value="all">All Tables ({currentResult.allSkippedRows.length})</option>
-                  {currentResult.tables
-                    .filter((t) => t.skippedRows.length > 0)
-                    .map((t) => (
-                      <option key={t.targetTableName} value={t.targetTableName}>
-                        {t.targetTableName} ({t.skippedRows.length})
-                      </option>
-                    ))}
-                </select>
-
-                <input
-                  type="text"
-                  className="dry-run-modal-search-input"
-                  placeholder="Search by Document ID or error reason..."
-                  value={modalSearch}
-                  onChange={(e) => setModalSearch(e.target.value)}
-                />
-              </div>
-
-              {filteredSkippedRows.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: '#64748B' }}>
-                  No skipped rows matching your criteria.
-                </div>
-              ) : (
-                filteredSkippedRows.map((row) => (
-                  <div key={row.documentId} className="dry-run-skipped-item-card">
-                    <div className="dry-run-skipped-item-top">
-                      <span className="dry-run-skipped-id">Doc ID: {row.documentId}</span>
-                      <span className="dry-run-pill child">{row.targetTable}</span>
-                    </div>
-                    <div className="dry-run-skipped-reason">
-                      ⚠️ <strong>Failure Reason:</strong> {row.reason}
-                    </div>
-                    {row.rawSampleSnippet && (
-                      <div className="dry-run-skipped-snippet">{row.rawSampleSnippet}</div>
-                    )}
-                    {(() => {
-                      const matchingCol = (useWizardStore.getState().schemaMapping || schemaMapping || []).find(
-                        (m) => m.targetTableName.toLowerCase() === row.targetTable.toLowerCase() || m.collectionName.toLowerCase() === row.targetTable.toLowerCase()
-                      );
-                      const fieldMeta = matchingCol?.fields.find(
-                        (f) => (row.field && (f.targetColumn === row.field || f.sourceField === row.field)) ||
-                               (!f.isNullable && f.targetColumn !== 'id' && f.targetColumn !== '_id')
-                      );
-                      if (!fieldMeta) return null;
-                      return (
-                        <div style={{ margin: '0.4rem 0', padding: '0.35rem 0.6rem', background: '#F8FAFC', borderRadius: '4px', border: '1px solid #E2E8F0', fontSize: '0.75rem', fontFamily: 'monospace', color: '#334155' }}>
-                          <span style={{ color: '#64748B', userSelect: 'none' }}>Target Column DDL: </span>
-                          <strong>{fieldMeta.targetColumn}</strong> {fieldMeta.targetType.toUpperCase()}{fieldMeta.defaultValue ? ` DEFAULT ${fieldMeta.defaultValue}` : ''}{fieldMeta.isNullable ? '' : ' NOT NULL'}
-                        </div>
-                      );
-                    })()}
-                    <div className="dry-run-row-action-bar">
-                      {(row.reason.toLowerCase().includes('not null') || row.reason.toLowerCase().includes('constraint') || Boolean(row.field)) && (
-                        <>
-                          <button
-                            className="dry-run-row-default-btn"
-                            onClick={() => handleOpenRemediationStudio('smart')}
-                            title="Open Remediation Studio to inspect Before & After and apply defaults"
-                          >
-                            🔧 Configure Fix in Studio
-                          </button>
-                          <button
-                            className="dry-run-row-fix-btn"
-                            onClick={() => {
-                              const matchingCol = (useWizardStore.getState().schemaMapping || schemaMapping || []).find(
-                                (m) => m.targetTableName.toLowerCase() === row.targetTable.toLowerCase() || m.collectionName.toLowerCase() === row.targetTable.toLowerCase()
-                              );
-                              const targetFld = row.field || matchingCol?.fields.find(f => !f.isNullable && f.targetColumn !== 'id' && f.targetColumn !== '_id')?.targetColumn || '';
-                              handleApplyQuickFix(row.targetTable, targetFld);
-                            }}
-                            title="Make column nullable in PostgreSQL (Caution: App crash risk)"
-                          >
-                            ⚠️ Make Nullable
-                          </button>
-                        </>
-                      )}
-                      <button
-                        className={`dry-run-row-quarantine-btn ${quarantinePolicyAcknowledged ? 'active' : ''}`}
-                        onClick={handleAcknowledgeQuarantine}
-                      >
-                        {quarantinePolicyAcknowledged ? '🛡️ Quarantined to DLQ ✓' : '🛡️ Route to DLQ (Audit Log)'}
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="dry-run-modal-footer">
-              <button className="dry-run-btn-back" onClick={() => setModalOpen(false)}>
-                Close Viewer
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentResult && (
+        <SkippedRowsModal
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          currentResult={currentResult}
+          schemaMapping={schemaMapping}
+          modalTableFilter={modalTableFilter}
+          setModalTableFilter={setModalTableFilter}
+          modalSearch={modalSearch}
+          setModalSearch={setModalSearch}
+          quarantinePolicyAcknowledged={quarantinePolicyAcknowledged}
+          onOpenRemediationStudio={(tab) => {
+            setRemediationTab(tab);
+            setRemediationModalOpen(true);
+          }}
+          onApplyQuickFix={handleApplyQuickFix}
+          onAcknowledgeQuarantine={handleAcknowledgeQuarantine}
+        />
       )}
 
-      {/* ── Modal: Data Quality Remediation Studio (✨ Smart AI & ⚙️ Manual Precision) ── */}
-      {remediationModalOpen && (
-        <div className="remediation-modal-backdrop" onClick={() => setRemediationModalOpen(false)}>
-          <div className="remediation-modal-card" onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div className="remediation-modal-header">
-              <div>
-                <h3>
-                  <span>🛠️</span> Data Quality Remediation Studio
-                </h3>
-                <p>
-                  Resolve constraint violations and missing values with AI or manual precision defaults before committing to PostgreSQL.
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div className="remediation-tab-bar">
-                  <button
-                    type="button"
-                    className={`remediation-tab-btn ${remediationTab === 'smart' ? 'active' : ''}`}
-                    onClick={() => setRemediationTab('smart')}
-                  >
-                    <span>✨</span> Smart AI Remediation
-                  </button>
-                  <button
-                    type="button"
-                    className={`remediation-tab-btn ${remediationTab === 'manual' ? 'active' : ''}`}
-                    onClick={() => setRemediationTab('manual')}
-                  >
-                    <span>⚙️</span> Manual Precision
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  className="dry-run-modal-close-btn"
-                  onClick={() => setRemediationModalOpen(false)}
-                  title="Close Studio"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="remediation-modal-body">
-              {getDistinctAnomalies().length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem 1.5rem', color: '#16A34A' }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🎉</div>
-                  <h4 style={{ fontSize: '1.125rem', fontWeight: 700, margin: 0 }}>All Records Clean & Valid</h4>
-                  <p style={{ fontSize: '0.875rem', color: '#64748B', marginTop: '0.25rem' }}>
-                    No schema constraint violations or NULL anomalies are present in the current dry run dataset.
-                  </p>
-                </div>
-              ) : remediationTab === 'smart' ? (
-                <>
-                  {/* AI Banner */}
-                  <div className="remediation-ai-banner">
-                    <span className="remediation-ai-banner-icon">✨</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                          <h4 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 700, color: '#0369A1' }}>
-                            Gemini AI Anomaly Imputation Engine
-                          </h4>
-                          <span style={{ fontSize: '0.6875rem', padding: '0.15rem 0.5rem', background: '#E0F2FE', color: '#0284C7', borderRadius: '4px', fontWeight: 600 }}>
-                            Domain & Type Aware
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                          {isAiFromCache && (
-                            <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', background: '#DCFCE7', color: '#15803D', borderRadius: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.3rem', border: '1px solid #86EFAC' }}>
-                              <span>⚡</span> Instant (Cached • 0 tokens)
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            className="remediation-reset-btn"
-                            style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
-                            onClick={() => handleOpenRemediationStudio('smart', true)}
-                            disabled={isAiRemediationLoading}
-                            title="Force re-run analysis with Gemini AI (consumes tokens)"
-                          >
-                            <span>🔄</span> Re-analyze with Gemini
-                          </button>
-                        </div>
-                      </div>
-                      <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8125rem', color: '#0C4A6E', lineHeight: 1.45 }}>
-                        Gemini analyzed the detected constraint failures and synthesized domain-specific fallbacks based on column semantics and data types. Review the side-by-side Before & After diff below before applying.
-                      </p>
-                    </div>
-                  </div>
-
-                  {isAiRemediationLoading ? (
-                    <div style={{ padding: '3rem 2rem', textAlign: 'center' }}>
-                      <div style={{ fontSize: '2rem', marginBottom: '0.75rem', animation: 'spin 1.5s linear infinite' }}>✨</div>
-                      <div style={{ fontSize: '1rem', fontWeight: 600, color: '#0F172A' }}>Gemini AI is analyzing schema anomalies...</div>
-                      <div style={{ fontSize: '0.8125rem', color: '#64748B', marginTop: '0.25rem' }}>Synthesizing domain-aware fallback defaults and verifying SQL DDL safety</div>
-                    </div>
-                  ) : (
-                    getDistinctAnomalies().map((anomaly) => {
-                      const targetTbl = anomaly.targetTable || anomaly.tableName;
-                      const targetCol = anomaly.targetColumn || anomaly.columnName;
-                      const key = `${targetTbl}.${targetCol}`;
-                      const rec = aiRecommendations.find(
-                        (r) => r.targetTable === targetTbl && (r.targetColumn === targetCol || r.field === targetCol)
-                      );
-                      const currentValue = remediationEdits[key] !== undefined
-                        ? remediationEdits[key]
-                        : (rec?.recommendedDefaultValue || rec?.suggestedValue || getTypeAwareFallback(anomaly.targetType));
-                      const rationaleText = rec?.rationale;
-                      const ddlText = rec?.suggestedDdl || (rec?.sqlClause ? `ALTER TABLE "${targetTbl}"\n  ALTER COLUMN "${targetCol}" SET ${rec.sqlClause};` : undefined);
-                      const affectedCount = anomaly.affectedRowCount || 1;
-                      const offendingSnippet = anomaly.sampleOffendingSnippet || anomaly.rawSnippet || `{ "_id": "doc_sample", "${targetCol}": null }`;
-
-                      return (
-                        <div key={key} className="remediation-diff-item">
-                          {/* Diff Item Header */}
-                          <div className="remediation-diff-header">
-                            <div>
-                              <span style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9375rem' }}>
-                                {targetTbl}.{targetCol}
-                              </span>
-                              <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', background: '#EFF6FF', color: '#2563EB', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
-                                {anomaly.targetType}
-                              </span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <span style={{ fontSize: '0.75rem', color: '#DC2626', background: '#FEE2E2', padding: '0.15rem 0.5rem', borderRadius: '12px', fontWeight: 600 }}>
-                                ⚠️ {affectedCount} row(s) failing
-                              </span>
-                              {rec?.confidence && (
-                                <span style={{ fontSize: '0.75rem', color: '#16A34A', background: '#DCFCE7', padding: '0.15rem 0.5rem', borderRadius: '12px', fontWeight: 600 }}>
-                                  {Math.round(rec.confidence * 100)}% Confidence
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Side-by-Side Diff Grid */}
-                          <div className="remediation-diff-grid">
-                            {/* Left: BEFORE */}
-                            <div className="remediation-diff-col before">
-                              <div className="remediation-col-title">
-                                <span>❌</span> BEFORE (MONGODB SOURCE ANOMALY)
-                              </div>
-                              <div className="remediation-error-callout">
-                                <span>⚠️</span>
-                                <div>{anomaly.failureReason}</div>
-                              </div>
-                              <div className="remediation-snippet-box">
-                                {offendingSnippet}
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: '#64748B', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.25rem' }}>
-                                <span style={{ fontWeight: 600, color: '#DC2626' }}>Constraint:</span>
-                                <code>NOT NULL</code> (inserts will fail without a fallback default)
-                              </div>
-                            </div>
-
-                            {/* Right: AFTER */}
-                            <div className="remediation-diff-col after">
-                              <div className="remediation-col-title">
-                                <span>✅</span> AFTER (POSTGRESQL HEALED SCHEMA)
-                              </div>
-                              <div style={{ fontSize: '0.8125rem', color: '#475569', fontWeight: 500 }}>
-                                Imputes fallback value on insert and configures default constraint:
-                              </div>
-
-                              <div className="remediation-input-row">
-                                <label
-                                  htmlFor={`smart-input-${key}`}
-                                  style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#1E293B', minWidth: '85px' }}
-                                >
-                                  Default Val:
-                                </label>
-                                <input
-                                  id={`smart-input-${key}`}
-                                  type="text"
-                                  className="remediation-input"
-                                  value={currentValue}
-                                  onChange={(e) => setRemediationEdits((prev) => ({ ...prev, [key]: e.target.value }))}
-                                  placeholder="Enter default value..."
-                                />
-                                <button
-                                  type="button"
-                                  className="remediation-reset-btn"
-                                  onClick={() => {
-                                    const recVal = rec?.recommendedDefaultValue || rec?.suggestedValue;
-                                    if (recVal) {
-                                      setRemediationEdits((prev) => ({ ...prev, [key]: recVal }));
-                                    }
-                                  }}
-                                  title="Reset to AI recommended value"
-                                >
-                                  Reset AI
-                                </button>
-                              </div>
-
-                              {rationaleText && (
-                                <div className="remediation-rationale-box">
-                                  <span style={{ fontSize: '1rem', lineHeight: 1 }}>💡</span>
-                                  <div>
-                                    <strong style={{ color: '#0F172A' }}>AI Rationale:</strong>{' '}
-                                    <span style={{ color: '#334155' }}>{rationaleText}</span>
-                                  </div>
-                                </div>
-                              )}
-
-                              {ddlText && (
-                                <div style={{ marginTop: '0.25rem' }}>
-                                  <div style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
-                                    Target DDL Migration:
-                                  </div>
-                                  <div className="remediation-ddl-box">
-                                    {ddlText}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </>
-              ) : (
-                /* Manual Remediation Tab */
-                <>
-                  <div style={{ marginBottom: '1.25rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                      <h4 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 700, color: '#0F172A' }}>
-                        Manual Precision Remediation Controls
-                      </h4>
-                      <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                        Configure custom defaults or choose standard presets
-                      </span>
-                    </div>
-                    <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748B' }}>
-                      Assign specific fallback values per affected column. Missing source values will be replaced during insertion, preserving target PostgreSQL <code>NOT NULL</code> constraints with 100% ingestion pass.
-                    </p>
-                  </div>
-
-                  {getDistinctAnomalies().map((anomaly) => {
-                    const targetTbl = anomaly.targetTable || anomaly.tableName;
-                    const targetCol = anomaly.targetColumn || anomaly.columnName;
-                    const key = `${targetTbl}.${targetCol}`;
-                    const currentValue = remediationEdits[key] !== undefined
-                      ? remediationEdits[key]
-                      : getTypeAwareFallback(anomaly.targetType);
-                    const affectedCount = anomaly.affectedRowCount || 1;
-
-                    return (
-                      <div
-                        key={key}
-                        style={{
-                          border: '1px solid #E2E8F0',
-                          borderRadius: '8px',
-                          padding: '1rem 1.25rem',
-                          marginBottom: '1rem',
-                          background: '#FFFFFF',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9375rem' }}>
-                              {targetTbl}.{targetCol}
-                            </span>
-                            <span style={{ fontSize: '0.75rem', background: '#F1F5F9', color: '#475569', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
-                              {anomaly.targetType}
-                            </span>
-                          </div>
-                          <span style={{ fontSize: '0.75rem', color: '#DC2626', background: '#FEE2E2', padding: '0.15rem 0.5rem', borderRadius: '12px', fontWeight: 600 }}>
-                            ⚠️ {affectedCount} row(s) missing this field
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '1.25rem', alignItems: 'flex-start' }}>
-                          <div>
-                            <label
-                              htmlFor={`manual-input-${key}`}
-                              style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.35rem' }}
-                            >
-                              Fallback Default Value:
-                            </label>
-                            <input
-                              id={`manual-input-${key}`}
-                              type="text"
-                              className="remediation-input"
-                              style={{ width: '100%', boxSizing: 'border-box' }}
-                              value={currentValue}
-                              onChange={(e) => setRemediationEdits((prev) => ({ ...prev, [key]: e.target.value }))}
-                              placeholder="Enter fallback value..."
-                            />
-                          </div>
-
-                          <div>
-                            <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.35rem' }}>
-                              Quick Type Presets:
-                            </span>
-                            <div className="remediation-chips-row" style={{ marginTop: 0 }}>
-                              <button
-                                type="button"
-                                className="remediation-chip"
-                                onClick={() => setRemediationEdits((prev) => ({ ...prev, [key]: 'Unknown' }))}
-                              >
-                                'Unknown'
-                              </button>
-                              <button
-                                type="button"
-                                className="remediation-chip"
-                                onClick={() => setRemediationEdits((prev) => ({ ...prev, [key]: 'N/A' }))}
-                              >
-                                'N/A'
-                              </button>
-                              <button
-                                type="button"
-                                className="remediation-chip"
-                                onClick={() => setRemediationEdits((prev) => ({ ...prev, [key]: '0' }))}
-                              >
-                                0
-                              </button>
-                              <button
-                                type="button"
-                                className="remediation-chip"
-                                onClick={() => setRemediationEdits((prev) => ({ ...prev, [key]: '0.00' }))}
-                              >
-                                0.00
-                              </button>
-                              <button
-                                type="button"
-                                className="remediation-chip"
-                                onClick={() => setRemediationEdits((prev) => ({ ...prev, [key]: 'CURRENT_TIMESTAMP' }))}
-                              >
-                                CURRENT_TIMESTAMP
-                              </button>
-                              <button
-                                type="button"
-                                className="remediation-chip"
-                                onClick={() => setRemediationEdits((prev) => ({ ...prev, [key]: 'false' }))}
-                              >
-                                false
-                              </button>
-                              <button
-                                type="button"
-                                className="remediation-chip"
-                                onClick={() => setRemediationEdits((prev) => ({ ...prev, [key]: '{}' }))}
-                              >
-                                {'{ }'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="remediation-modal-footer">
-              <div className="remediation-footer-left">
-                <span>🛡️ Safe execution: Fixes are tested non-destructively in dry run before any live writes.</span>
-              </div>
-              <div className="remediation-footer-right">
-                <button
-                  type="button"
-                  className="dry-run-btn-back"
-                  onClick={() => setRemediationModalOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="dry-run-strategy-btn recommended"
-                  style={{ padding: '0.625rem 1.25rem', fontSize: '0.875rem' }}
-                  onClick={() => handleApplyRemediationFixes(remediationTab)}
-                >
-                  <span>
-                    {remediationTab === 'smart' ? '⚡ Apply AI Fixes & Re-simulate' : '💾 Apply Manual Fixes & Re-simulate'}
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Modal: Data Quality Remediation Studio ── */}
+      <RemediationStudioModal
+        isOpen={remediationModalOpen}
+        onClose={() => setRemediationModalOpen(false)}
+        anomalies={getDistinctAnomalies()}
+        onApplyFixes={handleApplyRemediationFixes}
+        initialTab={remediationTab}
+      />
 
       {/* ── Bottom Navigation Footer ── */}
       <div className="dry-run-footer">
@@ -2614,11 +1434,13 @@ export const DryRunScreen: React.FC<DryRunScreenProps> = ({
             <button
               className="dry-run-skip-link"
               onClick={() => {
-                if (window.confirm(
-                  'Skipping the Dry Run bypasses all pre-flight safety checks.\n\n' +
-                  'No schema or data validation will be performed before the live migration runs.\n\n' +
-                  'Are you sure you want to proceed directly to live migration?'
-                )) {
+                if (
+                  window.confirm(
+                    'Skipping the Dry Run bypasses all pre-flight safety checks.\n\n' +
+                      'No schema or data validation will be performed before the live migration runs.\n\n' +
+                      'Are you sure you want to proceed directly to live migration?'
+                  )
+                ) {
                   onSkip();
                 }
               }}

@@ -21,7 +21,7 @@ import { getTypeAwareDefaultValue, formatSqlDefaultClause } from '../engine/dryR
  */
 
 // Will be dynamically imported when needed
-let GoogleGenerativeAI: any = null;
+let GoogleGenerativeAI: typeof import('@google/generative-ai').GoogleGenerativeAI | null = null;
 
 // ── Model Cascades by Task Type ──────────────────────────────────────────────
 // bleed-edge thinking models (3.8 -> 3.7 -> 3.6 -> 3.5) when quota is available,
@@ -407,7 +407,7 @@ Return ONLY valid JSON. No markdown, no explanations.
               responseTokens: rTok,
               totalTokens: pTok + rTok,
               status: 'success',
-              durationMs: Date.now() - (payload as any).startTime || 800,
+              durationMs: Date.now() - ((payload as { startTime?: number }).startTime || Date.now()) || 800,
             });
             break;
           } catch (err) {
@@ -1014,7 +1014,7 @@ function generateRuleBasedAnomalyFixes(anomalies: AnomalyFixRequest[]): AIAnomal
  * Generate mapping using AI for a batch of schemas
  */
 async function generateMappingWithAI(
-  model: any,
+  model: import('@google/generative-ai').GenerativeModel,
   schemas: SourceSchema[],
   direction?: 'mongodb-to-postgres' | 'postgres-to-mongo'
 ): Promise<CollectionMapping[]> {
