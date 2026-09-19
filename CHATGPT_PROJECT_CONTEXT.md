@@ -205,8 +205,9 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
   19. *SQL Injection Defense in Default Formatting:* Validates function parens with strict regex `/^[a-z_][a-z0-9_]*\(\s*\)$/i`, escaping and quoting any non-conforming or multi-statement expression.
   20. *PostgreSQL 65,535 Parameter Limit Clamping:* Dynamically clamps batch size via `Math.floor(65000 / columnCount)` to guarantee prepared statements never exceed PostgreSQL's protocol parameter ceiling.
   21. *Scoped Anomaly Resolution:* UI Quick-Fixes and store actions resolve skipped rows strictly for the target table and field without masking raw engine results or clearing unrelated table errors.
-- **3-Tier Industrial Resolution Architecture:**
-  - **Option A (🌟 RECOMMENDED — Smart Default Imputation):** Imputes missing values with type-aware defaults, keeps `NOT NULL`, migrates 100% of records, and passes row-count reconciliation without crashing downstream services.
+  22. *Transactional Pre-Existing Table Collision Substitution:* Issues `DROP TABLE IF EXISTS "${targetTable}" CASCADE;` immediately prior to `CREATE TABLE` inside the transaction. Eliminates silent failures where pre-existing tables from legacy testbeds lack newly mapped columns, allowing full schema and row insertion testing before `ROLLBACK;` unconditionally restores the original table.
+- **3-Tier Industrial Resolution Architecture & Data Quality Remediation Studio:**
+  - **Option A (🌟 RECOMMENDED — Smart Default Imputation):** Features the interactive **Data Quality Remediation Studio** with side-by-side Before/After diffs, Gemini AI synthesis (`gemini-2.5-flash`), 30-min token preservation caching, and a deterministic type-aware rule fallback. Imputes missing values with type-aware defaults, keeps `NOT NULL`, migrates 100% of records, and passes row-count reconciliation without crashing downstream services.
   - **Option B (⚠️ CAUTION — Relax to NULLABLE):** Relaxes target column to `NULLABLE` with explicit warnings about downstream application `NullPointerException` crash risks.
   - **Option C (⚠️ WARNING — Strict Quarantine / DLQ):** Retains `NOT NULL` without fallbacks, routing invalid rows to the Dead-Letter Queue with row-count discrepancy warnings.
 
@@ -367,7 +368,8 @@ c:\Users\SIDDHESH\Desktop\Int_DB_Migration\
 │   └── phase-08-dry-run-simulation.md          # Phase 8 doc
 ├── scripts\                                    # Verification & Seeder Scripts
 │   ├── seed-phase8-testbed.js                  # Exhaustive testbed seeder for Mongo & Postgres
-│   └── test-phase8-dry-run.js                  # Automated Phase 8 verification suite (79 tests)
+│   ├── test-remediation-studio.js              # Automated Remediation Studio & AI Imputation suite (8 tests)
+│   └── test-phase8-dry-run.js                  # Automated Phase 8 verification suite (84 tests)
 ├── phase_plan-v2.md                            # Technical specification source of truth
 ├── product_blueprint-v7.md                     # User-facing UX/UI source of truth
 └── AGENTS.md                                   # Strict AI Pair Programming Directives

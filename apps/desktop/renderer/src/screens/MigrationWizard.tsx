@@ -18,13 +18,30 @@ import '../styles/wizard.css';
 
 export interface MigrationWizardProps {}
 
+// ── Private types for PostgreSQL introspection row shapes ────────────────────
+
+/** Matches the PostgresTableInfo shape returned by the IPC db:connect-postgresql handler */
+interface PgTableRow {
+  table_name: string;
+  columns: string[];
+  column_types: string[];
+  is_nullables?: string[];
+}
+
+/** Matches the PostgresIndexInfo shape returned by the IPC db:connect-postgresql handler */
+interface PgIndexRow {
+  tablename: string;
+  indexname: string;
+  indexdef: string;
+}
+
 // ── Utility: Convert PostgreSQL Introspection Result to SourceSchema ─────────
 
 /**
  * Convert PostgreSQL table structure to SourceSchema format (for Schema Mapping)
  * Maps SQL types to BSON-like types for schema mapping engine compatibility.
  */
-function convertPostgresTableToSourceSchema(pgTables: any[], pgIndexes: any[] = []): SourceSchema[] {
+function convertPostgresTableToSourceSchema(pgTables: PgTableRow[], pgIndexes: PgIndexRow[] = []): SourceSchema[] {
   return pgTables.map((table) => {
     const fields = (table.columns || []).map((colName: string, idx: number) => {
       const sqlType = (table.column_types || [])[idx] || 'text';
@@ -43,8 +60,8 @@ function convertPostgresTableToSourceSchema(pgTables: any[], pgIndexes: any[] = 
     });
 
     // Extract indexes for this table from PostgreSQL pg_indexes
-    const tableIndexes = (pgIndexes || []).filter((idx: any) => idx.tablename === table.table_name);
-    const indexes: IndexDefinition[] = tableIndexes.map((idx: any) => {
+    const tableIndexes = (pgIndexes || []).filter((idx: PgIndexRow) => idx.tablename === table.table_name);
+    const indexes: IndexDefinition[] = tableIndexes.map((idx: PgIndexRow) => {
       const isUnique = (idx.indexdef || '').toUpperCase().includes('UNIQUE');
       const match = (idx.indexdef || '').match(/\(([^)]+)\)/);
       const fieldStr = match ? match[1].replace(/["']/g, '').trim() : '';
@@ -559,8 +576,8 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const handleDirectionSelect = (direction: 'mongodb-to-postgres' | 'postgres-to-mongo') => {
     wizardStore.setDirection(direction);
     wizardStore.setSourceSchema([]);
-    wizardStore.setSourceConfig(null as any);
-    wizardStore.setTargetConfig(null as any);
+    wizardStore.setSourceConfig(null);
+    wizardStore.setTargetConfig(null);
     setError(null);
     setSourceMongoPreview(null);
     setSourcePgPreview(null);

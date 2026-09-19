@@ -6,9 +6,12 @@ import type {
   AIGenerateMappingResponse,
   AIHealthScoreResponse,
   IPCResponse,
+  AnomalyFixRequest,
+  AIAnomalyFixRecommendation,
 } from '@migrateiq/shared';
 import { generateMappingByRules } from '../engine/ruleEngine';
 import { recordAIUsage } from './aiUsageStore';
+import { getTypeAwareDefaultValue, formatSqlDefaultClause } from '../engine/dryRun';
 
 /**
  * AI Handler — Google Gemini Integration for Schema Mapping
@@ -825,6 +828,186 @@ Return ONLY a valid JSON object matching this structure:
       }
     }
   );
+
+  // In-memory cache for anomaly fixes to save tokens across repeat clicks
+  const anomalyFixCache = new Map<string, { data: AIAnomalyFixRecommendation[]; cachedAt: number }>();
+
+  // ── AI Anomaly Fix Recommendations (Step 6 / Option A Remediation Studio) ─
+  ipcMain.handle(
+    'ai:suggest-anomaly-fixes',
+    async (
+      _event,
+      payload: { anomalies: AnomalyFixRequest[]; apiKey?: string; forceRefresh?: boolean }
+    ): Promise<IPCResponse<AIAnomalyFixRecommendation[]>> => {
+      const { anomalies, apiKey, forceRefresh } = payload;
+      if (!anomalies || anomalies.length === 0) {
+        return { success: true, data: [] };
+      }
+
+      // Check cache to avoid wasting Gemini tokens if identical anomalies were queried recently
+      const cacheKey = anomalies
+        .map((a) => `${a.tableName || a.targetTable || ''}:${a.columnName || a.targetColumn || ''}:${a.failureReason || ''}`)
+        .sort()
+        .join('|');
+
+      if (!forceRefresh && anomalyFixCache.has(cacheKey)) {
+        const cached = anomalyFixCache.get(cacheKey)!;
+        if (Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+          console.log('[AI Anomaly Fix] Cache HIT: returning saved recommendations without consuming tokens.');
+          return { success: true, data: cached.data };
+        }
+      }
+
+      let key = apiKey || process.env.GEMINI_API_KEY;
+      if (!key) {
+        try {
+          const Store = require('electron-store');
+          const store = new Store();
+          key = store.get('geminiApiKey') || store.get('apiKey');
+        } catch {}
+      }
+
+      if (!key) {
+        const ruleData = generateRuleBasedAnomalyFixes(anomalies);
+        anomalyFixCache.set(cacheKey, { data: ruleData, cachedAt: Date.now() });
+        return {
+          success: true,
+          data: ruleData,
+        };
+      }
+
+      try {
+        if (!GoogleGenerativeAI) {
+          const imported = await import('@google/generative-ai');
+          GoogleGenerativeAI = imported.GoogleGenerativeAI;
+        }
+
+        const genAI = new GoogleGenerativeAI(key);
+
+        const prompt = `You are a Principal Database Administrator & Migration Engineer analyzing data quality anomalies when migrating MongoDB to PostgreSQL.
+The transactional dry run detected missing or null values in non-nullable columns.
+Your task is to recommend the single most semantically accurate, domain-aware DEFAULT fallback value for each affected column, so that 100% of records can be migrated into PostgreSQL under a "DEFAULT '<val>' NOT NULL" constraint without downstream application crashes.
+
+For each anomaly below:
+${anomalies
+  .map(
+    (a, i) => `
+Anomaly #${i + 1}:
+- Table: "${a.tableName}"
+- Column: "${a.columnName}"
+- Target PostgreSQL Type: "${a.targetType}"
+- Failure Reason: "${a.failureReason}"
+- Sample valid values in other records: ${JSON.stringify(a.sampleValues || [])}
+- Raw MongoDB offending snippet: ${a.rawSnippet || 'N/A'}
+`
+  )
+  .join('\n')}
+
+Rules for your recommendations:
+1. "suggestedValue":
+   - For status/lifecycle columns (e.g. status, state): recommend standard default like 'PENDING', 'ACTIVE', or 'DRAFT'.
+   - For role/tier columns (e.g. role, tier): recommend baseline user role like 'USER' or 'FREE'.
+   - For currency/numeric amounts (e.g. price, total, balance, count): recommend numeric string like '0' or '0.00'.
+   - For booleans (e.g. is_active, verified): recommend 'false' (safer default).
+   - For dates/timestamps: recommend 'CURRENT_TIMESTAMP' or 'NOW()'.
+   - For UUIDs: recommend '00000000-0000-0000-0000-000000000000'.
+   - For JSON/JSONB: recommend '{}'.
+   - For general free text: recommend a clean, informative string like 'Unknown' or 'N/A'.
+2. "rationale": Exactly 1 clear, professional sentence explaining why this default was selected.
+3. "sqlClause": The exact PostgreSQL clause, e.g. "DEFAULT 'PENDING' NOT NULL" or "DEFAULT 0 NOT NULL".
+
+Return ONLY a valid JSON array of objects with these exact keys:
+[
+  {
+    "targetTable": string,
+    "field": string,
+    "targetType": string,
+    "suggestedValue": string,
+    "rationale": string,
+    "sqlClause": string
+  }
+]`;
+
+        let rawResponseText = '';
+        for (const modelName of COPILOT_CHAT_MODELS) {
+          try {
+            const model = genAI.getGenerativeModel({
+              model: modelName,
+              generationConfig: {
+                responseMimeType: 'application/json',
+                temperature: 0.1,
+              },
+            });
+            const result = await model.generateContent(prompt);
+            rawResponseText = result.response.text();
+            if (rawResponseText) break;
+          } catch (modelErr) {
+            console.warn(`[AI Anomaly Fix] Model ${modelName} failed:`, (modelErr as Error).message);
+          }
+        }
+
+        if (!rawResponseText) {
+          const ruleData = generateRuleBasedAnomalyFixes(anomalies);
+          anomalyFixCache.set(cacheKey, { data: ruleData, cachedAt: Date.now() });
+          return { success: true, data: ruleData };
+        }
+
+        let jsonStr = rawResponseText.trim();
+        const arrayMatch = jsonStr.match(/\[[\s\S]*\]/);
+        if (arrayMatch) jsonStr = arrayMatch[0];
+
+        const parsed = JSON.parse(jsonStr) as AIAnomalyFixRecommendation[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          parsed.forEach((rec) => {
+            const orig = anomalies.find(
+              (a) =>
+                (a.tableName || a.targetTable || '').toLowerCase() === rec.targetTable.toLowerCase() &&
+                (a.columnName || a.targetColumn || '').toLowerCase() === rec.field.toLowerCase()
+            );
+            if (orig?.rawSnippet || orig?.sampleOffendingSnippet) {
+              rec.beforeSnippet = orig.rawSnippet || orig.sampleOffendingSnippet;
+            }
+          });
+          anomalyFixCache.set(cacheKey, { data: parsed, cachedAt: Date.now() });
+          return { success: true, data: parsed };
+        }
+
+        const ruleData = generateRuleBasedAnomalyFixes(anomalies);
+        anomalyFixCache.set(cacheKey, { data: ruleData, cachedAt: Date.now() });
+        return { success: true, data: ruleData };
+      } catch (err) {
+        console.warn('[AI Anomaly Fix] Gemini error, using rule-based fallback:', (err as Error).message);
+        const ruleData = generateRuleBasedAnomalyFixes(anomalies);
+        anomalyFixCache.set(cacheKey, { data: ruleData, cachedAt: Date.now() });
+        return { success: true, data: ruleData };
+      }
+    }
+  );
+}
+
+function generateRuleBasedAnomalyFixes(anomalies: AnomalyFixRequest[]): AIAnomalyFixRecommendation[] {
+  return anomalies.map((a) => {
+    const val = getTypeAwareDefaultValue(a.targetType);
+    let rationale = `Inferred type-safe default for ${a.targetType.toUpperCase()}`;
+    const lowerCol = a.columnName.toLowerCase();
+    if (lowerCol.includes('status') || lowerCol.includes('state')) {
+      rationale = 'Recommended lifecycle baseline for status fields';
+    } else if (lowerCol.includes('role') || lowerCol.includes('tier')) {
+      rationale = 'Baseline unprivileged role to prevent privilege escalation';
+    } else if (lowerCol.includes('email')) {
+      rationale = 'Placeholder contact format to satisfy non-null constraint';
+    }
+    const sqlClause = formatSqlDefaultClause(val);
+    return {
+      targetTable: a.tableName,
+      field: a.columnName,
+      targetType: a.targetType,
+      suggestedValue: val,
+      rationale,
+      sqlClause: `${sqlClause} NOT NULL`,
+      beforeSnippet: a.rawSnippet,
+    };
+  });
 }
 
 /**

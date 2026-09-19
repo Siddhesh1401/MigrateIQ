@@ -38,9 +38,9 @@ export interface WizardState {
 
   // Actions
   setDirection: (dir: 'mongodb-to-postgres' | 'postgres-to-mongo') => void;
-  setSourceConfig: (config: ConnectionConfig) => void;
+  setSourceConfig: (config: ConnectionConfig | null) => void;
   setSourceSchema: (schema: SourceSchema[]) => void;
-  setTargetConfig: (config: ConnectionConfig) => void;
+  setTargetConfig: (config: ConnectionConfig | null) => void;
   setSchemaMapping: (mapping: CollectionMapping[]) => void;
   setLayer2Features: (features: Layer2Features) => void;
   setRiskAnalysis: (result: RiskAnalysisResult | null) => void;
@@ -51,6 +51,7 @@ export interface WizardState {
   toggleAcknowledgeLayer2: (featureId: string) => void;
   applyAutoFix: (action: AutoFixAction) => void;
   applyDefaultValue: (tableName: string, fieldName: string, defaultValue: string) => void;
+  applyBatchDefaultValues: (fixes: Array<{ tableName: string; fieldName: string; defaultValue: string }>) => void;
   applyAllAutoFixes: () => void;
   acknowledgeAllOfType: (autoFixType: string) => void;
   setWizardStep: (step: number) => void;
@@ -110,7 +111,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     persistWizardState({ direction: dir, wizardStep: s.wizardStep, sourceConfig: s.sourceConfig, targetConfig: s.targetConfig, status: 'in-progress' });
   },
 
-  setSourceConfig: (config) => {
+  setSourceConfig: (config: ConnectionConfig | null) => {
     set({ sourceConfig: config });
     const s = get();
     persistWizardState({
@@ -124,7 +125,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
 
   setSourceSchema: (schema) => set({ sourceSchema: schema }),
 
-  setTargetConfig: (config) => {
+  setTargetConfig: (config: ConnectionConfig | null) => {
     set({ targetConfig: config });
     const s = get();
     persistWizardState({
@@ -344,6 +345,92 @@ export const useWizardStore = create<WizardState>((set, get) => ({
           const f = (r.field || '').toLowerCase();
           return f !== lowerField && f !== (lowerField === 'name' ? 'fullname' : '');
         });
+        const resolvedCount = tbl.skippedRows.length - remainingTableSkipped.length;
+        if (resolvedCount <= 0 && tbl.sampleFailed === 0) return tbl;
+
+        const newSampleFailed = Math.max(0, tbl.sampleFailed - (resolvedCount > 0 ? resolvedCount : tbl.sampleFailed));
+        const newSamplePassed = tbl.sampleTested - newSampleFailed;
+        const failureRate = tbl.sampleTested > 0 ? newSampleFailed / tbl.sampleTested : 0;
+        const newProjectedSkip = Math.round(tbl.totalEstimatedRows * failureRate);
+        const newProjectedMigrate = Math.max(0, tbl.totalEstimatedRows - newProjectedSkip);
+
+        return {
+          ...tbl,
+          samplePassed: newSamplePassed,
+          sampleFailed: newSampleFailed,
+          projectedMigrateCount: newProjectedMigrate,
+          projectedSkipCount: newProjectedSkip,
+          status: newSampleFailed > 0 ? ('warning' as const) : ('passed' as const),
+          skippedRows: remainingTableSkipped,
+        };
+      });
+
+      const remainingSkipped = updatedTables.flatMap((t) => t.skippedRows);
+      updatedDryRun = {
+        ...dryRunResult,
+        tables: updatedTables,
+        totalSamplePassed: updatedTables.reduce((a, b) => a + b.samplePassed, 0),
+        totalSampleFailed: updatedTables.reduce((a, b) => a + b.sampleFailed, 0),
+        totalProjectedMigrate: updatedTables.reduce((a, b) => a + b.projectedMigrateCount, 0),
+        totalProjectedSkip: updatedTables.reduce((a, b) => a + b.projectedSkipCount, 0),
+        overallStatus: remainingSkipped.length > 0 ? 'warning' : 'passed',
+        allSkippedRows: remainingSkipped,
+      };
+    }
+
+    set({ schemaMapping: updated, dryRunResult: updatedDryRun });
+  },
+
+  applyBatchDefaultValues: (fixes: Array<{ tableName: string; fieldName: string; defaultValue: string }>) => {
+    const { schemaMapping, dryRunResult } = get();
+    if (!schemaMapping || fixes.length === 0) return;
+
+    let updated = [...schemaMapping];
+    fixes.forEach(({ tableName, fieldName, defaultValue }) => {
+      const lowerTable = tableName.toLowerCase();
+      const lowerField = fieldName.toLowerCase();
+
+      updated = updated.map((col) => {
+        const matchTable =
+          col.collectionName.toLowerCase() === lowerTable ||
+          col.targetTableName.toLowerCase() === lowerTable;
+        if (!matchTable) return col;
+
+        const fieldIdx = col.fields.findIndex(
+          (f) =>
+            f.sourceField.toLowerCase() === lowerField ||
+            f.targetColumn.toLowerCase() === lowerField ||
+            (lowerField === 'name' && (f.sourceField.toLowerCase() === 'fullname' || f.targetColumn.toLowerCase() === 'fullname'))
+        );
+
+        if (fieldIdx >= 0) {
+          return {
+            ...col,
+            fields: col.fields.map((f, idx) =>
+              idx === fieldIdx ? { ...f, defaultValue, isNullable: false } : f
+            ),
+          };
+        }
+        return col;
+      });
+    });
+
+    let updatedDryRun = dryRunResult;
+    if (dryRunResult) {
+      const updatedTables = dryRunResult.tables.map((tbl) => {
+        const tblFixes = fixes.filter(
+          (fx) =>
+            tbl.targetTableName.toLowerCase() === fx.tableName.toLowerCase() ||
+            tbl.collectionName.toLowerCase() === fx.tableName.toLowerCase()
+        );
+        if (tblFixes.length === 0) return tbl;
+
+        const fixedFields = tblFixes.map((fx) => fx.fieldName.toLowerCase());
+        const remainingTableSkipped = tbl.skippedRows.filter((r) => {
+          const f = (r.field || '').toLowerCase();
+          return !fixedFields.includes(f) && !(fixedFields.includes('name') && f === 'fullname');
+        });
+
         const resolvedCount = tbl.skippedRows.length - remainingTableSkipped.length;
         if (resolvedCount <= 0 && tbl.sampleFailed === 0) return tbl;
 

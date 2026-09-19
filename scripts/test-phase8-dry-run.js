@@ -425,6 +425,46 @@ async function runTests() {
     'allSkippedRows synchronized strictly to isolated single table (no leaked rows from other tables)'
   );
 
+  // ── Test 18: Dynamic Storage Headroom & Insufficient Space Detection ──────
+  console.log('\n--- Test 18: Dynamic Storage Headroom & Insufficient Space Detection ---');
+  const result18 = await executeDryRunSimulation({
+    mapping: cleanMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [
+      { collectionName: 'users', documentCount: 500000, fields: [] },
+      { collectionName: 'orders', documentCount: 500000, fields: [] },
+    ],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+  });
+
+  assert(result18.storageHeadroom !== undefined, 'Storage headroom object returned in result');
+  assert(result18.storageHeadroom.projectedSizeBytes > result18.storageHeadroom.currentDbSizeBytes, 'Projected size exceeds current database size for oversized dataset');
+  assert(result18.storageHeadroom.sufficientSpace === false, 'sufficientSpace correctly evaluates to false when projected size exceeds database headroom');
+
+  // ── Test 19: Direction Parameter Preservation in All Modes ───────────────
+  console.log('\n--- Test 19: Direction Parameter Preservation in All Modes ---');
+  const result19a = await executeDryRunSimulation({
+    mapping: cleanMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [{ collectionName: 'users', documentCount: 100, fields: [] }],
+    direction: 'postgres-to-mongo',
+    isDemoMode: true,
+  });
+  assert(result19a.direction === 'postgres-to-mongo', 'Reverse workflow returns direction === "postgres-to-mongo"');
+
+  const result19b = await executeDryRunSimulation({
+    mapping: cleanMapping,
+    sourceConfig: null,
+    targetConfig: { type: 'postgresql', host: 'localhost', port: 5432, database: 'testdb' },
+    sourceSchema: [{ collectionName: 'users', documentCount: 100, fields: [] }],
+    direction: 'mongodb-to-postgres',
+    isDemoMode: true,
+  });
+  assert(result19b.direction === 'mongodb-to-postgres', 'Forward workflow returns direction === "mongodb-to-postgres"');
+
   // ── Summary ────────────────────────────────────────────────────────────
   console.log('\n===========================================================');
   console.log(`🏁 Phase 8 Test Suite Complete: ${passedTests}/${totalTests} Passed`);

@@ -369,3 +369,36 @@ export interface DryRunOptions {
   onProgress?: (progress: DryRunProgressPayload) => void;
 }
 
+// ── AI Remediation Studio Types (Step 6 / Phase 8) ────────────────────────
+export interface AnomalyFixRequest {
+  tableName: string;
+  columnName: string;
+  targetType: string;
+  failureReason: string;
+  sampleValues?: string[];
+  rawSnippet?: string;
+  // UI & Studio convenience aliases:
+  targetTable?: string;
+  targetColumn?: string;
+  isNullable?: boolean;
+  currentDefaultValue?: string;
+  affectedRowCount?: number;
+  sampleOffendingSnippet?: string;
+}
+
+export interface AIAnomalyFixRecommendation {
+  targetTable: string;
+  field: string;
+  targetType: string;
+  suggestedValue: string;
+  rationale: string;
+  sqlClause: string;
+  beforeSnippet?: string;
+  // UI & Studio convenience aliases:
+  targetColumn?: string;
+  recommendedDefaultValue?: string;
+  suggestedDdl?: string;
+  confidence?: number;
+  isAiGenerated?: boolean;
+}
+

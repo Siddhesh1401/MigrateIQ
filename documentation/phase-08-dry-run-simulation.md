@@ -1,8 +1,8 @@
-# Phase 8: Transactional Dry Run Simulation (Step 6)
+# Phase 8: Transactional Dry Run Simulation & Data Quality Remediation Studio (Step 6)
 
 ## 1. Phase Summary & Goal
 
-Phase 8 implements the enterprise-grade **Dry Run Simulation** engine and interactive UI (Step 6 of the Migration Wizard) for MigrateIQ. In accordance with enterprise database migration benchmarks (AWS Database Migration Service, Google Cloud Database Migration Service, Stripe zero-downtime cutover patterns, and pgloader engine invariants), Phase 8 has been hardened with **21 Production-Grade Safeguards and Comprehensive Edge-Case Defenses**:
+Phase 8 implements the enterprise-grade **Dry Run Simulation** engine and interactive UI (Step 6 of the Migration Wizard) for MigrateIQ. In accordance with enterprise database migration benchmarks (AWS Database Migration Service, Google Cloud Database Migration Service, Stripe zero-downtime cutover patterns, and pgloader engine invariants), Phase 8 has been engineered with **22 Production-Grade Safeguards and Comprehensive Edge-Case Defenses**, culminating in the **Data Quality Remediation Studio** with **Gemini AI Anomaly Imputation**:
 
 1. **Transaction Isolation & Guaranteed Rollback:** Zero permanent database mutations on the target system (`BEGIN; ... ROLLBACK;`). Target databases are guaranteed 100% untouched.
 2. **PostgreSQL Session Safety Timeouts:** Mandatory timeouts configured on every simulation session (`lock_timeout = '5s'`, `statement_timeout = '15s'`, `idle_in_transaction_session_timeout = '10s'`) preventing blocking locks on active production systems.
@@ -17,7 +17,7 @@ Phase 8 implements the enterprise-grade **Dry Run Simulation** engine and intera
 11. **Surrogate Key Sequence Preservation:** Test inserts in simulation supply explicit dummy surrogate IDs, preventing sequence burning (`SERIAL`/`IDENTITY`) upon rollback.
 12. **Sensitive Credential & Password Masking:** All log entries, connection strings, and audit traces are filtered through `maskSensitiveFields()` to replace passwords with `••••••••`.
 13. **Isolated Single-Table Re-simulation (`🔄 Re-test`):** 1-click sub-200ms re-verification of individual parent or child tables without re-running the entire database suite.
-14. **Pre-Flight Verification Audit Dossier (`📥 Export Dossier`):** Generates and downloads a signed, auditor-ready Markdown compliance dossier documenting simulation results, checksum projections, and applied safeguards.
+14. **Pre-Flight Verification Audit Dossier (`📄 Export PDF` & `📝 Export Markdown`):** Generates and downloads a signed, auditor-ready PDF compliance dossier (rendered via native Electron `printToPDF` with custom print layout) and developer Markdown report documenting simulation results, telemetry metrics, table matrix, and applied safeguards.
 15. **Heterogeneous Casing & Nested Field Normalization (`extractFieldValue`):** Automatically bridges naming conventions between MongoDB camelCase (`orderNumber`, `customerName`, `inStock`) and PostgreSQL snake_case (`order_number`, `customer_name`, `in_stock`), including nested dot-notation (`specs.color`), preventing false-positive NOT NULL constraint failures.
 16. **Exhaustive BSON & SQL Type Coercion (`transformValueForSql`):** Handles numeric Unix timestamps (`1726740000000`), pure `TIME` (`'14:30:00'`), pure `DATE` (`YYYY-MM-DD`), MongoDB BSON objects (`Decimal128`, `Long`, `Binary`, `Timestamp`, `Int32`, `Double`), UUID formatting (36-char, 32-char hex, 16-byte Buffer), and safe `isFinite` bounds checking for numeric fields.
 17. **Deterministic Column Name Deduplication in DDL (`generateCreateTableDdl`):** Detects duplicate target column names created by denormalized NoSQL fields or casing collisions (e.g., `id` and `id`, or `phone-number` and `phone_number`), automatically disambiguating subsequent instances (e.g., `"id_2"`, `"phone_number_2"`) to prevent PostgreSQL error `42701: column specified more than once`.
@@ -25,6 +25,10 @@ Phase 8 implements the enterprise-grade **Dry Run Simulation** engine and intera
 19. **SQL Injection Defense in Default Value Formatting:** Hardens `formatSqlDefaultClause` to validate SQL function calls with strict parameter-less regex `/^[a-z_][a-z0-9_]*\(\s*\)$/i` alongside known SQL constants (`CURRENT_TIMESTAMP`, `NOW()`, `TRUE`, `FALSE`, `NULL`), safely escaping and quoting any multi-statement or unrecognized expressions to prevent DDL injection.
 20. **PostgreSQL 65,535 Parameter Limit Clamping:** Dynamically clamps multi-row batch insert parameters using `Math.min(100, Math.floor(65000 / columnCount))` to guarantee prepared statements never exceed PostgreSQL's protocol bind parameter limit ($65,535$), even on ultra-wide tables.
 21. **Scoped Anomaly Resolution (Zero Cross-Table Side Effects):** Scopes UI Quick-Fix actions, Option A default imputations, and Option B schema relaxations strictly to the specific table and column experiencing anomalies, eliminating artificial failure-masking and preventing unintended side effects across unrelated tables.
+22. **Data Quality Remediation Studio with AI Imputation & Token Caching:** Interactive remediation studio featuring dual-mode resolution:
+    - **✨ Smart AI Remediation (Gemini):** Evaluates constraint failures with Gemini models, yielding domain-aware fallbacks, explanatory rationales, target DDL migrations, and a side-by-side Before/After diff.
+    - **⚙️ Manual Precision Remediation:** Direct per-column inspection with one-click type presets and custom fallback values.
+    - **Multi-Tier In-Memory Caching:** 30-minute cache TTL on client and server to eliminate redundant Gemini API requests and avoid token waste on repeated views.
 
 This phase spans **Phase Plan v2 (Section 8.1–8.2, lines 563–610)** and **Product Blueprint v7 (Step 6 Dry Run, lines 958–1000)**.
 
@@ -36,20 +40,22 @@ This phase spans **Phase Plan v2 (Section 8.1–8.2, lines 563–610)** and **Pr
 
 | File Path | Purpose |
 | :--- | :--- |
-| `apps/desktop/main/engine/dryRun.ts` | Transactional shadow testing engine with savepoint error isolation, 21 safeguards, DDL generator, BSON normalizer, 6-tier error detector, parameter clamping, column deduplication, and document transformer |
+| `apps/desktop/main/engine/dryRun.ts` | Transactional shadow testing engine with savepoint error isolation, 22 safeguards, DDL generator, BSON normalizer, 6-tier error detector, parameter clamping, column deduplication, and document transformer |
 | `apps/desktop/main/handlers/dryRun.ts` | IPC handler for `migration:dry-run` and native IPC event streamer for `dry-run:progress` |
-| `apps/desktop/renderer/src/screens/DryRunScreen.tsx` | Step 6 UI screen with explanation card, telemetry bar, live terminal log, results grid, single-table re-test, dossier exporter, scoped dynamic anomaly resolution, and zero-stale modal state |
-| `apps/desktop/renderer/src/styles/dry-run.css` | Light-theme stylesheet (`#F8FAFC`, `#FFFFFF`, `#E2E8F0`, `#2563EB`, `#16A34A`, `#D97706`, `#DC2626`) including telemetry bar & action button styles |
+| `apps/desktop/renderer/src/screens/DryRunScreen.tsx` | Step 6 UI screen with explanation card, telemetry bar, live terminal log, results grid, single-table re-test, dossier exporter, Data Quality Remediation Studio modal, and token-saving cache management |
+| `apps/desktop/renderer/src/styles/dry-run.css` | Complete Light Theme design system (`#F8FAFC`, `#FFFFFF`, `#E2E8F0`, `#2563EB`, `#0284C7`) for dry run metrics, terminal, tables, and the spacious 1060px Remediation Studio modal |
 | `scripts/seed-phase8-testbed.js` | Comprehensive testbed seeder creating realistic edge-case databases (`migrateiq_phase8_test`) in MongoDB and PostgreSQL for both migration directions |
-| `scripts/test-phase8-dry-run.js` | Automated verification test suite with 14 test scenarios and 69 unit assertions covering DDL, savepoints, child tables, timeouts, identifier collisions, type-aware imputation, parameter limits, SQL injection defense, and telemetry |
+| `scripts/test-phase8-dry-run.js` | Automated verification test suite with 19 test scenarios and 84 unit assertions covering all dry run engine safeguards |
+| `scripts/test-remediation-studio.js` | Automated verification test suite with 8 unit tests covering AI and heuristic anomaly imputation, batch updates, and DDL generation |
 | `documentation/phase-08-dry-run-simulation.md` | Comprehensive Phase 8 architecture, implementation, audit details, and verification documentation |
 
 ### Modified Files
 
 | File Path | Change |
 | :--- | :--- |
-| `packages/shared/src/types.ts` | Added `DryRunStatus`, `DryRunSkippedRow`, `DryRunTableResult`, `StorageHeadroomInfo`, `DryRunResult`, `DryRunOptions`, and `DryRunProgressPayload` interfaces |
-| `apps/desktop/renderer/src/store/wizardStore.ts` | Added `dryRunResult: DryRunResult | null` state, `setDryRunResult` action, scoped `applyAutoFix`, and scoped `applyDefaultValue` actions |
+| `packages/shared/src/types.ts` | Added `DryRunStatus`, `DryRunSkippedRow`, `DryRunTableResult`, `StorageHeadroomInfo`, `DryRunResult`, `DryRunOptions`, `DryRunProgressPayload`, `AnomalyFixRequest`, and `AIAnomalyFixRecommendation` interfaces |
+| `apps/desktop/main/handlers/ai.ts` | Added `ai:suggest-anomaly-fixes` IPC channel with in-memory caching (`anomalyFixCache`, 30-min TTL), Gemini prompt generation, and rule-based fallbacks |
+| `apps/desktop/renderer/src/store/wizardStore.ts` | Added `dryRunResult: DryRunResult | null` state, `setDryRunResult` action, scoped `applyAutoFix`, scoped `applyDefaultValue`, and atomic `applyBatchDefaultValues` |
 | `apps/desktop/main/main.ts` | Registered `setupDryRunHandlers()` in `app.whenReady()` |
 | `apps/desktop/renderer/src/screens/MigrationWizard.tsx` | Mounted `<DryRunScreen />` at Step 6 and wired navigation transitions between Step 5 and Step 7 |
 | `documentation/README.md` | Updated Phase 8 index entry to completed |
@@ -67,16 +73,17 @@ SET LOCAL search_path TO "public", public;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '15s';
 SET LOCAL idle_in_transaction_session_timeout = '10s';
-SET CONSTRAINTS ALL DEFERRED;
+-- 1. Drop any colliding pre-existing table inside transaction to test the exact mapped schema
+DROP TABLE IF EXISTS "users" CASCADE;
 
--- 1. Create target table schemas with collision-safe identifiers
+-- 2. Create target table schemas with collision-safe identifiers
 CREATE TABLE IF NOT EXISTS "users" (
   "id" VARCHAR(24) PRIMARY KEY,
   "name" VARCHAR(255) DEFAULT 'Unknown' NOT NULL,
   "email" VARCHAR(255)
 );
 
--- 2. Bulk insert inside table savepoint
+-- 3. Bulk insert inside table savepoint
 SAVEPOINT sp_tbl_0;
 INSERT INTO "users" ("id", "name", "email") VALUES ($1, $2, $3);
 
@@ -89,7 +96,55 @@ ROLLBACK TO SAVEPOINT sp_row;
 ROLLBACK;
 ```
 
-### 3.2 Exhaustive Type Coercion & BSON Normalization (`transformValueForSql`)
+### 3.2 Data Quality Remediation Studio & AI Imputation Engine
+
+When the dry run detects that source documents have missing or `null` values for target columns marked as `NOT NULL`, Option A launches the **Data Quality Remediation Studio** (`RemediationStudioModal`):
+
+```mermaid
+flowchart TD
+    A[Step 6: Dry Run Simulation Detects NOT NULL Anomaly] --> B{User Clicks Option A Card}
+    B -->|'Configure & Apply Fix'| C[Data Quality Remediation Studio Modal Opens]
+    
+    C --> D[Mode 1: ✨ Smart AI Remediation]
+    C --> E[Mode 2: ⚙️ Manual Precision Remediation]
+    
+    D --> F[Check 30-min In-Memory Cache]
+    F -->|Cache Hit| G[0ms Instant Load • 0 Tokens Consumed]
+    F -->|Cache Miss or Forced Refresh| H[Gemini AI Analysis & Synthesis]
+    
+    G --> I[Side-by-Side Before & After Diff Review]
+    H --> I
+    
+    I --> J[Offending MongoDB Snippet ❌ vs. Healed PostgreSQL Column ✅]
+    J --> K[Editable Fallback Default + AI Rationale + DDL Preview]
+    
+    E --> L[Manual Column List + Custom Inputs]
+    L --> M[Quick Preset Chips: 'Unknown', 'N/A', 0, 0.00, CURRENT_TIMESTAMP, false, {}]
+    
+    K --> N[Click 'Apply Fixes & Re-simulate']
+    M --> N
+    
+    N --> O[Atomic Batch Default Imputation via Zustand]
+    O --> P[Simulation Passes 100% with Zero Dropped Rows]
+    P --> Q[All Table Cards Turn Green & Step 7 Unlocks]
+```
+
+#### Dual-Tier Caching Architecture
+To guarantee that tokens are never wasted when users reopen the modal or review suggestions:
+1. **Frontend Session Cache (`aiAnomalyCacheRef`):** Stores recommendations indexed by a composite key of sorted anomalies (`tableName.columnName`). Reopening the studio displays recommendations in **0ms**.
+2. **Backend Main Process Cache (`anomalyFixCache`):** An in-memory Map storing recommendations with a 30-minute TTL.
+3. **Explicit Refresh:** Users can force a re-run using the **`🔄 Re-analyze with Gemini`** button in the studio banner.
+
+### 3.3 Decongested Enterprise UI Design
+
+In adherence with `AGENTS.md` light-theme specifications:
+- **Dimensions:** Spacious modal (`1060px` max-width) replacing cramped dialogs.
+- **Color Palette:** Pure white cards (`#FFFFFF`) on subtle gray canvas (`#F8FAFC`) with crisp 1px borders (`#E2E8F0`).
+- **Diff Presentation:** Replaced solid red/green column backgrounds with badge pills (`❌ BEFORE (MONGODB SOURCE ANOMALY)` / `✅ AFTER (POSTGRESQL HEALED SCHEMA)`) and clear error callouts (`.remediation-error-callout`).
+- **Code Block:** Dark monospace container (`#0F172A`) for authentic MongoDB BSON inspection.
+- **Interactive Controls:** Integrated input with **`Reset AI`** button, copyable DDL migration preview, and quick type presets.
+
+### 3.4 Exhaustive Type Coercion & BSON Normalization (`transformValueForSql`)
 MongoDB documents frequently contain heterogeneous or non-standard types that crash PostgreSQL if passed uncoerced:
 - **Numeric Unix Epoch Timestamps:** Converts numbers (e.g. `1726740000000` or `1726740000`) and numeric strings into standard ISO 8601 strings (`new Date(ms).toISOString()`).
 - **Pure `DATE` Formatting:** When target column is `DATE`, trims ISO timestamps to `YYYY-MM-DD` (`split('T')[0]`) so timezone discrepancies never trigger offset errors.
@@ -104,7 +159,7 @@ MongoDB documents frequently contain heterogeneous or non-standard types that cr
 - **UUID Normalization:** Validates 36-char formatted UUIDs, reformats 32-char unhyphenated hex strings, and decodes 16-byte `Buffer` objects into standard `8-4-4-4-12` lowercase strings.
 - **Numeric Bounds:** Guards integers and floating point values with `!isFinite(val)` checks to prevent `NaN` or `Infinity` from causing PostgreSQL aborts.
 
-### 3.3 SQL Keyword & Function Preservation with SQL Injection Defense (`formatSqlDefaultClause`)
+### 3.5 SQL Keyword & Function Preservation with SQL Injection Defense (`formatSqlDefaultClause`)
 Wrapping SQL functions or keywords in single quotes causes PostgreSQL syntax and type errors (e.g., `TIMESTAMP DEFAULT 'CURRENT_TIMESTAMP'` fails with `invalid input syntax for type timestamp: "CURRENT_TIMESTAMP"`). Furthermore, naive unquoted formatting exposes DDL to SQL injection if malicious input is supplied.
 
 MigrateIQ implements hardened `formatSqlDefaultClause()`:
@@ -132,7 +187,7 @@ export function formatSqlDefaultClause(rawDefault: string | undefined | null): s
 ```
 Any complex or non-conforming expression (e.g. `foo(); DROP TABLE users; ()`) is safely treated as a string literal and escaped.
 
-### 3.4 6-Tier Cascading Error Column Detection
+### 3.6 6-Tier Cascading Error Column Detection
 When PostgreSQL throws an error during row insertion, error messages vary widely (some contain `column "name"`, others output values or constraint keys, and length overflows output only limits). MigrateIQ uses a 6-tier detection cascade:
 1. **Tier 1 (Protocol Column):** Directly inspects `pgErr.column` from the PostgreSQL wire protocol.
 2. **Tier 2 (Constraint Detail):** Parses `Key (column_name)=(...)` from `pgErr.detail`.
@@ -142,12 +197,12 @@ When PostgreSQL throws an error during row insertion, error messages vary widely
 6. **Tier 6 (Active Column Fallback):** Defaults to the first non-primary-key column of the tested table.
 * **Result:** `detectedField` is **never `undefined`**, preventing UI fallback misattributions.
 
-### 3.5 Dynamic UI Resolution, Scoped Quick-Fixes & Zero-Stale Modal State
+### 3.7 Dynamic UI Resolution, Scoped Quick-Fixes & Zero-Stale Modal State
 - **Elimination of Hardcoded Fallbacks:** The UI dynamically queries the failing table and column from `currentResult` and `useWizardStore`.
 - **Scoped Anomaly Resolution:** When applying Option A (smart default imputation) or Option B (schema relaxation) or quick-fixes in `DryRunScreen.tsx` and `wizardStore.ts`, the store resolves skipped rows strictly for the target table and field being corrected, avoiding global state wipes across unrelated tables.
 - **Immediate Modal Auto-Close:** Whenever a table is re-tested and passes, or whenever Option A or Option B is applied, `setModalOpen(false)` is invoked synchronously so stale error cards can never linger.
 
-### 3.6 63-Byte Identifier Truncation with Hash Collision Defense
+### 3.8 63-Byte Identifier Truncation with Hash Collision Defense
 PostgreSQL limits identifiers to 63 bytes (`NAMEDATALEN - 1`). If two columns share the first 63 characters, PostgreSQL conflates them. MigrateIQ truncates identifiers to 58 characters and appends a deterministic 4-character hex hash:
 ```typescript
 export function sanitizeIdentifier(name: string): string {
@@ -163,10 +218,10 @@ export function sanitizeIdentifier(name: string): string {
 }
 ```
 
-### 3.7 UTF-8 Null-Byte (`\0`) Poison Pill Sanitization
+### 3.9 UTF-8 Null-Byte (`\0`) Poison Pill Sanitization
 PostgreSQL cannot store the null character `\0` (`0x00`) in `TEXT` or `VARCHAR` fields because its C engine uses null-terminated strings. If raw MongoDB BSON data contains `\0`, PostgreSQL aborts the transaction with `SQLSTATE 22021: invalid byte sequence for encoding "UTF8": 0x00`. MigrateIQ automatically strips null bytes across strings, JSON, and text arrays.
 
-### 3.8 Telemetry & Storage Capacity Headroom
+### 3.10 Telemetry & Storage Capacity Headroom
 Directly below the metric cards, MigrateIQ displays:
 - **Throughput:** Real-time processing speed (e.g. `2,450 rows/s`).
 - **Full Migration ETA:** Projected time to migrate all source rows (e.g. `~8s (for ~21,200 rows)`).
@@ -174,7 +229,7 @@ Directly below the metric cards, MigrateIQ displays:
 - **Storage Headroom:** Target disk capacity analysis (`SELECT pg_database_size(current_database())`).
 - **📥 Export Dossier Button:** Downloads a complete pre-flight compliance markdown report.
 
-### 3.9 Deterministic Column Name Deduplication in DDL (`generateCreateTableDdl`)
+### 3.11 Deterministic Column Name Deduplication in DDL (`generateCreateTableDdl`)
 When mapping unstructured NoSQL collections, disparate source fields can collide on the same sanitized target column name (e.g., `phone-number` and `phone_number` both sanitize to `phone_number`, or `id` and `_id` both map to `id`). Previously, this caused PostgreSQL error `42701: column "xyz" specified more than once`.
 
 MigrateIQ tracks `seenColumns` during DDL creation and automatically disambiguates duplicates:
@@ -194,7 +249,7 @@ for (const field of activeFields) {
 }
 ```
 
-### 3.10 PostgreSQL 65,535 Parameter Ceiling Clamping for Multi-Row Batches
+### 3.12 PostgreSQL 65,535 Parameter Ceiling Clamping for Multi-Row Batches
 PostgreSQL's binary and text wire protocols strictly limit prepared statement bind parameters to $65,535$ ($2^{16}-1$). In multi-row batch inserts (`INSERT INTO ... VALUES ($1..$N), ($N+1..$2N)`), if a table has 500 columns and the batch size is 150, the total parameter count is $75,000$, causing a fatal driver crash.
 
 MigrateIQ dynamically clamps the batch row count:
@@ -202,21 +257,21 @@ MigrateIQ dynamically clamps the batch row count:
 const batchSize = Math.max(1, Math.min(100, Math.floor(65000 / Math.max(1, activeFields.length))));
 ```
 
-### 3.11 Genuinely Empty Collection Guard (`isGenuinelyEmpty`)
+### 3.13 Genuinely Empty Collection Guard (`isGenuinelyEmpty`)
 In live production and demo scenarios, collections with 0 documents previously suffered from falsy `documentCount || 850` coercion, which synthesized fake documents and caused false-positive failures. MigrateIQ explicitly verifies:
 ```typescript
 const isGenuinelyEmpty = matchingSchema?.documentCount === 0 || (isDemoMode && matchingSchema?.documentCount === 0);
 ```
 Empty collections bypass sample insertion, report 0 rows tested, 0 failed, and 100% success rate without errors.
 
-### 3.12 Child Table Normalization Shadow Batch Insertion with Savepoints (`simulateChildTables`)
+### 3.14 Child Table Normalization Shadow Batch Insertion with Savepoints (`simulateChildTables`)
 Array-to-child table mappings (`orders.items` $\rightarrow$ `order_items`) are not only created in DDL with `sort_order INTEGER NOT NULL`, but are also populated with real shadow batch `INSERT` statements inside dedicated savepoints (`SAVEPOINT sp_child_...`), validating foreign key relationships and index structures during the simulation.
 
 ---
 
 ## 4. Verification & Test Results
 
-### 4.1 Automated Test Suite (`scripts/test-phase8-dry-run.js`)
+### 4.1 Automated Dry Run Test Suite (`scripts/test-phase8-dry-run.js`)
 Executed via `node scripts/test-phase8-dry-run.js`:
 - **Test 1 — Clean Mapping & Child Table (`orders.items`):**
   - ✅ Dry run execution returned valid result object.
@@ -296,9 +351,28 @@ Executed via `node scripts/test-phase8-dry-run.js`:
 - **Test 17 — Synchronized `allSkippedRows` on Single-Table Isolation:**
   - ✅ Single-table simulation result contains exactly 1 table.
   - ✅ `allSkippedRows` synchronized strictly to isolated single table (zero leaked rows from other tables).
-- **Result:** **79 of 79 assertions passed (100%)**.
+- **Test 18 — Dynamic Storage Headroom & Insufficient Space Detection:**
+  - ✅ Storage headroom object returned in result.
+  - ✅ Projected size exceeds current database size for oversized dataset.
+  - ✅ `sufficientSpace` correctly evaluates to `false` when projected size exceeds database headroom.
+- **Test 19 — Direction Parameter Preservation in All Modes:**
+  - ✅ Reverse workflow returns `direction === 'postgres-to-mongo'`.
+  - ✅ Forward workflow returns `direction === 'mongodb-to-postgres'`.
+- **Result:** **84 of 84 assertions passed (100%)**.
 
-### 4.2 Live Database Testbed Verification (`migrateiq_phase8_test`)
+### 4.2 Automated Remediation Studio Test Suite (`scripts/test-remediation-studio.js`)
+Executed via `node scripts/test-remediation-studio.js`:
+- ✅ PASS: Domain-aware status field fallback (`'PENDING'`)
+- ✅ PASS: Domain-aware role field fallback (`'USER'`)
+- ✅ PASS: Type-aware timestamp fallback (`'CURRENT_TIMESTAMP'`)
+- ✅ PASS: Type-aware numeric fallback (`'0.00'`)
+- ✅ PASS: Type-aware boolean fallback (`'false'`)
+- ✅ PASS: Batch default values update multiple collection mappings simultaneously
+- ✅ PASS: Batch default imputation clears corresponding skipped rows from all tables
+- ✅ PASS: Generates valid PostgreSQL ALTER TABLE column default statements
+- **Result:** **8 of 8 assertions passed (100%)**.
+
+### 4.3 Live Database Testbed Verification (`migrateiq_phase8_test`)
 Tested against real MongoDB and PostgreSQL daemon instances seeded via `scripts/seed-phase8-testbed.js`:
 
 | Scenario | Target / Data Under Test | Live Verification Result |
@@ -310,7 +384,7 @@ Tested against real MongoDB and PostgreSQL daemon instances seeded via `scripts/
 | **Direction B Live Querying** | `p8_employees` real PostgreSQL query | **10/10 passed (100% green)** |
 | **Array Child Table Simulation** | `orders.items` $\rightarrow$ `order_items` | Unwound with auto-added `sort_order INTEGER NOT NULL` & shadow batch inserts |
 
-### 4.3 TypeScript & Build Verification
+### 4.4 TypeScript & Build Verification
 Executed via `npm run typecheck` across all workspaces (`@migrateiq/shared`, `@migrateiq/desktop`, `@migrateiq/web`):
 - ✅ Monorepo TypeScript type-check passed with **0 errors**.
 - ✅ Main process compiled cleanly into `dist-electron`.
@@ -321,23 +395,26 @@ Executed via `npm run typecheck` across all workspaces (`@migrateiq/shared`, `@m
 
 1. **The Timestamp Coercion Cascade (Live Finding):** In real MongoDB databases, developers frequently store dates as numeric epoch milliseconds (`1726740000000`) or ISO strings. PostgreSQL strictly distinguishes between integers and timestamps. If unhandled, this causes `date/time field value out of range: "1726740000000"`. Because PostgreSQL omits `column "xyz"` in datetime syntax errors, naive error parsers leave the failing column as `undefined`. MigrateIQ's 6-tier detection cascade and universal type coercion resolve this cleanly.
 2. **Transactional DDL Superiority in PostgreSQL:** PostgreSQL supports transactional DDL (`CREATE TABLE`, `ALTER TABLE`, `DROP TABLE` can all be rolled back inside `BEGIN; ... ROLLBACK;`). In MySQL or Oracle, DDL operations issue implicit commits, making a true zero-risk shadow dry run impossible without creating external shadow schemas. This is a primary academic defense highlight for the final FYP viva.
-3. **SQL Function Quotation Bug & SQL Injection Defense:** When applying `CURRENT_TIMESTAMP` or `NOW()` as a default value, surrounding the keyword in quotes (`DEFAULT 'CURRENT_TIMESTAMP'`) causes PostgreSQL to parse it as a string literal, resulting in `invalid input syntax for type timestamp`. MigrateIQ's `formatSqlDefaultClause` parses keywords, functions, and numbers to omit surrounding quotes while strictly validating parentheses with `/^[a-z_][a-z0-9_]*\(\s*\)$/i` to eliminate SQL injection risks.
-4. **PostgreSQL Identifier Truncation Vulnerability:** Demonstrating how PostgreSQL truncates identifiers at 63 bytes and how MigrateIQ avoids silent schema collisions using deterministic hashing proves enterprise-grade rigor beyond typical student projects.
-5. **Poison Pill Null-Byte Protection:** Illustrating how BSON binary strings with null bytes crash PostgreSQL C drivers and how MigrateIQ filters them pre-flight showcases deep systems programming understanding.
-6. **Heterogeneous Casing & Schema Drift Resolution:** Demonstrating how real-world MongoDB databases utilize JavaScript camelCase (`orderNumber`, `customerName`) while relational PostgreSQL targets utilize snake_case (`order_number`, `customer_name`), and how MigrateIQ's `extractFieldValue` prevents false-positive data corruption alerts on valid production records.
-7. **The 65,535 Parameter Ceiling in Multi-Row Batches:** PostgreSQL prepared statements cannot bind more than $65,535$ parameters in a single statement. Multi-row bulk insert queries dynamically clamp the batch row count via `Math.floor(65000 / columnCount)` to maintain peak wire throughput without parameter exhaustion crashes.
-8. **Column Name Collisions from Unstructured NoSQL Schemas:** Due to flexible schema evolution, NoSQL documents can contain multiple fields that normalize to identical SQL identifiers. MigrateIQ's deterministic deduplication suffix (`colName_2`) prevents uncatchable DDL syntax failures.
-9. **Zero-Document Empty Collection Handling:** Handles empty collections with zero documents cleanly without inventing phantom data or generating false-positive validation warnings.
-10. **Offline Presentation Resilience (Demo Mode):** The simulation does not require an active database daemon; the engine synthesizes realistic documents from schema metadata, showcasing all UI transitions, logs, telemetry, and error drawers.
-11. **3-Tier Industrial Resolution Architecture:**
-   - **Option A (🌟 RECOMMENDED — Smart Default Imputation):** Substitutes fallback values, retains `NOT NULL`, migrates 100% of records, and passes row-count reconciliation without crashing downstream microservices.
-   - **Option B (⚠️ CAUTION — Relax to NULLABLE):** Relaxes column to NULLABLE with explicit hazard warnings for application crash risks.
-   - **Option C (⚠️ WARNING — Strict Quarantine / DLQ):** Preserves `NOT NULL` without fallbacks, routing invalid rows to the Dead-Letter Queue with row-count mismatch warnings.
+3. **Data Quality Remediation Studio (AI + Rule Heuristic Hybrid):** Many migration tools simply discard invalid records into a trash bin or fail outright. MigrateIQ provides an intelligent Studio modal where Google Gemini synthesizes domain-informed fallbacks based on column semantics (e.g. `'PENDING'` for order status, `'USER'` for roles). If offline or without API quota, a deterministic type-aware rule engine takes over with 0 downtime.
+4. **Token Preservation Caching Architecture:** Repeated visits to the Remediation Studio during an interactive dry run session avoid re-querying the LLM through deterministic 30-minute in-memory caching on both renderer and main processes. A force-refresh trigger (`🔄 Re-analyze with Gemini`) allows users to query fresh recommendations on demand.
+5. **SQL Function Quotation Bug & SQL Injection Defense:** When applying `CURRENT_TIMESTAMP` or `NOW()` as a default value, surrounding the keyword in quotes (`DEFAULT 'CURRENT_TIMESTAMP'`) causes PostgreSQL to parse it as a string literal, resulting in `invalid input syntax for type timestamp`. MigrateIQ's `formatSqlDefaultClause` parses keywords, functions, and numbers to omit surrounding quotes while strictly validating parentheses with `/^[a-z_][a-z0-9_]*\(\s*\)$/i` to eliminate SQL injection risks.
+6. **PostgreSQL Identifier Truncation Vulnerability:** Demonstrating how PostgreSQL truncates identifiers at 63 bytes and how MigrateIQ avoids silent schema collisions using deterministic hashing proves enterprise-grade rigor beyond typical student projects.
+7. **Poison Pill Null-Byte Protection:** Illustrating how BSON binary strings with null bytes crash PostgreSQL C drivers and how MigrateIQ filters them pre-flight showcases deep systems programming understanding.
+8. **Heterogeneous Casing & Schema Drift Resolution:** Demonstrating how real-world MongoDB databases utilize JavaScript camelCase (`orderNumber`, `customerName`) while relational PostgreSQL targets utilize snake_case (`order_number`, `customer_name`), and how MigrateIQ's `extractFieldValue` prevents false-positive data corruption alerts on valid production records.
+9. **The 65,535 Parameter Ceiling in Multi-Row Batches:** PostgreSQL prepared statements cannot bind more than $65,535$ parameters in a single statement. Multi-row bulk insert queries dynamically clamp the batch row count via `Math.floor(65000 / columnCount)` to maintain peak wire throughput without parameter exhaustion crashes.
+10. **Column Name Collisions from Unstructured NoSQL Schemas:** Due to flexible schema evolution, NoSQL documents can contain multiple fields that normalize to identical SQL identifiers. MigrateIQ's deterministic deduplication suffix (`colName_2`) prevents uncatchable DDL syntax failures.
+11. **Zero-Document Empty Collection Handling:** Handles empty collections with zero documents cleanly without inventing phantom data or generating false-positive validation warnings.
+12. **Offline Presentation Resilience (Demo Mode):** The simulation does not require an active database daemon; the engine synthesizes realistic documents from schema metadata, showcasing all UI transitions, logs, telemetry, and error drawers.
+13. **3-Tier Industrial Resolution Architecture:**
+    - **Option A (🌟 RECOMMENDED — Smart Default Imputation):** Substitutes fallback values, retains `NOT NULL`, migrates 100% of records, and passes row-count reconciliation without crashing downstream microservices.
+    - **Option B (⚠️ CAUTION — Relax to NULLABLE):** Relaxes column to NULLABLE with explicit hazard warnings for application crash risks.
+    - **Option C (⚠️ WARNING — Strict Quarantine / DLQ):** Preserves `NOT NULL` without fallbacks, routing invalid rows to the Dead-Letter Queue with row-count mismatch warnings.
+14. **Pre-Existing Target Table Collision & Transactional DDL Substitution (Live Testbed Finding):** In real-world enterprise database migrations (such as when testing against pre-existing tables or re-running testbed scripts like `scripts/seed-phase7-testbed.js`), target databases may already contain tables matching the mapped names (e.g. `orders` containing only legacy columns `id`, `legacy_order_ref`, `existing_notes`). A conventional `CREATE TABLE IF NOT EXISTS` silently ignores existing tables, leaving the legacy columns in place and causing subsequent sample batch inserts with newly mapped columns (`order_number`, `customer_name`, `total_amount`) to fail with `column "order_number" of relation "orders" does not exist`. MigrateIQ cleanly resolves this by issuing `DROP TABLE IF EXISTS "${targetTable}" CASCADE;` immediately prior to `CREATE TABLE` *inside the simulation transaction (`BEGIN; ... ROLLBACK;`)*. Because PostgreSQL DDL is 100% transactional, this guarantees that the simulation tests the fresh, intended migration schema and sample rows, while PostgreSQL's final `ROLLBACK;` unconditionally restores the pre-existing table and its legacy records (`LEGACY-001`) with zero data loss or permanent side-effects.
 
 ---
 
 ## 6. Next Phase Handoff (Phase 9: Live Migration Engine)
 
 With Phase 8 complete, verified, hardened, and documented:
-- The user can run a full transactional simulation, inspect any malformed rows, resolve them using Option A (Recommended Default Imputation), Option B (Relax Schema), or Option C (Strict Quarantine), inspect live throughput and ETA metrics, export an audit dossier, and click **"✅ All Rows Validated — Run Real Migration →"** to advance to **Step 7 (Phase 9)**.
+- The user can run a full transactional simulation, inspect any malformed rows, resolve them using Option A (Data Quality Remediation Studio with AI or manual fallbacks), Option B (Relax Schema), or Option C (Strict Quarantine), inspect live throughput and ETA metrics, export an audit dossier, and click **"✅ All Rows Validated — Run Real Migration →"** to advance to **Step 7 (Phase 9)**.
 - The ETL engine (`etlEngine.ts`), streaming cursor loops, batch bulk inserts, and live DLQ routing established in Phase 9 will directly build upon the verified DDL, type fallbacks, parameter limits, and identifier sanitizers hardened in this phase.

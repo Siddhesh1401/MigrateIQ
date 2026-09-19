@@ -604,7 +604,11 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
       // Generate CREATE TABLE DDL
       const { sql: createDdl, activeColumns } = generateCreateTableDdl(targetTable, colMapping.fields, false);
 
-      // Execute DDL inside transaction
+      // Execute DDL inside transaction:
+      // Drop any pre-existing colliding table so the simulation tests the fresh migration schema.
+      // Because this runs inside BEGIN ... ROLLBACK, any pre-existing table and its records
+      // are 100% restored upon transaction rollback.
+      await pgClient.query(`DROP TABLE IF EXISTS "${targetTable}" CASCADE;`);
       await pgClient.query(createDdl);
       emitProgress('schema', `✅ Schema check: CREATE TABLE "${targetTable}" (${activeColumns.length} columns) — Valid`, 'success', targetTable);
 
@@ -895,10 +899,17 @@ export async function executeDryRunSimulation(options: DryRunOptions): Promise<D
   const estimatedAvgRowBytes = 220;
   const projectedTotalSizeBytes = totalProjectedMigrate * estimatedAvgRowBytes;
 
+  // Warn if the projected migration size exceeds the current database size
+  // (a reasonable heuristic: migration data growing beyond the existing footprint needs attention)
+  const sufficientSpace =
+    projectedTotalSizeBytes <= 0 || currentDbSizeBytes <= 0
+      ? true
+      : projectedTotalSizeBytes < currentDbSizeBytes;
+
   const storageHeadroom = {
     currentDbSizeBytes,
     projectedSizeBytes: projectedTotalSizeBytes,
-    sufficientSpace: true,
+    sufficientSpace,
     formattedCurrentDbSize: formatBytes(currentDbSizeBytes),
     formattedProjectedSize: formatBytes(projectedTotalSizeBytes),
   };
@@ -957,6 +968,7 @@ async function simulateChildTables(
   "data" JSONB
 );`;
 
+    await pgClient.query(`DROP TABLE IF EXISTS "${childTableName}" CASCADE;`);
     await pgClient.query(childDdl);
     const childIdxSql = `CREATE INDEX IF NOT EXISTS "${childTableName}_${parentTable}_id_idx" ON "${childTableName}" ("${parentTable}_id");`;
     await pgClient.query(childIdxSql);
@@ -1190,11 +1202,17 @@ async function executePostgresToMongoDryRun(
   const estimatedAvgRowBytes = 280;
   const projectedTotalSizeBytes = totalProjectedMigrate * estimatedAvgRowBytes;
 
+  const currentDbSizeBytes = 18 * 1024 * 1024;
+  const sufficientSpace =
+    projectedTotalSizeBytes <= 0 || currentDbSizeBytes <= 0
+      ? true
+      : projectedTotalSizeBytes < currentDbSizeBytes;
+
   const storageHeadroom = {
-    currentDbSizeBytes: 18 * 1024 * 1024,
+    currentDbSizeBytes,
     projectedSizeBytes: projectedTotalSizeBytes,
-    sufficientSpace: true,
-    formattedCurrentDbSize: formatBytes(18 * 1024 * 1024),
+    sufficientSpace,
+    formattedCurrentDbSize: formatBytes(currentDbSizeBytes),
     formattedProjectedSize: formatBytes(projectedTotalSizeBytes),
   };
 
@@ -1387,11 +1405,17 @@ async function executeDemoModeDryRun(
   const estimatedAvgRowBytes = 220;
   const projectedTotalSizeBytes = totalProjectedMigrate * estimatedAvgRowBytes;
 
+  const currentDbSizeBytes = 34 * 1024 * 1024;
+  const sufficientSpace =
+    projectedTotalSizeBytes <= 0 || currentDbSizeBytes <= 0
+      ? true
+      : projectedTotalSizeBytes < currentDbSizeBytes;
+
   const storageHeadroom = {
-    currentDbSizeBytes: 34 * 1024 * 1024,
+    currentDbSizeBytes,
     projectedSizeBytes: projectedTotalSizeBytes,
-    sufficientSpace: true,
-    formattedCurrentDbSize: formatBytes(34 * 1024 * 1024),
+    sufficientSpace,
+    formattedCurrentDbSize: formatBytes(currentDbSizeBytes),
     formattedProjectedSize: formatBytes(projectedTotalSizeBytes),
   };
 
