@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import type {
   ConnectionConfig,
   SourceSchema,
@@ -403,7 +404,16 @@ const Layer2Banner: React.FC<Layer2BannerProps> = ({ result }) => {
 // ── Main MigrationWizard Component ───────────────────────────────────────────
 
 export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
+  const location = useLocation();
   const wizardStore = useWizardStore();
+
+  // Sync demoMode flag from router navigation state if present
+  useEffect(() => {
+    const navState = location.state as { demoMode?: boolean } | null;
+    if (navState && navState.demoMode) {
+      wizardStore.setIsDemoMode(true);
+    }
+  }, [location.state, wizardStore]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceMongoPreview, setSourceMongoPreview] = useState<SourceSchema[] | null>(

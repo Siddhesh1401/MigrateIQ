@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu, shell } from 'electron';
 import path from 'path';
 import { setupDatabaseHandlers } from './handlers/db';
 import { setupStoreHandlers } from './handlers/store';
@@ -10,6 +10,9 @@ import { setupDryRunHandlers } from './handlers/dryRun';
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
+  // Remove default Chromium menu bar on Windows
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -21,7 +24,25 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: true
+    }
+  });
+
+  // Guard against arbitrary new window popups: redirect external links to system browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http:') || url.startsWith('https:')) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+
+  // Guard against unexpected top-level navigation away from the app
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const isLocalDev = url.startsWith('http://localhost:5173');
+    const isLocalFile = url.startsWith('file://');
+    if (!isLocalDev && !isLocalFile) {
+      event.preventDefault();
+      shell.openExternal(url).catch(() => {});
     }
   });
 
@@ -40,6 +61,7 @@ function createWindow(): void {
     mainWindow = null;
   });
 }
+
 
 app.whenReady().then(() => {
   // Setup IPC handlers for database connectivity

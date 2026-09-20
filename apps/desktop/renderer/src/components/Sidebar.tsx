@@ -8,20 +8,20 @@ interface NavItem {
   id: string;
   path: string;
   label: string;
-  icon: string;
   section?: string;
 }
 
 const navItems: NavItem[] = [
-  { id: 'home',          path: '/',              label: 'Home',              icon: '⊞', section: 'Main' },
-  { id: 'migrate',       path: '/migrate',       label: 'New Migration',     icon: '⇄', section: 'Main' },
-  { id: 'schema-update', path: '/schema-update', label: 'Schema Update',     icon: '⊕', section: 'Main' },
-  { id: 'history',       path: '/history',       label: 'History',           icon: '◷', section: 'Data' },
-  { id: 'schema-history',path: '/schema-history',label: 'Schema History',    icon: '◈', section: 'Data' },
-  { id: 'connections',   path: '/connections',   label: 'Connections',       icon: '⊘', section: 'Data' },
-  { id: 'ai-usage',      path: '/ai-usage',      label: 'AI Usage & Tokens', icon: '🤖', section: 'System' },
-  { id: 'settings',      path: '/settings',      label: 'Settings',          icon: '⊙', section: 'System' },
+  { id: 'home',          path: '/',              label: 'Home',              section: 'Main' },
+  { id: 'migrate',       path: '/migrate',       label: 'New Migration',     section: 'Main' },
+  { id: 'schema-update', path: '/schema-update', label: 'New Schema Update', section: 'Main' },
+  { id: 'history',       path: '/history',       label: 'History',           section: 'Data' },
+  { id: 'schema-history',path: '/schema-history',label: 'Schema History',    section: 'Data' },
+  { id: 'connections',   path: '/connections',   label: 'Connections',       section: 'Data' },
+  { id: 'ai-usage',      path: '/ai-usage',      label: 'AI Usage & Tokens', section: 'System' },
+  { id: 'settings',      path: '/settings',      label: 'Settings',          section: 'System' },
 ];
+
 
 // Map of better Unicode/SVG-like icons for each nav item
 const NAV_ICONS: Record<string, string> = {

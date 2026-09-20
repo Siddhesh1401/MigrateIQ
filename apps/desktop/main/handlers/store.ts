@@ -21,11 +21,25 @@ export interface WizardStateSnapshot {
   savedAt: string;
 }
 
+export interface MigrationHistoryItem {
+  id: string;
+  dateTime: string;
+  direction: string;
+  status: 'completed' | 'warning' | 'failed';
+  sourceDb?: string;
+  targetDb?: string;
+  tablesCount?: number;
+  rowsMigrated?: number;
+  duration?: string;
+  reportSummary?: string;
+}
+
 // ── electron-store instance ───────────────────────────────────────────────────
 
 interface StoreSchema {
   savedConnections: SavedConnection[];
   wizardState: WizardStateSnapshot | null;
+  migrationHistory: MigrationHistoryItem[];
 }
 
 const store = new ElectronStore<StoreSchema>({
@@ -33,8 +47,10 @@ const store = new ElectronStore<StoreSchema>({
   defaults: {
     savedConnections: [],
     wizardState: null,
+    migrationHistory: [],
   },
 });
+
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -179,4 +195,45 @@ export function setupStoreHandlers(): void {
       }
     }
   );
+
+  // ── Migration History ──────────────────────────────────────────────────────
+
+  /** Get recent migration history (read from electron-store) */
+  ipcMain.handle(
+    'store:get-migration-history',
+    async (): Promise<IPCResponse<MigrationHistoryItem[]>> => {
+      try {
+        const history = store.get('migrationHistory', []);
+        return { success: true, data: history };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to load migration history',
+        };
+      }
+    }
+  );
+
+  /** Save a migration record to persistent history */
+  ipcMain.handle(
+    'store:save-migration-history',
+    async (
+      _event,
+      record: MigrationHistoryItem
+    ): Promise<IPCResponse<MigrationHistoryItem>> => {
+      try {
+        const existing = store.get('migrationHistory', []);
+        // Prepend to display most recent first, keep up to 20
+        const updated = [record, ...existing.filter((r) => r.id !== record.id)].slice(0, 20);
+        store.set('migrationHistory', updated);
+        return { success: true, data: record };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to save migration history',
+        };
+      }
+    }
+  );
 }
+
