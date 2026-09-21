@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type {
   DatabaseType,
   SchemaOperationType,
@@ -19,6 +20,8 @@ import '../styles/schema-update.css';
 export interface SchemaUpdateWizardProps {}
 
 export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
+  const navigate = useNavigate();
+
   // ── Step Navigation State ──────────────────────────────────────────────────
   const [currentStep, setCurrentStep] = useState<number>(1);
 
@@ -65,6 +68,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
   const [scripts, setScripts] = useState<GeneratedScriptResult | null>(null);
   const [isGeneratingScripts, setIsGeneratingScripts] = useState<boolean>(false);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  const [copiedRollback, setCopiedRollback] = useState<boolean>(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
   // ── Step 6: Execution Results ──────────────────────────────────────────────
@@ -112,7 +116,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
         const tables: SchemaIntrospectedTableInfo[] = res.data.tables.map((t) => ({
           tableName: t.table_name,
-          rowCount: 100, // sample estimate
+          rowCount: t.estimated_rows ?? 0,
           columns: t.columns.map((c, idx) => ({
             columnName: c,
             dataType: t.column_types[idx] || 'text',
@@ -214,6 +218,10 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
       newColumnName: newColumnName.trim() || undefined,
       newTableName: newTableName.trim() || undefined,
       dataType: dataType.trim() || undefined,
+      originalDataType:
+        operation === 'changeType'
+          ? currentTableInfo?.columns.find((c) => c.columnName === columnName.trim())?.dataType
+          : undefined,
       isNullable,
       defaultValue: defaultValue.trim() || undefined,
       indexName: indexName.trim() || undefined,
@@ -230,6 +238,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     newColumnName,
     newTableName,
     dataType,
+    currentTableInfo,
     isNullable,
     defaultValue,
     indexName,
@@ -237,6 +246,52 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     foreignTable,
     foreignColumn,
     onDelete,
+  ]);
+
+  // ── Step 3 Form Validity Checker ──────────────────────────────────────────
+  const isStep3Valid = useMemo(() => {
+    if (!tableName) return false;
+    switch (operation) {
+      case 'addColumn':
+        return Boolean(columnName.trim() && dataType.trim());
+      case 'dropColumn':
+        return Boolean(columnName.trim());
+      case 'renameColumn':
+        return Boolean(
+          columnName.trim() &&
+            newColumnName.trim() &&
+            columnName.trim() !== newColumnName.trim()
+        );
+      case 'renameTable':
+        return Boolean(
+          newTableName.trim() &&
+            tableName.trim() !== newTableName.trim()
+        );
+      case 'changeType':
+        return Boolean(columnName.trim() && dataType.trim());
+      case 'addIndex':
+        return Boolean(columnName.trim());
+      case 'dropIndex':
+        return Boolean(indexName.trim() || columnName.trim());
+      case 'addForeignKey':
+        return Boolean(
+          columnName.trim() &&
+            foreignTable.trim() &&
+            foreignColumn.trim()
+        );
+      default:
+        return false;
+    }
+  }, [
+    tableName,
+    operation,
+    columnName,
+    newColumnName,
+    newTableName,
+    dataType,
+    indexName,
+    foreignTable,
+    foreignColumn,
   ]);
 
   // ── Evaluate Risks ─────────────────────────────────────────────────────────
@@ -308,11 +363,50 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `schema_update_${operation}_${tableName}.sql`;
+    link.download = `schema_${activeScriptTab}_${operation}_${tableName}.sql`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  // ── Download Both Scripts Bundle ──────────────────────────────────────────
+  const handleDownloadBothScripts = () => {
+    if (!scripts) return;
+    const bundled = [
+      `-- ============================================================`,
+      `-- MigrateIQ Schema Update Script Bundle`,
+      `-- Database Type: ${dbType.toUpperCase()}`,
+      `-- Table: ${tableName} | Operation: ${operation}`,
+      `-- Generated: ${new Date().toISOString()}`,
+      `-- ============================================================`,
+      ``,
+      `-- >>> 1. FORWARD DDL SCRIPT >>>`,
+      scripts.forwardScript,
+      ``,
+      `-- ============================================================`,
+      `-- >>> 2. ROLLBACK DDL SCRIPT >>>`,
+      scripts.rollbackScript,
+      `-- ============================================================`,
+    ].join('\n');
+
+    const blob = new Blob([bundled], { type: 'text/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `schema_bundle_${operation}_${tableName}.sql`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Copy Rollback Script to Clipboard ──────────────────────────────────────
+  const handleCopyRollback = () => {
+    if (!scripts?.rollbackScript) return;
+    navigator.clipboard.writeText(scripts.rollbackScript);
+    setCopiedRollback(true);
+    setTimeout(() => setCopiedRollback(false), 2000);
   };
 
   // ── Execute Schema Update on Live Database ─────────────────────────────────
@@ -1157,12 +1251,15 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
             {/* Toolbar */}
             <div className="su-code-toolbar">
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <button className="su-btn su-btn-secondary" onClick={handleCopyScript}>
                   {copiedScript ? '✓ Copied' : 'Copy Script'}
                 </button>
                 <button className="su-btn su-btn-secondary" onClick={handleDownloadScript}>
-                  Download .sql
+                  Download {activeScriptTab === 'forward' ? 'Forward' : 'Rollback'} .sql
+                </button>
+                <button className="su-btn su-btn-secondary" onClick={handleDownloadBothScripts}>
+                  Download Both Scripts (.sql)
                 </button>
               </div>
 
@@ -1238,7 +1335,26 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+                  {scripts?.rollbackScript && (
+                    <button
+                      className="su-btn su-btn-secondary"
+                      onClick={handleCopyRollback}
+                    >
+                      {copiedRollback ? '✓ Rollback Copied!' : '📋 Copy Rollback Script'}
+                    </button>
+                  )}
+
+                  {!executionResult.success && (
+                    <button
+                      className="su-btn su-btn-secondary"
+                      style={{ borderColor: 'var(--status-error)', color: 'var(--status-error)' }}
+                      onClick={() => setCurrentStep(3)}
+                    >
+                      ← Fix and Retry
+                    </button>
+                  )}
+
                   <button
                     className="su-btn su-btn-primary"
                     onClick={() => {
@@ -1256,6 +1372,13 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                     onClick={() => setShowHistory(true)}
                   >
                     View Updates History
+                  </button>
+
+                  <button
+                    className="su-btn su-btn-secondary"
+                    onClick={() => navigate('/')}
+                  >
+                    🏠 Go to Dashboard
                   </button>
                 </div>
               </div>
@@ -1300,7 +1423,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
           {currentStep === 3 && (
             <button
               className="su-btn su-btn-primary"
-              disabled={!tableName || (operation !== 'renameTable' && !columnName)}
+              disabled={!isStep3Valid}
               onClick={() => setCurrentStep(4)}
             >
               Analyze Risks →

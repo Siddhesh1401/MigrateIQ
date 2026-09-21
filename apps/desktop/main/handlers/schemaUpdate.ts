@@ -44,6 +44,63 @@ const schemaStore = new ElectronStore<SchemaStoreData>({
 
 // ── SQL / Script Generation ──────────────────────────────────────────────────
 
+export function sanitizeSqlType(type: string | undefined): string {
+  if (!type) return 'VARCHAR(255)';
+  const cleaned = type
+    .replace(/;/g, ' ')
+    .replace(/--.*$/gm, ' ')
+    .replace(/\/\*.*?\*\//g, ' ')
+    .replace(/\b(DROP|DELETE|INSERT|UPDATE|ALTER|SELECT|TRUNCATE|EXEC|CREATE|TABLE|DATABASE|SCHEMA|GRANT|REVOKE|UNION)\b/gi, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9_(),\s\[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length > 0 ? cleaned : 'VARCHAR(255)';
+}
+
+export function formatSqlDefaultClause(rawDefault: string | undefined | null): string {
+  if (rawDefault === undefined || rawDefault === null || rawDefault === '') return '';
+  let trimmed = String(rawDefault).trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  const upper = trimmed.toUpperCase();
+  if (
+    upper === 'CURRENT_TIMESTAMP' ||
+    upper === 'CURRENT_DATE' ||
+    upper === 'CURRENT_TIME' ||
+    upper === 'NOW()' ||
+    upper === 'TRUE' ||
+    upper === 'FALSE' ||
+    upper === 'NULL' ||
+    /^-?\d+(\.\d+)?$/.test(trimmed)
+  ) {
+    return ` DEFAULT ${trimmed}`;
+  }
+  return ` DEFAULT '${trimmed.replace(/'/g, "''")}'`;
+}
+
+export function formatMongoDefaultValue(rawVal: string | undefined | null): { scriptValue: string; nativeValue: unknown } {
+  if (rawVal === undefined || rawVal === null || String(rawVal).trim() === '') {
+    return { scriptValue: 'null', nativeValue: null };
+  }
+  const trimmed = String(rawVal).trim();
+  if (trimmed === 'true') return { scriptValue: 'true', nativeValue: true };
+  if (trimmed === 'false') return { scriptValue: 'false', nativeValue: false };
+  if (trimmed === 'null') return { scriptValue: 'null', nativeValue: null };
+  if (!isNaN(Number(trimmed)) && trimmed !== '') {
+    return { scriptValue: trimmed, nativeValue: Number(trimmed) };
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    return { scriptValue: JSON.stringify(parsed), nativeValue: parsed };
+  } catch {
+    const cleanStr = trimmed.replace(/^['"]|['"]$/g, '');
+    return { scriptValue: JSON.stringify(cleanStr), nativeValue: cleanStr };
+  }
+}
+
 export function generatePostgreSqlScripts(
   params: SchemaChangeParams,
   schema = 'public'
@@ -53,7 +110,7 @@ export function generatePostgreSqlScripts(
   const safeColumn = params.columnName ? sanitizeIdentifier(params.columnName) : '';
   const safeNewColumn = params.newColumnName ? sanitizeIdentifier(params.newColumnName) : '';
   const safeNewTable = params.newTableName ? sanitizeIdentifier(params.newTableName) : '';
-  const dataType = (params.dataType || 'VARCHAR(255)').toUpperCase();
+  const dataType = sanitizeSqlType(params.dataType);
 
   let forward = '';
   let rollback = '';
@@ -63,10 +120,7 @@ export function generatePostgreSqlScripts(
   switch (params.operation) {
     case 'addColumn': {
       const nullClause = params.isNullable === false ? ' NOT NULL' : '';
-      const defaultClause =
-        params.defaultValue !== undefined && params.defaultValue.trim() !== ''
-          ? ` DEFAULT ${params.defaultValue.trim()}`
-          : '';
+      const defaultClause = formatSqlDefaultClause(params.defaultValue);
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" ADD COLUMN "${safeColumn}" ${dataType}${nullClause}${defaultClause};`;
       rollback = `ALTER TABLE "${safeSchema}"."${safeTable}" DROP COLUMN IF EXISTS "${safeColumn}";`;
       summary = `Add column "${safeColumn}" (${dataType}) to "${safeTable}"`;
@@ -83,20 +137,33 @@ export function generatePostgreSqlScripts(
       break;
     }
     case 'renameColumn': {
+      if (!safeColumn || !safeNewColumn) {
+        forward = `-- Error: Both current and new column names are required for renameColumn`;
+        rollback = `-- Error: Both current and new column names are required for renameColumn`;
+        summary = `Rename column in "${safeTable}" (missing parameter)`;
+        break;
+      }
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" RENAME COLUMN "${safeColumn}" TO "${safeNewColumn}";`;
       rollback = `ALTER TABLE "${safeSchema}"."${safeTable}" RENAME COLUMN "${safeNewColumn}" TO "${safeColumn}";`;
       summary = `Rename column "${safeColumn}" to "${safeNewColumn}" in "${safeTable}"`;
       break;
     }
     case 'renameTable': {
+      if (!safeNewTable) {
+        forward = `-- Error: New table name is required for renameTable`;
+        rollback = `-- Error: New table name is required for renameTable`;
+        summary = `Rename table "${safeTable}" (missing new name)`;
+        break;
+      }
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" RENAME TO "${safeNewTable}";`;
       rollback = `ALTER TABLE "${safeSchema}"."${safeNewTable}" RENAME TO "${safeTable}";`;
       summary = `Rename table "${safeTable}" to "${safeNewTable}"`;
       break;
     }
     case 'changeType': {
+      const rollbackType = sanitizeSqlType(params.originalDataType || 'TEXT');
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" ALTER COLUMN "${safeColumn}" TYPE ${dataType} USING "${safeColumn}"::${dataType};`;
-      rollback = `ALTER TABLE "${safeSchema}"."${safeTable}" ALTER COLUMN "${safeColumn}" TYPE TEXT USING "${safeColumn}"::TEXT;`;
+      rollback = `ALTER TABLE "${safeSchema}"."${safeTable}" ALTER COLUMN "${safeColumn}" TYPE ${rollbackType} USING "${safeColumn}"::${rollbackType};`;
       summary = `Change type of "${safeColumn}" in "${safeTable}" to ${dataType}`;
       riskNotice = 'Table rewrite and exclusive lock required. Any value incompatible with conversion will cause failure.';
       break;
@@ -120,7 +187,13 @@ export function generatePostgreSqlScripts(
       break;
     }
     case 'addForeignKey': {
-      const safeForeignTable = sanitizeIdentifier(params.foreignTable || '');
+      const safeForeignTable = params.foreignTable ? sanitizeIdentifier(params.foreignTable) : '';
+      if (!safeForeignTable) {
+        forward = `-- Error: Foreign target table is required for addForeignKey`;
+        rollback = `-- Error: Foreign target table is required for addForeignKey`;
+        summary = `Add foreign key from "${safeTable}"."${safeColumn}" (missing target table)`;
+        break;
+      }
       const safeForeignCol = sanitizeIdentifier(params.foreignColumn || 'id');
       const fkName = sanitizeIdentifier(
         `fk_${safeTable}_${safeColumn}_${safeForeignTable}`
@@ -178,15 +251,15 @@ export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScr
 
   switch (params.operation) {
     case 'addColumn': {
-      const rawVal = params.defaultValue !== undefined && params.defaultValue !== '' ? params.defaultValue : 'null';
-      forward = `db.${safeTable}.updateMany({ "${safeColumn}": { $exists: false } }, { $set: { "${safeColumn}": ${rawVal} } });`;
+      const { scriptValue } = formatMongoDefaultValue(params.defaultValue);
+      forward = `db.${safeTable}.updateMany({ "${safeColumn}": { $exists: false } }, { $set: { "${safeColumn}": ${scriptValue} } });`;
       rollback = `db.${safeTable}.updateMany({}, { $unset: { "${safeColumn}": "" } });`;
       summary = `Add field "${safeColumn}" to collection "${safeTable}"`;
       break;
     }
     case 'dropColumn': {
       forward = `db.${safeTable}.updateMany({}, { $unset: { "${safeColumn}": "" } });`;
-      rollback = `db.${safeTable}.updateMany({ "${safeColumn}": { $exists: false } }, { $set: { "${safeColumn}": null } });`;
+      rollback = `// Warning: Dropped field data cannot be restored without a backup.\ndb.${safeTable}.updateMany({ "${safeColumn}": { $exists: false } }, { $set: { "${safeColumn}": null } });`;
       summary = `Drop field "${safeColumn}" from collection "${safeTable}"`;
       riskNotice = 'Unsetting this field deletes data from all matching documents.';
       break;
@@ -218,7 +291,9 @@ export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScr
     case 'dropIndex': {
       const idxName = sanitizeIdentifier(params.indexName || `idx_${safeTable}_${safeColumn}`);
       forward = `db.${safeTable}.dropIndex("${idxName}");`;
-      rollback = `db.${safeTable}.createIndex({ "${safeColumn || '_id'}": 1 }, { name: "${idxName}" });`;
+      rollback = safeColumn
+        ? `db.${safeTable}.createIndex({ "${safeColumn}": 1 }, { name: "${idxName}" });`
+        : `// To restore index "${idxName}", specify its key pattern: db.${safeTable}.createIndex({ "<field>": 1 }, { name: "${idxName}" });`;
       summary = `Drop index "${idxName}" from collection "${safeTable}"`;
       break;
     }
@@ -686,6 +761,7 @@ export function setupSchemaUpdateHandlers(): void {
             ? {
                 connectionString: config.connectionString,
                 ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+                connectionTimeoutMillis: 5000,
                 statement_timeout: 10000,
               }
             : {
@@ -695,6 +771,7 @@ export function setupSchemaUpdateHandlers(): void {
                 user: config.user,
                 password: config.password,
                 ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+                connectionTimeoutMillis: 5000,
                 statement_timeout: 10000,
               };
 
@@ -807,7 +884,7 @@ export function setupSchemaUpdateHandlers(): void {
           // Execute corresponding native MongoDB command
           const collection = db.collection(params.tableName);
           if (params.operation === 'addColumn' && params.columnName) {
-            const defVal = params.defaultValue !== undefined && params.defaultValue !== '' ? JSON.parse(params.defaultValue) : null;
+            const { nativeValue: defVal } = formatMongoDefaultValue(params.defaultValue);
             await collection.updateMany(
               { [params.columnName]: { $exists: false } },
               { $set: { [params.columnName]: defVal } }

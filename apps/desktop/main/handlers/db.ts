@@ -309,13 +309,20 @@ export function setupPostgresqlHandler(): void {
       // Read schema from information_schema for target schema
       const tablesResult = await client.query(`
         SELECT 
-          table_name,
-          array_agg(column_name::text ORDER BY ordinal_position) as columns,
-          array_agg(data_type::text ORDER BY ordinal_position) as column_types,
-          array_agg(is_nullable::text ORDER BY ordinal_position) as is_nullables
-        FROM information_schema.columns
-        WHERE table_schema = $1
-        GROUP BY table_name
+          c.table_name,
+          array_agg(c.column_name::text ORDER BY c.ordinal_position) as columns,
+          array_agg(c.data_type::text ORDER BY c.ordinal_position) as column_types,
+          array_agg(c.is_nullable::text ORDER BY c.ordinal_position) as is_nullables,
+          COALESCE((
+            SELECT GREATEST(cls.reltuples::bigint, 0)
+            FROM pg_class cls
+            JOIN pg_namespace nsp ON nsp.oid = cls.relnamespace
+            WHERE nsp.nspname = $1 AND cls.relname = c.table_name AND cls.relkind = 'r'
+            LIMIT 1
+          ), 0) as estimated_rows
+        FROM information_schema.columns c
+        WHERE c.table_schema = $1
+        GROUP BY c.table_name
       `, [targetSchema]);
 
       // Read indexes for target schema
@@ -349,6 +356,7 @@ export function setupPostgresqlHandler(): void {
             columns: Array.isArray(r.columns) ? r.columns : [],
             column_types: Array.isArray(r.column_types) ? r.column_types : [],
             is_nullables: Array.isArray(r.is_nullables) ? r.is_nullables : [],
+            estimated_rows: Number(r.estimated_rows) || 0,
           })),
           indexes: indexesResult.rows.map(r => ({
             tablename: r.tablename,

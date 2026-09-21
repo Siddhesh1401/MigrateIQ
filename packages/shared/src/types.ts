@@ -202,6 +202,7 @@ export interface PostgresTableInfo {
   columns: string[];
   column_types: string[];
   is_nullables?: string[];
+  estimated_rows?: number;
 }
 
 export interface PostgresIndexInfo {
@@ -452,6 +453,7 @@ export interface SchemaChangeParams {
   foreignColumn?: string;
   onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
   sparse?: boolean;
+  originalDataType?: string;
 }
 
 export interface NL2DDLResponse {

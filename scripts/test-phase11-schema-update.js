@@ -33,6 +33,9 @@ const {
   generateMongoDbScripts,
   analyzeSchemaUpdateRisks,
   parseNaturalLanguageOffline,
+  sanitizeSqlType,
+  formatSqlDefaultClause,
+  formatMongoDefaultValue,
 } = require('../apps/desktop/dist-electron/handlers/schemaUpdate');
 
 // ── Test Group 1: PostgreSQL Script Generation (8 Operations) ────────────────
@@ -290,6 +293,90 @@ assert(p5?.columnName === 'age' && p5?.dataType === 'INTEGER', 'Regex correctly 
 const p6 = parseNaturalLanguageOffline('Create unique index on users(email)');
 assert(p6 !== null && p6.operation === 'addIndex', 'Regex parsed "Create unique index on users(email)"');
 assert(p6?.isUnique === true && p6?.columnName === 'email', 'Regex correctly extracted unique flag and column email');
+
+
+// ── Test Group 5: Security & Post-Implementation Audit Hardening ───────────────
+
+console.log('\n--- Test Group 5: Security & Post-Implementation Audit Tests ---');
+
+// 5.1 SQL Injection defense in DataType
+const injectedType = sanitizeSqlType('VARCHAR(50); DROP TABLE users;--');
+assert(!injectedType.includes(';') && !injectedType.includes('--'), 'sanitizeSqlType strips semicolons and comment dashes');
+assert(injectedType === 'VARCHAR(50) USERS', 'sanitizeSqlType strips DROP and TABLE keywords leaving only safe type characters');
+
+// 5.2 SQL Default Clause formatting
+assert(formatSqlDefaultClause(undefined) === '', 'formatSqlDefaultClause returns empty for undefined');
+assert(formatSqlDefaultClause('CURRENT_TIMESTAMP') === ' DEFAULT CURRENT_TIMESTAMP', 'formatSqlDefaultClause does not quote CURRENT_TIMESTAMP');
+assert(formatSqlDefaultClause('NOW()') === ' DEFAULT NOW()', 'formatSqlDefaultClause does not quote NOW()');
+assert(formatSqlDefaultClause('true') === ' DEFAULT true', 'formatSqlDefaultClause does not quote boolean true');
+assert(formatSqlDefaultClause('100') === ' DEFAULT 100', 'formatSqlDefaultClause does not quote numeric 100');
+assert(formatSqlDefaultClause('active') === " DEFAULT 'active'", 'formatSqlDefaultClause single-quotes unquoted string literal');
+assert(formatSqlDefaultClause("O'Reilly") === " DEFAULT 'O''Reilly'", 'formatSqlDefaultClause escapes single-quotes in string literal');
+
+// 5.3 MongoDB Default Value Formatting (No crash on non-JSON plain string)
+const mongoStr = formatMongoDefaultValue('active');
+assert(mongoStr.scriptValue === '"active"' && mongoStr.nativeValue === 'active', 'formatMongoDefaultValue parses plain unquoted string safely without JSON.parse exception');
+
+const mongoNum = formatMongoDefaultValue('42');
+assert(mongoNum.scriptValue === '42' && mongoNum.nativeValue === 42, 'formatMongoDefaultValue parses number');
+
+const mongoBool = formatMongoDefaultValue('true');
+assert(mongoBool.scriptValue === 'true' && mongoBool.nativeValue === true, 'formatMongoDefaultValue parses boolean true');
+
+const mongoNull = formatMongoDefaultValue(null);
+assert(mongoNull.scriptValue === 'null' && mongoNull.nativeValue === null, 'formatMongoDefaultValue parses null');
+
+const mongoJson = formatMongoDefaultValue('{"tier":"gold","points":500}');
+assert(typeof mongoJson.nativeValue === 'object' && mongoJson.nativeValue.tier === 'gold', 'formatMongoDefaultValue parses complex JSON object');
+
+// 5.4 Rollback DataType Preservation in changeType
+const changeTypeWithOrig = generatePostgreSqlScripts({
+  databaseType: 'postgresql',
+  operation: 'changeType',
+  tableName: 'customers',
+  columnName: 'age',
+  dataType: 'BIGINT',
+  originalDataType: 'SMALLINT',
+});
+assert(changeTypeWithOrig.rollbackScript.includes('TYPE SMALLINT'), 'changeType rollback uses originalDataType (SMALLINT) instead of default TEXT');
+assert(changeTypeWithOrig.rollbackScript.includes('USING "age"::SMALLINT'), 'changeType rollback cast uses originalDataType');
+
+// 5.5 Defensive Script Generation on Missing Parameters
+const missingRenameCol = generatePostgreSqlScripts({
+  databaseType: 'postgresql',
+  operation: 'renameColumn',
+  tableName: 'customers',
+  columnName: 'loyalty_tier',
+  // newColumnName omitted
+});
+assert(missingRenameCol.forwardScript.includes('-- Error: Both current and new column names are required'), 'renameColumn with missing newColumnName generates safe error comment');
+
+const missingRenameTable = generatePostgreSqlScripts({
+  databaseType: 'postgresql',
+  operation: 'renameTable',
+  tableName: 'customers',
+  // newTableName omitted
+});
+assert(missingRenameTable.forwardScript.includes('-- Error: New table name is required'), 'renameTable with missing newTableName generates safe error comment');
+
+const missingFkTable = generatePostgreSqlScripts({
+  databaseType: 'postgresql',
+  operation: 'addForeignKey',
+  tableName: 'orders',
+  columnName: 'customer_id',
+  // foreignTable omitted
+});
+assert(missingFkTable.forwardScript.includes('-- Error: Foreign target table is required'), 'addForeignKey with missing foreignTable generates safe error comment');
+
+// 5.6 MongoDB dropIndex rollback safe handling
+const mongoDropIdx = generateMongoDbScripts({
+  databaseType: 'mongodb',
+  operation: 'dropIndex',
+  tableName: 'orders',
+  indexName: 'idx_orders_custom',
+  // columnName omitted
+});
+assert(!mongoDropIdx.rollbackScript.includes('createIndex({ "_id": 1 }, { name:'), 'MongoDB dropIndex rollback never creates illegal custom index on _id');
 
 
 // ── Summary ──────────────────────────────────────────────────────────────────
