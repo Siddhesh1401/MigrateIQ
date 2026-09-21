@@ -425,3 +425,106 @@ export interface WizardStateSnapshot {
   savedAt: string;
 }
 
+// ── Phase 11: Schema Update Assistant (Workflow C) Types ─────────────────────
+export type SchemaOperationType =
+  | 'addColumn'
+  | 'dropColumn'
+  | 'renameColumn'
+  | 'renameTable'
+  | 'changeType'
+  | 'addIndex'
+  | 'dropIndex'
+  | 'addForeignKey';
+
+export interface SchemaChangeParams {
+  databaseType: DatabaseType;
+  operation: SchemaOperationType;
+  tableName: string;
+  columnName?: string;
+  newColumnName?: string;
+  newTableName?: string;
+  dataType?: string;
+  isNullable?: boolean;
+  defaultValue?: string;
+  indexName?: string;
+  isUnique?: boolean;
+  foreignTable?: string;
+  foreignColumn?: string;
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  sparse?: boolean;
+}
+
+export interface NL2DDLResponse {
+  operation: SchemaOperationType;
+  tableName: string;
+  columnName?: string;
+  newColumnName?: string;
+  newTableName?: string;
+  dataType?: string;
+  isNullable?: boolean;
+  defaultValue?: string;
+  indexName?: string;
+  isUnique?: boolean;
+  foreignTable?: string;
+  foreignColumn?: string;
+  confidence: number;
+  explanation: string;
+  rawInput: string;
+  isFallback?: boolean;
+}
+
+export interface SchemaUpdateRiskItem {
+  id: string;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  description: string;
+  autoFixAvailable?: boolean;
+  autoFixAction?: {
+    type: 'make_nullable' | 'set_default';
+    recommendedValue?: string;
+    description: string;
+  };
+}
+
+export interface GeneratedScriptResult {
+  forwardScript: string;
+  rollbackScript: string;
+  operationSummary: string;
+  riskNotice?: string;
+}
+
+export interface SchemaUpdateExecutionResult {
+  success: boolean;
+  executionTimeMs: number;
+  message: string;
+  sqlExecuted?: string;
+  error?: string;
+  errorCode?: string;
+  suggestion?: string;
+}
+
+export interface SchemaHistoryItem {
+  id: string;
+  timestamp: string;
+  databaseType: DatabaseType;
+  databaseName: string;
+  operation: SchemaOperationType;
+  tableName: string;
+  forwardScript: string;
+  rollbackScript: string;
+  status: 'applied' | 'failed' | 'rolled_back';
+  durationMs: number;
+  errorMessage?: string;
+  author?: string;
+}
+
+export interface SchemaIntrospectedTableInfo {
+  tableName: string;
+  rowCount: number;
+  columns: Array<{
+    columnName: string;
+    dataType: string;
+    isNullable: boolean;
+  }>;
+}
+
