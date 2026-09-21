@@ -1,32 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ConnectionConfig } from '@migrateiq/shared';
+import type { MigrationHistoryItem, WizardStateSnapshot } from '@migrateiq/shared';
 import { useWizardStore } from '../store/wizardStore';
 import '../styles/dashboard.css';
 
 export interface HomeDashboardProps {}
-
-export interface MigrationHistoryItem {
-  id: string;
-  dateTime: string;
-  direction: string;
-  status: 'completed' | 'warning' | 'failed';
-  sourceDb?: string;
-  targetDb?: string;
-  tablesCount?: number;
-  rowsMigrated?: number;
-  duration?: string;
-  reportSummary?: string;
-}
-
-interface WizardStateSnapshot {
-  direction: 'mongodb-to-postgres' | 'postgres-to-mongo' | null;
-  wizardStep: number;
-  sourceConfig: ConnectionConfig | null;
-  targetConfig: ConnectionConfig | null;
-  status: 'in-progress' | 'completed' | 'cancelled';
-  savedAt: string;
-}
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   const navigate    = useNavigate();
@@ -35,6 +13,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   const [inProgressState, setInProgressState] = useState<WizardStateSnapshot | null>(null);
   const [resumeDismissed, setResumeDismissed]  = useState(false);
   const [selectedReport, setSelectedReport]   = useState<MigrationHistoryItem | null>(null);
+  const modalCardRef = useRef<HTMLDivElement | null>(null);
+  const lastActiveElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     // 1. Check for unfinished migration in progress
@@ -58,6 +38,25 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
       .catch(() => {});
   }, []);
 
+  // Handle Escape key and focus management for report modal
+  useEffect(() => {
+    if (!selectedReport) return;
+
+    modalCardRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedReport(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      lastActiveElementRef.current?.focus();
+    };
+  }, [selectedReport]);
+
   const showResumeBanner = !resumeDismissed && inProgressState !== null;
 
   const handleResume = (): void => {
@@ -69,7 +68,17 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
       if (inProgressState.targetConfig) {
         wizardStore.setTargetConfig(inProgressState.targetConfig);
       }
-      wizardStore.setWizardStep(inProgressState.wizardStep || 1);
+      // If paused past connection phase (Step > 2), schemaMapping is in-memory only.
+      // Reset step to 1 so the user can verify connections and introspect schemas cleanly.
+      const isPastConnection = (inProgressState.wizardStep ?? 1) > 2;
+      const targetStep = isPastConnection ? 1 : (inProgressState.wizardStep || 1);
+      wizardStore.setWizardStep(targetStep);
+      navigate('/migrate', {
+        state: isPastConnection
+          ? { resumeNotice: 'Your connection settings were saved. Please reconnect to regenerate your schema mapping.' }
+          : undefined,
+      });
+      return;
     }
     navigate('/migrate');
   };
@@ -254,7 +263,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
                         <button
                           type="button"
                           className="view-report-btn"
-                          onClick={() => setSelectedReport(migration)}
+                          onClick={(e) => {
+                            lastActiveElementRef.current = e.currentTarget;
+                            setSelectedReport(migration);
+                          }}
                           title="View Migration Report Summary"
                         >
                           View Report →
@@ -286,7 +298,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
           aria-labelledby="report-modal-title"
           onClick={() => setSelectedReport(null)}
         >
-          <div className="report-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={modalCardRef}
+            tabIndex={-1}
+            className="report-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ outline: 'none' }}
+          >
             <div className="report-modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
                 <span style={{ fontSize: '1.25rem' }}>📋</span>

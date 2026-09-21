@@ -42,7 +42,8 @@ In Phase 2, we built and hardened the foundational **Desktop App Shell** for Mig
 | File Path | Description |
 |---|---|
 | `apps/desktop/main/main.ts` | Main process window lifecycle with sandbox, window open guards, and menu suppression |
-| `apps/desktop/main/preload.ts` | Context bridge exposing `window.electronAPI.invoke` and `window.electronAPI.on` |
+| `apps/desktop/main/preload.ts` | Context bridge exposing `window.electronAPI.invoke` and `window.electronAPI.on`; sanitized type hygiene |
+| `apps/desktop/renderer/src/global.d.ts` | Single source of truth for global `Window.electronAPI` TypeScript declarations |
 | `apps/desktop/renderer/src/styles/app.css` | Global design tokens, scrollbar styling, and `.app-shell-*` layout utilities |
 | `scripts/test-phase2-phase3-verification.js` | Automated verification suite validating Phase 2 & 3 contracts |
 
@@ -70,6 +71,10 @@ In Phase 2, we built and hardened the foundational **Desktop App Shell** for Mig
 2. **Popup & Window Isolation:** `mainWindow.webContents.setWindowOpenHandler` intercepts all external links and routes them to `shell.openExternal(url)` in the user's default browser, returning `{ action: 'deny' }` to Electron.
 3. **Navigation Lockdown:** The `will-navigate` event prevents malicious or unexpected links from taking over the local Electron renderer window.
 4. **Context Isolation & Sandboxing:** `contextIsolation: true`, `nodeIntegration: false`, and `sandbox: true`.
+
+### 3.3 Preload & Global Typing Architecture
+* **Decoupled Main & Renderer Contexts**: Previously, `preload.ts` contained an inline `declare global { interface Window ... }` block that shadowed `renderer/src/global.d.ts`.
+* **Clean Single Source of Truth**: The redundant declaration was eliminated from `preload.ts`. TypeScript now types `window.electronAPI` strictly through `global.d.ts`, avoiding cross-compilation conflicts between `tsconfig.node.json` and renderer `tsconfig.json`.
 
 ---
 

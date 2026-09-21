@@ -402,3 +402,26 @@ export interface AIAnomalyFixRecommendation {
   isAiGenerated?: boolean;
 }
 
+// ── Migration History & Wizard State Snapshot Types ─────────────────────────
+export interface MigrationHistoryItem {
+  id: string;
+  dateTime: string;
+  direction: string;
+  status: 'completed' | 'warning' | 'failed';
+  sourceDb?: string;
+  targetDb?: string;
+  tablesCount?: number;
+  rowsMigrated?: number;
+  duration?: string;
+  reportSummary?: string;
+}
+
+export interface WizardStateSnapshot {
+  direction: 'mongodb-to-postgres' | 'postgres-to-mongo' | null;
+  wizardStep: number;
+  sourceConfig: ConnectionConfig | null;
+  targetConfig: ConnectionConfig | null;
+  status: 'in-progress' | 'completed' | 'cancelled';
+  savedAt: string;
+}
+

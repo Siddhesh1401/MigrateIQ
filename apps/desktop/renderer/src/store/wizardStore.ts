@@ -113,28 +113,12 @@ export const useWizardStore = create<WizardState>((set, get) => ({
 
   setSourceConfig: (config: ConnectionConfig | null) => {
     set({ sourceConfig: config });
-    const s = get();
-    persistWizardState({
-      direction: s.direction,
-      wizardStep: s.wizardStep,
-      sourceConfig: config,
-      targetConfig: s.targetConfig,
-      status: 'in-progress',
-    });
   },
 
   setSourceSchema: (schema) => set({ sourceSchema: schema }),
 
   setTargetConfig: (config: ConnectionConfig | null) => {
     set({ targetConfig: config });
-    const s = get();
-    persistWizardState({
-      direction: s.direction,
-      wizardStep: s.wizardStep,
-      sourceConfig: s.sourceConfig,
-      targetConfig: config,
-      status: 'in-progress',
-    });
   },
 
   setSchemaMapping: (mapping) => set({ schemaMapping: mapping, riskAnalysis: null, dryRunResult: null, acknowledgedRiskIds: [] }),

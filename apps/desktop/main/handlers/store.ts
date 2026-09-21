@@ -1,6 +1,9 @@
 import { ipcMain } from 'electron';
 import ElectronStore from 'electron-store';
-import type { ConnectionConfig, IPCResponse } from '@migrateiq/shared';
+import type { ConnectionConfig, IPCResponse, MigrationHistoryItem, WizardStateSnapshot } from '@migrateiq/shared';
+
+// Re-export shared types for callers
+export type { MigrationHistoryItem, WizardStateSnapshot };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -10,28 +13,6 @@ export interface SavedConnection {
   type: 'mongodb' | 'postgresql';
   config: ConnectionConfig;
   savedAt: string; // ISO timestamp
-}
-
-export interface WizardStateSnapshot {
-  direction: 'mongodb-to-postgres' | 'postgres-to-mongo' | null;
-  wizardStep: number;
-  sourceConfig: ConnectionConfig | null;
-  targetConfig: ConnectionConfig | null;
-  status: 'in-progress' | 'completed' | 'cancelled';
-  savedAt: string;
-}
-
-export interface MigrationHistoryItem {
-  id: string;
-  dateTime: string;
-  direction: string;
-  status: 'completed' | 'warning' | 'failed';
-  sourceDb?: string;
-  targetDb?: string;
-  tablesCount?: number;
-  rowsMigrated?: number;
-  duration?: string;
-  reportSummary?: string;
 }
 
 // ── electron-store instance ───────────────────────────────────────────────────
@@ -214,6 +195,16 @@ export function setupStoreHandlers(): void {
     }
   );
 
+function isValidMigrationRecord(record: unknown): record is MigrationHistoryItem {
+  if (!record || typeof record !== 'object') return false;
+  const r = record as Partial<MigrationHistoryItem>;
+  if (typeof r.id !== 'string' || !r.id.trim() || r.id.length > 100) return false;
+  if (typeof r.dateTime !== 'string' || !r.dateTime.trim()) return false;
+  if (typeof r.direction !== 'string' || !r.direction.trim()) return false;
+  if (!r.status || !['completed', 'warning', 'failed'].includes(r.status)) return false;
+  return true;
+}
+
   /** Save a migration record to persistent history */
   ipcMain.handle(
     'store:save-migration-history',
@@ -222,6 +213,12 @@ export function setupStoreHandlers(): void {
       record: MigrationHistoryItem
     ): Promise<IPCResponse<MigrationHistoryItem>> => {
       try {
+        if (!isValidMigrationRecord(record)) {
+          return {
+            success: false,
+            error: 'Invalid migration record: id, dateTime, direction, and valid status are required',
+          };
+        }
         const existing = store.get('migrationHistory', []);
         // Prepend to display most recent first, keep up to 20
         const updated = [record, ...existing.filter((r) => r.id !== record.id)].slice(0, 20);
