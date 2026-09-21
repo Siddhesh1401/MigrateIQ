@@ -35,15 +35,8 @@ export interface RiskAnalyzePayload {
   targetConfig?: ConnectionConfig | null;
 }
 
-/**
- * Replaces credentials in connection strings and logs with bullet masks.
- */
-export function maskSensitiveFields(text: string): string {
-  if (!text) return text;
-  return text
-    .replace(/(:\/\/[^:]+:)([^@]+)(@)/g, '$1••••••••$3')
-    .replace(/(password['":\s]+)([^"',\s]+)/gi, '$1••••••••');
-}
+import { maskSensitiveFields } from '../utils';
+export { maskSensitiveFields };
 
 /**
  * Setup Risk IPC handlers for Step 5 pre-migration analysis

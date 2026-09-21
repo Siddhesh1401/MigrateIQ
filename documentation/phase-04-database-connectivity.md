@@ -441,15 +441,70 @@ This phase spans Phase Plan v2 (4.1–4.7) and Product Blueprint v7 (Steps 1–3
 
 ---
 
+## 7. Retrospective Deep Audit & Enterprise Hardening (September 2026)
+
+Following a comprehensive retrospective audit against production engineering, database security, and UX standards, the following 8 targeted improvements and hardening fixes were implemented across Phase 4:
+
+### 1. SQL Identifier Sanitization for Target Schema (`db:connect-postgresql`, `db:clear-target`)
+- **Issue:** PostgreSQL schema names passed from user inputs were interpolated directly into DDL strings (`DROP SCHEMA "${targetSchema}" CASCADE; CREATE SCHEMA "${targetSchema}";`).
+- **Resolution:** Centralized `sanitizeIdentifier(name, fallback)` in `apps/desktop/main/utils.ts`. Strips all characters except `[a-zA-Z0-9_]`, truncates to PostgreSQL's 63-byte max identifier length, and falls back to `'public'`. Applied to both introspection and schema wipe queries.
+
+### 2. Transactional Schema Wipe with Rollback Protection (`db:clear-target`)
+- **Issue:** The PostgreSQL clear target operation previously executed `DROP SCHEMA` followed by `CREATE SCHEMA` without explicit transaction boundaries. If schema creation or grant queries failed midway, the database was left in an empty, broken state.
+- **Resolution:** Wrapped in explicit `BEGIN ... COMMIT` block with automatic `ROLLBACK` on any thrown error, guaranteeing atomic execution.
+
+### 3. Password and Credential Masking in Database Error Messages (`db.ts`, `risk.ts`)
+- **Issue:** Database connection errors (e.g., DNS SRV lookup failures, pooler rejections, authentication crashes) could echo connection strings containing raw passwords into user-visible error cards and IPC responses.
+- **Resolution:** Exported `maskSensitiveFields()` from `apps/desktop/main/utils.ts` and wrapped all IPC error messages in `setupMongoDBHandler()`, `setupPostgresqlHandler()`, and `setupClearTargetHandler()`. Re-exported in `risk.ts` to maintain full downstream compatibility with Phase 7 and Phase 8.
+
+### 4. Empty MongoDB Collection Unblocking (`MigrationWizard.tsx`)
+- **Issue:** `isSourceConnected` required `sourceMongoPreview.length > 0`. If a user connected to an empty MongoDB database (e.g., new testbed with 0 collections), the UI showed "Connected to MongoDB!" but permanently disabled the "Next: Connect Target →" button.
+- **Resolution:** Introduced a dedicated `sourceConnectedSuccessfully` state tracker that sets to `true` on any verified connection response, allowing users to progress cleanly even with zero initial collections.
+
+### 5. Function Scoping Hygiene in Store Handlers (`store.ts`)
+- **Issue:** `isValidMigrationRecord` was declared inside the execution body of `setupStoreHandlers()` between two handler registrations.
+- **Resolution:** Moved to top-level module scope above `setupStoreHandlers()`, improving readability and testability.
+
+### 6. Debug API Key Log Removal (`MigrationWizard.tsx`)
+- **Issue:** A development `console.log('[Health Score] API Key: ...')` was leaking key availability state to the browser dev tools.
+- **Resolution:** Removed the redundant debug statement.
+
+### 7. Resume Notice Banner Integration (`MigrationWizard.tsx`)
+- **Issue:** `HomeDashboard.tsx` navigated to `/migrate` passing `{ resumeNotice: 'Your connection settings were saved. Please reconnect to regenerate your schema mapping.' }`, but `MigrationWizard.tsx` did not read or display this state.
+- **Resolution:** Added `resumeNotice` state reader from `location.state` and rendered a dismissible, light-theme compliant blue informational banner on Step 1.
+
+### 8. Accurate Cloud Pooler vs. Direct Connection Detection (`ConnectionForm.tsx`)
+- **Issue:** The previous cloud detection flagged any connection containing `supabase.co` with an advisory to use the direct URL on port 5432, even if the user was *already* using port 5432.
+- **Resolution:** Added port and hostname inspection:
+  - **Port 6543 / `pooler.supabase`:** Displays an amber warning banner advising switch to direct port 5432 for DDL operations.
+  - **Port 5432 / Direct connection:** Displays a blue confirmation banner indicating verified direct connection, optimal for schema creation and ETL batch operations.
+  - Similarly distinguished for Neon (`-pooler.` hostname detection).
+
+### 9. Future Phases Scope Confirmation
+- **Layer 2 Features Expansion:** Phase 12 explicitly builds on Layer 2 scans for advanced denormalization and document nesting.
+- **Topological & Streaming Introspection:** Phase 9 (ETL Migration Engine) replaces single-pass scans with streaming extraction chunks.
+- **Layer 2 Type Shape:** Preserved `{ name: string; count: number }` contract required by Phase 7 (Risk Report) and Phase 8 (Dry Run Simulation).
+
+---
+
+## 8. Verification & Build Integrity
+
+- **TypeScript Compilation:** Passed with exit code 0 (`tsc --noEmit` and `tsc -p tsconfig.node.json --noEmit`).
+- **Light Theme Compliance:** All banners and modals strictly use light surface tokens (`#EFF6FF`, `#FFFBEB`, `#1E40AF`, `#92400E`).
+- **Downstream Compatibility:** 0 breaking changes to Phases 5, 6, 7, and 8.
+
+---
+
 ## Git Commit Command
 
 After reviewing and testing Phase 4, run:
 
 ```bash
 git add .
-git commit -m "feat: phase-04 complete — persistent database connectivity, saved connection management, reload protection, cloud pooler guidance, and layer 2 banners"
+git commit -m "feat: phase-04 audit fixes — credential masking, SQL sanitization, transactional wipe, empty DB handling, and pooler detection"
 ```
 
 ---
 
-**Phase 4 Complete (All Gaps & UX Enhancements Added).** ✅ Ready for Phase 5 (Schema Mapper UI).
+**Phase 4 Complete & Hardened.** ✅ Production-grade connectivity with zero type errors.
+

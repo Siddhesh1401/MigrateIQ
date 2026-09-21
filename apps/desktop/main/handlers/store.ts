@@ -33,6 +33,16 @@ const store = new ElectronStore<StoreSchema>({
 });
 
 
+function isValidMigrationRecord(record: unknown): record is MigrationHistoryItem {
+  if (!record || typeof record !== 'object') return false;
+  const r = record as Partial<MigrationHistoryItem>;
+  if (typeof r.id !== 'string' || !r.id.trim() || r.id.length > 100) return false;
+  if (typeof r.dateTime !== 'string' || !r.dateTime.trim()) return false;
+  if (typeof r.direction !== 'string' || !r.direction.trim()) return false;
+  if (!r.status || !['completed', 'warning', 'failed'].includes(r.status)) return false;
+  return true;
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 export function setupStoreHandlers(): void {
@@ -194,16 +204,6 @@ export function setupStoreHandlers(): void {
       }
     }
   );
-
-function isValidMigrationRecord(record: unknown): record is MigrationHistoryItem {
-  if (!record || typeof record !== 'object') return false;
-  const r = record as Partial<MigrationHistoryItem>;
-  if (typeof r.id !== 'string' || !r.id.trim() || r.id.length > 100) return false;
-  if (typeof r.dateTime !== 'string' || !r.dateTime.trim()) return false;
-  if (typeof r.direction !== 'string' || !r.direction.trim()) return false;
-  if (!r.status || !['completed', 'warning', 'failed'].includes(r.status)) return false;
-  return true;
-}
 
   /** Save a migration record to persistent history */
   ipcMain.handle(

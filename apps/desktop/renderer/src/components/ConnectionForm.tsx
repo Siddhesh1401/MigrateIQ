@@ -335,16 +335,29 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     }
   };
 
-  // Real-time Cloud Pooler Detection
+  // Real-time Cloud Host & Pooler Detection
   const targetStr = (tab === 'string' ? connectionString : host).toLowerCase();
-  const detectedCloud = targetStr.includes('supabase.co')
-    ? 'supabase'
-    : targetStr.includes('neon.tech')
-    ? 'neon'
-    : targetStr.includes('railway.app')
-    ? 'railway'
-    : targetStr.includes('render.com') || targetStr.includes('onrender.com')
-    ? 'render'
+  const effectivePort = tab === 'string'
+    ? (targetStr.match(/:(\d+)/)?.[1] || (dbType === 'postgresql' ? '5432' : '27017'))
+    : String(port || '');
+
+  const isSupabase = targetStr.includes('supabase.co');
+  const isSupabasePooler = isSupabase && (effectivePort === '6543' || targetStr.includes(':6543') || targetStr.includes('pooler.supabase'));
+
+  const isNeon = targetStr.includes('neon.tech');
+  const isNeonPooler = isNeon && targetStr.includes('-pooler.');
+
+  const isRailway = targetStr.includes('railway.app');
+  const isRender = targetStr.includes('render.com') || targetStr.includes('onrender.com');
+
+  const detectedCloud = isSupabase
+    ? { provider: 'supabase', isPooler: isSupabasePooler }
+    : isNeon
+    ? { provider: 'neon', isPooler: isNeonPooler }
+    : isRailway
+    ? { provider: 'railway', isPooler: false }
+    : isRender
+    ? { provider: 'render', isPooler: false }
     : null;
 
   const placeholders = {
@@ -609,23 +622,42 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       {detectedCloud && (
         <div style={{
           padding: '0.875rem 1rem',
-          border: '1px solid #93C5FD',
+          border: `1px solid ${detectedCloud.isPooler ? '#FCD34D' : '#93C5FD'}`,
           borderRadius: '8px',
-          backgroundColor: '#EFF6FF',
+          backgroundColor: detectedCloud.isPooler ? '#FFFBEB' : '#EFF6FF',
           display: 'flex',
           gap: '0.75rem',
           alignItems: 'flex-start',
         }}>
-          <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>ℹ️</span>
+          <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>
+            {detectedCloud.isPooler ? '⚠️' : 'ℹ️'}
+          </span>
           <div>
-            <strong style={{ color: '#1E40AF', fontSize: '0.875rem' }}>
-              {detectedCloud === 'supabase' ? 'Supabase' : detectedCloud === 'neon' ? 'Neon' : detectedCloud === 'railway' ? 'Railway' : 'Render'} Connection Detected
+            <strong style={{
+              color: detectedCloud.isPooler ? '#92400E' : '#1E40AF',
+              fontSize: '0.875rem'
+            }}>
+              {detectedCloud.provider === 'supabase'
+                ? (detectedCloud.isPooler ? 'Supabase Pooler Detected (Port 6543)' : 'Supabase Direct Connection Detected (Port 5432)')
+                : detectedCloud.provider === 'neon'
+                ? (detectedCloud.isPooler ? 'Neon Pooler Detected' : 'Neon Direct Connection Detected')
+                : detectedCloud.provider === 'railway'
+                ? 'Railway Connection Detected'
+                : 'Render Connection Detected'}
             </strong>
-            <p style={{ color: '#1D4ED8', fontSize: '0.8125rem', margin: '0.25rem 0 0' }}>
-              {detectedCloud === 'supabase'
-                ? 'For DDL migration actions, ensure you use the Direct Connection URL (port 5432) instead of the transaction pooler URL (port 6543).'
-                : detectedCloud === 'neon'
-                ? 'Use direct connection (remove -pooler from your hostname) for uninterrupted schema creation.'
+            <p style={{
+              color: detectedCloud.isPooler ? '#B45309' : '#1D4ED8',
+              fontSize: '0.8125rem',
+              margin: '0.25rem 0 0'
+            }}>
+              {detectedCloud.provider === 'supabase'
+                ? (detectedCloud.isPooler
+                    ? 'For DDL migration actions, ensure you switch to the Direct Connection URL (port 5432) instead of the transaction pooler URL (port 6543).'
+                    : 'Direct connection configuration verified — optimal for schema creation and batch inserts.')
+                : detectedCloud.provider === 'neon'
+                ? (detectedCloud.isPooler
+                    ? 'Use direct connection (remove -pooler from your hostname) for uninterrupted schema creation.'
+                    : 'Direct connection configuration verified — optimal for schema creation and batch inserts.')
                 : 'Direct connection configuration detected.'}
             </p>
           </div>

@@ -407,15 +407,23 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const location = useLocation();
   const wizardStore = useWizardStore();
 
-  // Sync demoMode flag from router navigation state if present
+  const [resumeNotice, setResumeNotice] = useState<string | null>(null);
+
+  // Sync demoMode flag and resumeNotice from router navigation state if present
   useEffect(() => {
-    const navState = location.state as { demoMode?: boolean } | null;
+    const navState = location.state as { demoMode?: boolean; resumeNotice?: string } | null;
     if (navState && navState.demoMode) {
       wizardStore.setIsDemoMode(true);
+    }
+    if (navState && navState.resumeNotice) {
+      setResumeNotice(navState.resumeNotice);
     }
   }, [location.state, wizardStore]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sourceConnectedSuccessfully, setSourceConnectedSuccessfully] = useState<boolean>(
+    !!wizardStore.sourceConfig
+  );
   const [sourceMongoPreview, setSourceMongoPreview] = useState<SourceSchema[] | null>(
     wizardStore.direction === 'mongodb-to-postgres' ? wizardStore.sourceSchema : null
   );
@@ -535,9 +543,6 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
     setIsHealthScoreLoading(true);
     setHealthScore(null);
 
-    // Debug: Check if API key is loaded
-    console.log('[Health Score] API Key:', import.meta.env.VITE_GEMINI_API_KEY ? 'Found' : 'NOT FOUND');
-
     // Retry logic: try up to 3 times with exponential backoff
     const maxRetries = 3;
     let lastError: Error | null = null;
@@ -589,6 +594,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
     wizardStore.setSourceConfig(null);
     wizardStore.setTargetConfig(null);
     setError(null);
+    setSourceConnectedSuccessfully(false);
     setSourceMongoPreview(null);
     setSourcePgPreview(null);
     setTargetSuccessMessage(null);
@@ -603,6 +609,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const handleStartFresh = () => {
     wizardStore.reset();
     setError(null);
+    setSourceConnectedSuccessfully(false);
     setSourceMongoPreview(null);
     setSourcePgPreview(null);
     setTargetSuccessMessage(null);
@@ -670,6 +677,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         wizardStore.setSourceConfig(config);
         wizardStore.setSourceSchema(response.data);
         setSourceMongoPreview(response.data);
+        setSourceConnectedSuccessfully(true);
 
         // Trigger async health score (non-blocking)
         fetchHealthScoreAsync(response.data);
@@ -687,6 +695,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         setSourceMongoPreview(null);
         wizardStore.setSourceConfig(config);
         setSourcePgPreview(response.data);
+        setSourceConnectedSuccessfully(true);
 
         // Convert PostgreSQL tables to SourceSchema for schema mapping
         const sourceSchemas = convertPostgresTableToSourceSchema(response.data.tables, response.data.indexes || []);
@@ -783,8 +792,8 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   };
 
   const isSourceConnected = sourceDbType === 'mongodb'
-    ? (!!sourceMongoPreview && sourceMongoPreview.length > 0) || (wizardStore.direction === 'mongodb-to-postgres' && !!wizardStore.sourceSchema && wizardStore.sourceSchema.length > 0)
-    : !!sourcePgPreview || (wizardStore.direction === 'postgres-to-mongo' && !!wizardStore.sourceConfig && !!wizardStore.sourceSchema && wizardStore.sourceSchema.length > 0);
+    ? sourceConnectedSuccessfully || (sourceMongoPreview !== null) || (wizardStore.direction === 'mongodb-to-postgres' && !!wizardStore.sourceConfig && Array.isArray(wizardStore.sourceSchema))
+    : sourceConnectedSuccessfully || !!sourcePgPreview || (wizardStore.direction === 'postgres-to-mongo' && !!wizardStore.sourceConfig);
   const isTargetConnected = !!targetSuccessMessage || !!wizardStore.targetConfig;
 
   return (
@@ -960,6 +969,44 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
       <StepProgressBar currentStep={wizardStore.wizardStep} totalSteps={8} />
 
       <div className="wizard-content">
+        {/* ── Resume Notice Banner ── */}
+        {resumeNotice && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: '#EFF6FF',
+            border: '1px solid #BFDBFE',
+            borderRadius: '8px',
+            padding: '0.75rem 1rem',
+            marginBottom: '1.25rem',
+            color: '#1E40AF',
+            fontSize: '0.875rem',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '1.1rem' }}>ℹ️</span>
+              <span>{resumeNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setResumeNotice(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#2563EB',
+                cursor: 'pointer',
+                fontSize: '1.25rem',
+                fontWeight: 700,
+                padding: '0 0.35rem',
+                lineHeight: 1,
+              }}
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* ── Step 1: Choose Direction ── */}
         {wizardStore.wizardStep === 1 && (
           <div className="wizard-step">

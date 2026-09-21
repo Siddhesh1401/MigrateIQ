@@ -8,6 +8,7 @@ import type {
   IPCResponse,
   PostgresIntrospectionResult 
 } from '@migrateiq/shared';
+import { maskSensitiveFields, sanitizeIdentifier } from '../utils';
 
 /**
  * MongoDB Connection Handler
@@ -204,13 +205,13 @@ export function setupMongoDBHandler(): void {
       if (errorMessage.includes('SRV') || errorMessage.includes('ENOTFOUND')) {
         return {
           success: false,
-          error: `DNS SRV lookup failed. This happens on corporate/university networks. Try: (1) Using mobile hotspot, (2) Using direct connection instead of mongodb+srv:// format. Original error: ${errorMessage}`,
+          error: maskSensitiveFields(`DNS SRV lookup failed. This happens on corporate/university networks. Try: (1) Using mobile hotspot, (2) Using direct connection instead of mongodb+srv:// format. Original error: ${errorMessage}`),
         };
       }
 
       return {
         success: false,
-        error: `Could not connect to MongoDB: ${errorMessage}`,
+        error: maskSensitiveFields(`Could not connect to MongoDB: ${errorMessage}`),
       };
     } finally {
       if (client) {
@@ -259,7 +260,7 @@ function detectCloudPooler(
 export function setupPostgresqlHandler(): void {
   ipcMain.handle('db:connect-postgresql', async (_event, config: ConnectionConfig): Promise<IPCResponse<PostgresIntrospectionResult>> => {
     let client: PgClient | null = null;
-    const targetSchema = config.schema?.trim() || 'public';
+    const targetSchema = sanitizeIdentifier(config.schema, 'public');
 
     // Proactive cloud provider detection (does not require a successful connection)
     const cloudInfo = detectCloudPooler(config);
@@ -376,13 +377,13 @@ export function setupPostgresqlHandler(): void {
           (errorMessage.includes('db.supabase.co') || errorMessage.includes('neon.tech'))) {
         return {
           success: false,
-          error: `Supabase/Neon Pooler Detected: For migrations, use the 'Direct Connection' URL instead of the pooler URL. Find it in: Settings → Database → Connection String → Direct. Original error: ${errorMessage}`,
+          error: maskSensitiveFields(`Supabase/Neon Pooler Detected: For migrations, use the 'Direct Connection' URL instead of the pooler URL. Find it in: Settings → Database → Connection String → Direct. Original error: ${errorMessage}`),
         };
       }
 
       return {
         success: false,
-        error: `Could not connect to PostgreSQL: ${errorMessage}`,
+        error: maskSensitiveFields(`Could not connect to PostgreSQL: ${errorMessage}`),
       };
     } finally {
       if (client) {
@@ -523,7 +524,7 @@ export function setupClearTargetHandler(): void {
         await client.connect();
         await client.query('SET statement_timeout = 10000;');
 
-        const targetSchema = config.schema?.trim() || 'public';
+        const targetSchema = sanitizeIdentifier(config.schema, 'public');
 
         // Get table count before clearing
         const countRes = await client.query(
@@ -532,17 +533,23 @@ export function setupClearTargetHandler(): void {
         );
         const clearedCount = countRes.rows[0]?.count || 0;
 
-        // Reset target schema cleanly (drops views, tables, triggers, types)
-        await client.query(`
-          DROP SCHEMA "${targetSchema}" CASCADE;
-          CREATE SCHEMA "${targetSchema}";
-          GRANT ALL ON SCHEMA "${targetSchema}" TO CURRENT_USER;
-          GRANT ALL ON SCHEMA "${targetSchema}" TO public;
-        `);
+        // Reset target schema cleanly in a transaction (drops views, tables, triggers, types)
+        try {
+          await client.query('BEGIN;');
+          await client.query(`DROP SCHEMA IF EXISTS "${targetSchema}" CASCADE;`);
+          await client.query(`CREATE SCHEMA "${targetSchema}";`);
+          await client.query(`GRANT ALL ON SCHEMA "${targetSchema}" TO CURRENT_USER;`);
+          await client.query(`GRANT ALL ON SCHEMA "${targetSchema}" TO public;`);
+          await client.query('COMMIT;');
+        } catch (txErr) {
+          await client.query('ROLLBACK;').catch(() => {});
+          throw txErr;
+        }
 
         return { success: true, data: { clearedCount } };
       } catch (err) {
-        return { success: false, error: `Failed to clear PostgreSQL database: ${err instanceof Error ? err.message : String(err)}` };
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        return { success: false, error: maskSensitiveFields(`Failed to clear PostgreSQL database: ${errorMsg}`) };
       } finally {
         if (client) await client.end().catch(() => {});
       }
@@ -570,7 +577,8 @@ export function setupClearTargetHandler(): void {
         }
         return { success: true, data: { clearedCount } };
       } catch (err) {
-        return { success: false, error: `Failed to clear MongoDB collections: ${err instanceof Error ? err.message : String(err)}` };
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        return { success: false, error: maskSensitiveFields(`Failed to clear MongoDB collections: ${errorMsg}`) };
       } finally {
         if (client) await client.close().catch(() => {});
       }
