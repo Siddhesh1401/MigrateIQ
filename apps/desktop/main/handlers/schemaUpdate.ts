@@ -22,12 +22,13 @@ import { recordAIUsage } from './aiUsageStore';
 let GoogleGenerativeAI: typeof import('@google/generative-ai').GoogleGenerativeAI | null = null;
 
 const NL2DDL_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash-lite',
+  'gemini-flash-lite-latest',
+  'gemini-3.6-flash',
   'gemini-flash-latest',
+  'gemini-3.7-flash',
+  'gemini-3.8-flash',
 ];
 
 interface SchemaStoreData {
@@ -335,9 +336,33 @@ export function parseNaturalLanguageOffline(
 ): NL2DDLResponse | null {
   const t = text.trim();
 
-  // Pattern: Add column <col> (<type>) to <table>
+  // Pattern 1: Add column to <table> named/called <col>
+  const addNamedMatch =
+    t.match(/add\s+(?:a\s+)?column\s+(?:to|in)\s+([a-zA-Z0-9_]+)\s+(?:named|called)\s+([a-zA-Z0-9_]+)(?:\s+(?:as\s+|type\s+)?([a-zA-Z0-9_()]+))?/i) ||
+    t.match(/add\s+(?:a\s+)?column\s+(?:named|called)\s+([a-zA-Z0-9_]+)\s+(?:to|in)\s+([a-zA-Z0-9_]+)(?:\s+(?:as\s+|type\s+)?([a-zA-Z0-9_()]+))?/i);
+  if (addNamedMatch) {
+    const isNamedFirst = /named|called/i.test(t.split(/to|in/i)[0]);
+    const tbl = isNamedFirst ? addNamedMatch[2] : addNamedMatch[1];
+    const col = isNamedFirst ? addNamedMatch[1] : addNamedMatch[2];
+    const isNullable = !/not\s+null/i.test(t);
+    const defaultMatch = t.match(/default\s+([^,;]+)/i);
+    return {
+      operation: 'addColumn',
+      tableName: tbl,
+      columnName: col,
+      dataType: (addNamedMatch[3] || 'VARCHAR(255)').toUpperCase(),
+      isNullable,
+      defaultValue: defaultMatch ? defaultMatch[1].trim() : undefined,
+      confidence: 0.95,
+      explanation: `Offline regex identified adding column "${col}" to table "${tbl}"`,
+      rawInput: text,
+      isFallback: true,
+    };
+  }
+
+  // Pattern 2: Add column <col> (<type>) to <table>
   const addMatch =
-    t.match(/add\s+(?:column\s+)?([a-zA-Z0-9_]+)\s+(?:as\s+|type\s+)?([a-zA-Z0-9_()]+)?\s*(?:to|in)\s+([a-zA-Z0-9_]+)/i) ||
+    t.match(/add\s+(?:a\s+)?(?:column\s+)?(?!column\b)([a-zA-Z0-9_]+)\s+(?:as\s+|type\s+)?([a-zA-Z0-9_()]+)?\s*(?:to|in)\s+([a-zA-Z0-9_]+)/i) ||
     t.match(/add\s+([a-zA-Z0-9_]+)\s+(varchar\b.*|text|int|integer|boolean|timestamp|jsonb|uuid|numeric)\s+(?:to|in)\s+([a-zA-Z0-9_]+)/i);
   if (addMatch) {
     const isNullable = !/not\s+null/i.test(t);
@@ -538,7 +563,7 @@ export function setupSchemaUpdateHandlers(): void {
         }
 
         // Check if API key is available
-        const key = apiKey || process.env.GEMINI_API_KEY;
+        const key = apiKey || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
         if (key && key.trim()) {
           try {

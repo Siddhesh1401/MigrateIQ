@@ -17,6 +17,7 @@
     "seed:sample": "node scripts/seed-sample-dbs.js",
     "seed:phase7": "node scripts/seed-phase7-testbed.js",
     "seed:phase8": "node scripts/seed-phase8-testbed.js",
+    "seed:phase11": "node scripts/seed-phase11-testbed.js",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

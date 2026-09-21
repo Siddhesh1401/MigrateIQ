@@ -261,6 +261,11 @@ const p1 = parseNaturalLanguageOffline('Add column status VARCHAR(50) to orders'
 assert(p1 !== null && p1.operation === 'addColumn', 'Regex parsed "Add column ... to orders"');
 assert(p1?.columnName === 'status' && p1?.tableName === 'orders', 'Regex correctly extracted column status and table orders');
 
+// 4.1b Add column to <table> named <col>
+const p1b = parseNaturalLanguageOffline('add column to customers named siddhesh');
+assert(p1b !== null && p1b.operation === 'addColumn', 'Regex parsed "add column to customers named siddhesh"');
+assert(p1b?.columnName === 'siddhesh' && p1b?.tableName === 'customers', 'Regex correctly extracted column siddhesh and table customers');
+
 // 4.2 Drop column
 const p2 = parseNaturalLanguageOffline('Drop column temp_notes from orders');
 assert(p2 !== null && p2.operation === 'dropColumn', 'Regex parsed "Drop column ... from orders"');

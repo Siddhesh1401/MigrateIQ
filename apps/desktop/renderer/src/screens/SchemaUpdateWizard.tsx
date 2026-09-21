@@ -173,6 +173,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
       const res = await window.electronAPI.invoke<NL2DDLResponse>('schema:interpret-nl2ddl', {
         prompt: aiPrompt,
         databaseType: dbType,
+        apiKey: import.meta.env.VITE_GEMINI_API_KEY || undefined,
         existingTables: introspectedTables.map((t) => t.tableName),
       });
 
