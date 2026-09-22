@@ -102,7 +102,7 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
 | **Phase 8** | **Dry Run Simulation** | Transactional shadow run (`ROLLBACK`), 21 safeguards, 79/79 test assertions, telemetry bar | ✅ **Completed** |
 | **Phase 9** | **Live Migration Engine** | Topological sort DAG, cursor streaming, backpressure, batch savepoints | ⏳ **Next Up** |
 | **Phase 10** | **Completion & Downloads** | Interactive Mermaid ERD, PDF/Markdown audit reports, ORM models | ⏳ Pending |
-| **Phase 11** | **Schema Update Assistant**| Workflow C: NL2DDL, lock tree analysis, forward/rollback scripts | ⏳ Pending |
+| **Phase 11** | **Schema Evolution Workbench** | Workflow C: 7-stage Database Schema Evolution Workbench, 100% PG + Mongo parity, in-database SHA-256 ledger, Expand & Contract advisor, production shield | ✅ **Completed** |
 | **Phase 12** | **PG to Mongo Workflow** | Workflow B: Introspection, 1:N denormalization, Mongoose export | ⏳ Pending |
 | **Phase 13** | **In-Memory Demo Mode** | Zero-network bundled e-commerce testbed with simulated ETL | ⏳ Pending |
 | **Phase 14** | **Auxiliary Screens** | History screen, Schema Version History, Saved Connections, Settings | ⏳ Pending |
@@ -210,6 +210,40 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
   - **Option A (🌟 RECOMMENDED — Smart Default Imputation):** Features the interactive **Data Quality Remediation Studio** with side-by-side Before/After diffs, Gemini AI synthesis (`gemini-2.5-flash`), 30-min token preservation caching, and a deterministic type-aware rule fallback. Imputes missing values with type-aware defaults, keeps `NOT NULL`, migrates 100% of records, and passes row-count reconciliation without crashing downstream services.
   - **Option B (⚠️ CAUTION — Relax to NULLABLE):** Relaxes target column to `NULLABLE` with explicit warnings about downstream application `NullPointerException` crash risks.
   - **Option C (⚠️ WARNING — Strict Quarantine / DLQ):** Retains `NOT NULL` without fallbacks, routing invalid rows to the Dead-Letter Queue with row-count discrepancy warnings.
+
+### Phase 11: Database Schema Evolution Workbench (Workflow C)
+- **Transformation from Assistant to Masterpiece Workbench:** Transformed Workflow C from a basic CRUD-style `ALTER TABLE` generator into an enterprise-grade **Database Schema Evolution Workbench** featuring **100% full parity across both PostgreSQL and MongoDB**.
+- **Formal 7-Stage Database Evolution Lifecycle:**
+  1. *Target & Environment Tier:* Dual database selector (PostgreSQL relational engine / MongoDB document engine) paired with environment tiering (`development`, `staging`, `production`) enforcing progressive safety gates.
+  2. *Catalog Inspection & Drift Radar:* Live physical catalog introspection paired with out-of-band schema drift detection comparing live physical catalog state against the in-database migration ledger.
+  3. *Change Evolution Studio (Triple-Mode Authoring):*
+     - Mode A (Visual Form Builder): Interactive form for all schema operations with real-time parameter validation.
+     - Mode B (Gemini AI NL2DDL): Plain-English schema instruction translation with Gemini cascade (`gemini-3.8-flash` down to `gemini-3.1-flash-lite`) and local offline regex fallback.
+     - Mode C (Raw Script Import & Tokenizer): Direct raw SQL DDL and MongoDB script parser tokenizing arbitrary commands into structured schema operations.
+     - Staged Change Queue: Multi-change batch staging with visual reordering and atomic sequential execution.
+     - Visual Schema Structural Impact Diff: Reactive before-and-after schema layout comparison with color-coded diff tags (`+ ADD`, `- DROP`, `~ MOD`).
+     - Table Dependency Graph: Foreign key and collection reference visualization.
+  4. *Impact Scorecard & Evolution Strategy Advisor:*
+     - Change Impact Scorecard: Multi-dimensional risk score (0–100), lock escalation tier (`ACCESS EXCLUSIVE` vs `SHARE UPDATE EXCLUSIVE` vs `No Lock`), blast radius, and breaking change flag.
+     - Enterprise Schema Policy Guard: Automated rule engine enforcing snake_case naming (`PG-POLICY-001`), reserved SQL keywords (`PG-POLICY-002`), large VARCHAR limits (`PG-POLICY-003`), and unindexed foreign keys (`PG-POLICY-004`).
+     - Phased Expand & Contract Advisor: 3-stage non-breaking schema evolution for zero-downtime migrations (Phase 1: Expand / Dual-write, Phase 2: Background Backfill, Phase 3: Contract / Cleanup).
+     - MongoDB `$jsonSchema` Validation Engine: Automated collection validator synthesis with configurable validation levels (`strict`/`moderate`) and validation actions (`error`/`warn`).
+  5. *Strategy & Packaging Lab:*
+     - Evolution Strategy Selector: In-Place Transactional vs Phased Expand & Contract vs Shadow Table Swap.
+     - Pre-Migration Safety Backup: Automated snapshot table generator (`<table_name>_backup_<timestamp>`).
+     - Exportable Production Bundle: Downloadable `.zip` archive containing migration script, rollback script, and structured `manifest.json`.
+     - Automated CI/CD Pipeline Generator: GitHub Actions and GitLab CI YAML workflows with drift check and migration apply stages.
+     - Executive Audit Report: Markdown compliance dossier documenting change justification, risk matrix, affected columns, and rollback verification.
+  6. *Pre-Flight Dry-Run Cockpit:*
+     - Dedicated atomic simulation environment running inside strict lock timeout (`SET lock_timeout = '5s'`) with unconditional transaction rollback (`ROLLBACK;`) in PostgreSQL and dry-run write testing in MongoDB.
+     - Real-time lock acquisition verification and CLI command reproduction generator.
+     - Production Shield Modal: Hardened barrier requiring manual typing of `CONFIRM_DROP` or `APPLY_TO_PRODUCTION` before high-risk changes execute.
+  7. *Live Execution Terminal & Immutable In-Database Ledger:*
+     - Real-time deployment terminal with millisecond-accurate log streaming.
+     - In-database audit ledger (`public.migrateiq_schema_history` and `_migrateiq_schema_history`) recording version, type, execution duration, and cryptographic SHA-256 script checksums.
+     - Post-execution physical catalog verification ensuring DDL changes exist in database metadata.
+     - 1-Click Rollback Studio: Immediate visual rollback drawer with forward-vs-rollback diff and single-click restoration.
+- **Verification & Test Coverage:** 131 automated unit, security, and integration tests across 8 test groups in `scripts/test-phase11-schema-update.js` passing at 100%, with 0 TypeScript compiler errors.
 
 ---
 

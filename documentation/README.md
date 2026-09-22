@@ -20,7 +20,7 @@ This folder contains the complete, phase-by-phase technical documentation genera
 | **Phase 8** | [`phase-08-dry-run-simulation.md`](./phase-08-dry-run-simulation.md) | Transactional dry run simulation engine & results screen | ✅ Completed |
 | **Phase 9** | [`phase-09-live-migration-engine.md`](./phase-09-live-migration-engine.md) | Topological sort, streaming ETL engine, rollback pre-gen | ⏳ Pending |
 | **Phase 10** | [`phase-10-completion-downloads-erd.md`](./phase-10-completion-downloads-erd.md) | Summary screen, ERD diagram generation, audit report PDF | ⏳ Pending |
-| **Phase 11** | [`phase-11-schema-update-assistant.md`](./phase-11-schema-update-assistant.md) | Workflow C: 6-step Schema Update wizard & NL2DDL engine | ⏳ Pending |
+| **Phase 11** | [`phase-11-schema-update-assistant.md`](./phase-11-schema-update-assistant.md) | Workflow C: 7-stage Database Schema Evolution Workbench, 100% PG + Mongo parity, in-database SHA-256 ledger, Expand & Contract advisor, production shield | ✅ Completed |
 | **Phase 12** | [`phase-12-pg-to-mongo-workflow.md`](./phase-12-pg-to-mongo-workflow.md) | Workflow B: Reverse schema introspection & denormalization | ⏳ Pending |
 | **Phase 13** | [`phase-13-demo-mode.md`](./phase-13-demo-mode.md) | In-memory demo mode with bundled sample e-commerce data | ⏳ Pending |
 | **Phase 14** | [`phase-14-auxiliary-screens.md`](./phase-14-auxiliary-screens.md) | History, Schema Version History, Saved Connections, Settings | ⏳ Pending |

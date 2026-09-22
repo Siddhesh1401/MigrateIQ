@@ -435,7 +435,8 @@ export type SchemaOperationType =
   | 'changeType'
   | 'addIndex'
   | 'dropIndex'
-  | 'addForeignKey';
+  | 'addForeignKey'
+  | 'dropTable';
 
 export interface SchemaChangeParams {
   databaseType: DatabaseType;
@@ -506,6 +507,10 @@ export interface SchemaUpdateExecutionResult {
   error?: string;
   errorCode?: string;
   suggestion?: string;
+  checksum?: string;
+  verified?: boolean;
+  verificationDetails?: string;
+  ledgerRecorded?: boolean;
 }
 
 export interface StagedChange {
@@ -561,5 +566,117 @@ export interface SchemaIntrospectedTableInfo {
     isNullable: boolean;
   }>;
   indexes?: string[];
+}
+
+// ── Masterpiece Schema Evolution Types ────────────────────────────────────────
+
+export type EnvironmentTier = 'development' | 'staging' | 'production';
+
+export interface ChangeImpactScorecard {
+  dataRisk: 'low' | 'medium' | 'high';
+  lockRisk: 'low' | 'medium' | 'high';
+  dependencyRisk: 'low' | 'medium' | 'high';
+  compatibility: 'low' | 'medium' | 'high';
+  rollbackFeasibility: 'fully_reversible' | 'reversible_with_data_loss' | 'destructive';
+  overallRisk: 'low' | 'medium' | 'high' | 'critical';
+  recommendedStrategy: 'direct' | 'expand_contract';
+  summaryMessage: string;
+}
+
+export interface MigrationManifest {
+  id: string;
+  version: string;
+  description: string;
+  databaseType: DatabaseType;
+  databaseName: string;
+  environment: EnvironmentTier;
+  author: string;
+  checksum: string;
+  createdAt: string;
+  operations: SchemaOperationType[];
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  lockImpact: string;
+}
+
+export interface InDatabaseLedgerEntry {
+  installedRank: number;
+  version: string;
+  description: string;
+  type: string;
+  script: string;
+  checksum: string;
+  installedBy: string;
+  installedOn: string;
+  executionTimeMs: number;
+  success: boolean;
+  rollbackScript?: string;
+}
+
+export interface SchemaDriftReport {
+  hasDrift: boolean;
+  driftCount: number;
+  unmanagedObjects: Array<{
+    type: 'table' | 'column' | 'index';
+    name: string;
+    parentTable?: string;
+    details: string;
+  }>;
+  lastRecordedVersion?: string;
+}
+
+export interface TableDependencyGraph {
+  referencingForeignKeys: Array<{
+    constraintName: string;
+    referencingTable: string;
+    referencingColumn: string;
+    onDelete: string;
+  }>;
+  dependentViews: string[];
+  associatedIndexes: Array<{
+    indexName: string;
+    isUnique: boolean;
+    columns: string[];
+  }>;
+}
+
+export interface ExecutionConsoleLogLine {
+  timestamp: string;
+  stage: string;
+  message: string;
+  status: 'running' | 'success' | 'warn' | 'failed';
+}
+
+export interface BackupSnapshotResult {
+  success: boolean;
+  backupTableName: string;
+  rowCount: number;
+  createdAt: string;
+  error?: string;
+}
+
+export interface MongoValidationRule {
+  collection: string;
+  validatorCommand: string;
+  jsonSchema: Record<string, unknown>;
+}
+
+export interface EvolutionStrategyRecommendation {
+  type: 'direct' | 'expand_contract';
+  title: string;
+  reason: string;
+  phases?: Array<{
+    phaseNumber: number;
+    phaseTitle: string;
+    description: string;
+    script: string;
+  }>;
+}
+
+export interface ScriptImportParseResult {
+  success: boolean;
+  params?: SchemaChangeParams;
+  detectedDialect?: 'postgresql' | 'mongodb';
+  error?: string;
+  warning?: string;
 }
 

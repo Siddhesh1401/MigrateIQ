@@ -16,6 +16,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@migrateiq/shared": "*",
+    "archiver": "^5.3.2",
     "electron-store": "^8.2.0",
     "mongodb": "^6.21.0",
     "pg": "^8.23.0",
@@ -26,6 +27,7 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
+    "@types/archiver": "^8.0.0",
     "@types/node": "^20.14.9",
     "@types/pg": "^8.11.6",
     "@types/react": "^18.3.3",

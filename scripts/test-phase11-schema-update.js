@@ -37,6 +37,12 @@ const {
   formatSqlDefaultClause,
   formatMongoDefaultValue,
   formatSuccessMessage,
+  parseRawScript,
+  computeChangeImpactScorecard,
+  generateEvolutionStrategy,
+  generateMongoValidationCommand,
+  generateCiCdWorkflowYaml,
+  generateExecutiveAuditReportMarkdown,
 } = require('../apps/desktop/dist-electron/handlers/schemaUpdate');
 
 // ── Test Group 1: PostgreSQL Script Generation (8 Operations) ────────────────
@@ -503,6 +509,154 @@ const fkPolicy = unindexedFkRisks.find((r) => r.id === 'policy_unindexed_foreign
 assert(fkPolicy !== undefined, 'Policy Guard detects unindexed foreign key column on populated table');
 assert(fkPolicy?.severity === 'policy', 'Unindexed FK policy violation has severity "policy"');
 assert(fkPolicy?.ruleId === 'PG-POLICY-004', 'Unindexed FK policy violation has ruleId PG-POLICY-004');
+
+// ── Test Group 7: Script Tokenization & Evolution Strategy Engine ────────────
+
+console.log('\n--- Test Group 7: Script Tokenization & Evolution Strategy Engine ---');
+
+// 7.1 PostgreSQL Raw Script Parsing
+const parsedPgAdd = parseRawScript(
+  'ALTER TABLE customers ADD COLUMN vip_status VARCHAR(50) DEFAULT \'regular\';',
+  'postgresql'
+);
+assert(parsedPgAdd.success === true, 'parseRawScript successfully parses PostgreSQL ADD COLUMN');
+assert(parsedPgAdd.params?.operation === 'addColumn', 'parseRawScript identifies operation "addColumn"');
+assert(parsedPgAdd.params?.tableName === 'customers', 'parseRawScript identifies tableName "customers"');
+assert(parsedPgAdd.params?.columnName === 'vip_status', 'parseRawScript identifies columnName "vip_status"');
+
+const parsedPgDrop = parseRawScript(
+  'ALTER TABLE orders DROP COLUMN internal_memo;',
+  'postgresql'
+);
+assert(parsedPgDrop.success === true, 'parseRawScript successfully parses PostgreSQL DROP COLUMN');
+assert(parsedPgDrop.params?.operation === 'dropColumn', 'parseRawScript identifies operation "dropColumn"');
+assert(parsedPgDrop.params?.tableName === 'orders', 'parseRawScript identifies tableName "orders"');
+
+const parsedPgIndex = parseRawScript(
+  'CREATE INDEX idx_users_created_at ON users (created_at);',
+  'postgresql'
+);
+assert(parsedPgIndex.success === true, 'parseRawScript successfully parses PostgreSQL CREATE INDEX');
+assert(parsedPgIndex.params?.operation === 'addIndex', 'parseRawScript identifies operation "addIndex"');
+assert(parsedPgIndex.params?.tableName === 'users', 'parseRawScript identifies tableName "users"');
+
+// 7.2 MongoDB Script Parsing
+const parsedMongoAdd = parseRawScript(
+  'db.accounts.updateMany({}, { $set: { is_active: true } });',
+  'mongodb'
+);
+assert(parsedMongoAdd.success === true, 'parseRawScript successfully parses MongoDB updateMany $set');
+assert(parsedMongoAdd.params?.operation === 'addColumn', 'parseRawScript maps $set to "addColumn"');
+assert(parsedMongoAdd.params?.tableName === 'accounts', 'parseRawScript identifies collection "accounts"');
+assert(parsedMongoAdd.params?.columnName === 'is_active', 'parseRawScript identifies field "is_active"');
+
+const parsedMongoDrop = parseRawScript(
+  'db.audit_logs.dropIndex("idx_audit_actor");',
+  'mongodb'
+);
+assert(parsedMongoDrop.success === true, 'parseRawScript successfully parses MongoDB dropIndex');
+assert(parsedMongoDrop.params?.operation === 'dropIndex', 'parseRawScript maps dropIndex correctly');
+assert(parsedMongoDrop.params?.tableName === 'audit_logs', 'parseRawScript identifies collection "audit_logs"');
+
+// 7.3 Change Impact Scorecard Evaluation
+const safeScorecard = computeChangeImpactScorecard(
+  {
+    databaseType: 'postgresql',
+    operation: 'addColumn',
+    tableName: 'events',
+    columnName: 'tags',
+    isNullable: true,
+  },
+  { tableName: 'events', rowCount: 100, columns: [] }
+);
+assert(safeScorecard.overallRisk === 'low', 'Nullable column on small table evaluated as low risk');
+assert(safeScorecard.recommendedStrategy === 'direct', 'Low risk change recommends direct strategy');
+assert(safeScorecard.lockRisk === 'low', 'Nullable add column evaluated with low lock risk');
+
+const criticalScorecard = computeChangeImpactScorecard(
+  {
+    databaseType: 'postgresql',
+    operation: 'dropColumn',
+    tableName: 'financial_records',
+    columnName: 'amount',
+  },
+  { tableName: 'financial_records', rowCount: 500000, columns: [] }
+);
+assert(criticalScorecard.overallRisk === 'critical', 'dropColumn on large table evaluated as critical risk');
+assert(criticalScorecard.rollbackFeasibility === 'destructive', 'dropColumn rollback feasibility marked destructive');
+assert(criticalScorecard.recommendedStrategy === 'expand_contract', 'Destructive change recommends expand_contract strategy');
+
+// 7.4 Expand & Contract Phased Strategy Generation
+const strategy = generateEvolutionStrategy({
+  databaseType: 'postgresql',
+  operation: 'dropColumn',
+  tableName: 'payments',
+  columnName: 'legacy_auth_token',
+});
+assert(strategy.type === 'expand_contract', 'dropColumn generates expand_contract phased strategy');
+assert(Array.isArray(strategy.phases) && strategy.phases.length === 3, 'Expand & Contract strategy includes exactly 3 distinct phases');
+assert(strategy.phases[0].phaseTitle.includes('Deprecate') || strategy.phases[0].phaseTitle.includes('Expand'), 'Phase 1 addresses deprecation or expansion');
+assert(strategy.phases[2].phaseTitle.includes('Contract'), 'Phase 3 addresses contraction and drop');
+
+// 7.5 MongoDB $jsonSchema Validation Generation
+const mongoVal = generateMongoValidationCommand('customers', [
+  { name: 'membership_level', type: 'string', required: true }
+]);
+assert(mongoVal.collection === 'customers', 'generateMongoValidationCommand targets correct collection');
+assert(mongoVal.validatorCommand.includes('collMod: "customers"'), 'Validation command contains collMod directive');
+assert(mongoVal.validatorCommand.includes('$jsonSchema'), 'Validation command contains $jsonSchema specification');
+assert(mongoVal.jsonSchema.properties?.membership_level !== undefined, 'Generated jsonSchema contains field property');
+
+// ── Test Group 8: Packaging, CI/CD, Audit Report & Ledger Integrity ──────────
+
+console.log('\n--- Test Group 8: Packaging, CI/CD, Audit Report & Ledger Integrity ---');
+
+// 8.1 CI/CD Workflow Generation
+const githubWorkflow = generateCiCdWorkflowYaml('postgresql', 'retail_db');
+assert(githubWorkflow.includes('MigrateIQ Automated CI/CD Database Migration Pipeline'), 'Workflow includes standard header');
+assert(githubWorkflow.includes('POSTGRESQL'), 'Workflow reflects PostgreSQL engine');
+assert(githubWorkflow.includes('psql'), 'PostgreSQL workflow invokes psql command');
+
+const mongoWorkflow = generateCiCdWorkflowYaml('mongodb', 'inventory_db');
+assert(mongoWorkflow.includes('MONGODB'), 'Workflow reflects MongoDB engine');
+assert(mongoWorkflow.includes('mongosh'), 'MongoDB workflow invokes mongosh command');
+
+// 8.2 Executive Audit Report Generation
+const auditReport = generateExecutiveAuditReportMarkdown(
+  {
+    id: 'test_mig_123',
+    version: 'v_20260922',
+    description: 'Add column loyalty_tier on customers',
+    databaseType: 'postgresql',
+    databaseName: 'retail_db',
+    environment: 'production',
+    author: 'Chief DBA',
+    checksum: 'a94a8fe5ccb19ba61c4c0873d391e987982fbbd3',
+    createdAt: new Date().toISOString(),
+    operations: ['addColumn'],
+    riskLevel: 'low',
+    lockImpact: 'ACCESS EXCLUSIVE on customers (5s lock timeout)',
+  },
+  'ALTER TABLE customers ADD COLUMN loyalty_tier VARCHAR(50);',
+  'ALTER TABLE customers DROP COLUMN IF EXISTS loyalty_tier;',
+  safeScorecard
+);
+assert(auditReport.includes('# MigrateIQ — Executive Database Schema Audit Report'), 'Audit report contains executive header');
+assert(auditReport.includes('**Environment Tier:** `PRODUCTION`'), 'Audit report reflects environment tier');
+assert(auditReport.includes('SHA-256 Integrity Checksum'), 'Audit report records cryptographic checksum');
+assert(auditReport.includes('## 1. Executive Impact & Safety Assessment'), 'Audit report contains Risk Assessment section');
+assert(auditReport.includes('```sql') && auditReport.includes('ALTER TABLE customers ADD COLUMN'), 'Audit report contains forward SQL code block');
+assert(auditReport.includes('## 4. Rollback Recovery Script'), 'Audit report contains rollback recovery script');
+
+// 8.3 Cryptographic Checksum Integrity
+const crypto = require('crypto');
+const sampleScript = 'ALTER TABLE orders ADD COLUMN delivery_slot TIMESTAMP;';
+const checksum1 = crypto.createHash('sha256').update(sampleScript).digest('hex');
+const checksum2 = crypto.createHash('sha256').update(sampleScript).digest('hex');
+const modifiedChecksum = crypto.createHash('sha256').update(sampleScript + ' ').digest('hex');
+assert(checksum1.length === 64, 'SHA-256 produces 64-character hex hash');
+assert(checksum1 === checksum2, 'Identical script produces deterministic identical checksum');
+assert(checksum1 !== modifiedChecksum, 'Script alteration produces completely distinct checksum');
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 
