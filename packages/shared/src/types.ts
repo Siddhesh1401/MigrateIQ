@@ -449,6 +449,7 @@ export interface SchemaChangeParams {
   defaultValue?: string;
   indexName?: string;
   isUnique?: boolean;
+  concurrently?: boolean;
   foreignTable?: string;
   foreignColumn?: string;
   onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
@@ -477,9 +478,11 @@ export interface NL2DDLResponse {
 
 export interface SchemaUpdateRiskItem {
   id: string;
-  severity: 'critical' | 'warning' | 'info';
+  severity: 'critical' | 'warning' | 'info' | 'policy';
   title: string;
   description: string;
+  policyCategory?: 'naming' | 'performance' | 'security' | 'anti-pattern';
+  ruleId?: string;
   autoFixAvailable?: boolean;
   autoFixAction?: {
     type: 'make_nullable' | 'set_default';
@@ -503,6 +506,35 @@ export interface SchemaUpdateExecutionResult {
   error?: string;
   errorCode?: string;
   suggestion?: string;
+}
+
+export interface StagedChange {
+  id: string;
+  summary: string;
+  params: SchemaChangeParams;
+  scripts?: GeneratedScriptResult;
+  risks?: SchemaUpdateRiskItem[];
+}
+
+export interface DryRunExecutionResult {
+  success: boolean;
+  executionTimeMs: number;
+  message: string;
+  sqlExecuted?: string;
+  lockTimeoutMs?: number;
+  error?: string;
+  errorCode?: string;
+  suggestion?: string;
+  simulatedOnly: boolean;
+}
+
+export interface BatchExecutionResult {
+  success: boolean;
+  totalTimeMs: number;
+  results: SchemaUpdateExecutionResult[];
+  appliedCount: number;
+  failedCount: number;
+  errorMessage?: string;
 }
 
 export interface SchemaHistoryItem {

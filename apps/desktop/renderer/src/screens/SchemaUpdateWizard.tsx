@@ -13,6 +13,9 @@ import type {
   ConnectionConfig,
   PostgresIntrospectionResult,
   SourceSchema,
+  DryRunExecutionResult,
+  BatchExecutionResult,
+  StagedChange,
 } from '@migrateiq/shared';
 import { ConnectionForm } from '../components/ConnectionForm';
 import '../styles/schema-update.css';
@@ -77,6 +80,12 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
   const [historyItems, setHistoryItems] = useState<SchemaHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState<boolean>(false);
 
+  // ── Enterprise 10/10 Upgrades State ────────────────────────────────────────
+  const [isConcurrently, setIsConcurrently] = useState<boolean>(false);
+  const [stagedChanges, setStagedChanges] = useState<StagedChange[]>([]);
+  const [isDryRunning, setIsDryRunning] = useState<boolean>(false);
+  const [dryRunResult, setDryRunResult] = useState<DryRunExecutionResult | null>(null);
+
   // Current table info helper
   const currentTableInfo = useMemo(() => {
     return introspectedTables.find((t) => t.tableName === tableName);
@@ -115,6 +124,9 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
       setDefaultValue('');
       setIndexName('');
       setIsUnique(false);
+      setIsConcurrently(false);
+      setStagedChanges([]);
+      setDryRunResult(null);
       setForeignTable('');
       setForeignColumn('id');
       setRisks([]);
@@ -264,6 +276,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
       defaultValue: defaultValue.trim() || undefined,
       indexName: indexName.trim() || undefined,
       isUnique,
+      concurrently: isConcurrently,
       foreignTable: foreignTable.trim() || undefined,
       foreignColumn: foreignColumn.trim() || undefined,
       onDelete,
@@ -281,6 +294,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     defaultValue,
     indexName,
     isUnique,
+    isConcurrently,
     foreignTable,
     foreignColumn,
     onDelete,
@@ -335,47 +349,219 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     foreignColumn,
   ]);
 
-  // ── Evaluate Risks ─────────────────────────────────────────────────────────
+  // ── Multi-Change Staging Queue Helpers ─────────────────────────────────────
+  const formatStep3Summary = (p: SchemaChangeParams): string => {
+    switch (p.operation) {
+      case 'addColumn':
+        return `Add column "${p.columnName}" (${p.dataType || 'VARCHAR'}) to "${p.tableName}"`;
+      case 'dropColumn':
+        return `Drop column "${p.columnName}" from "${p.tableName}"`;
+      case 'renameColumn':
+        return `Rename column "${p.columnName}" to "${p.newColumnName}" in "${p.tableName}"`;
+      case 'renameTable':
+        return `Rename table "${p.tableName}" to "${p.newTableName}"`;
+      case 'changeType':
+        return `Change type of "${p.columnName}" to ${p.dataType} in "${p.tableName}"`;
+      case 'addIndex':
+        return `Add ${p.isUnique ? 'unique ' : ''}index ${p.concurrently ? '(CONCURRENTLY) ' : ''}on "${p.tableName}"("${p.columnName}")`;
+      case 'dropIndex':
+        return `Drop index "${p.indexName || p.columnName}" from "${p.tableName}"`;
+      case 'addForeignKey':
+        return `Add foreign key from "${p.tableName}"."${p.columnName}" to "${p.foreignTable}"."${p.foreignColumn}"`;
+      default:
+        return `${p.operation} on ${p.tableName}`;
+    }
+  };
+
+  const handleAddToStagingQueue = () => {
+    if (!isStep3Valid) return;
+    const newStaged: StagedChange = {
+      id: `staged_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      summary: formatStep3Summary(currentParams),
+      params: { ...currentParams },
+    };
+    setStagedChanges((prev) => [...prev, newStaged]);
+    // Reset specific fields for convenient next entry
+    setColumnName('');
+    setNewColumnName('');
+    setDefaultValue('');
+    setIndexName('');
+    setIsConcurrently(false);
+  };
+
+  const handleRemoveFromStagingQueue = (id: string) => {
+    setStagedChanges((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleClearStagingQueue = () => {
+    setStagedChanges([]);
+  };
+
+  // ── Visual Schema Diff Computation ─────────────────────────────────────────
+  interface DiffColumnItem {
+    name: string;
+    type: string;
+    nullable: boolean;
+    status: 'unchanged' | 'added' | 'removed' | 'modified';
+    oldName?: string;
+    oldType?: string;
+  }
+
+  const schemaDiff = useMemo(() => {
+    if (!currentTableInfo) return null;
+    const beforeCols = currentTableInfo.columns || [];
+    const afterCols: DiffColumnItem[] = beforeCols.map((c) => ({
+      name: c.columnName,
+      type: c.dataType,
+      nullable: c.isNullable,
+      status: 'unchanged',
+    }));
+
+    // Apply staged changes on this table
+    const relevantStaged = stagedChanges
+      .filter((s) => s.params.tableName === currentTableInfo.tableName)
+      .map((s) => s.params);
+
+    const relevantChanges = [
+      ...relevantStaged,
+      ...(currentParams.tableName === currentTableInfo.tableName && isStep3Valid ? [currentParams] : []),
+    ];
+
+    for (const change of relevantChanges) {
+      if (change.operation === 'addColumn' && change.columnName) {
+        afterCols.push({
+          name: change.columnName,
+          type: change.dataType || 'VARCHAR(255)',
+          nullable: change.isNullable !== false,
+          status: 'added',
+        });
+      } else if (change.operation === 'dropColumn' && change.columnName) {
+        const found = afterCols.find((c) => c.name === change.columnName);
+        if (found) {
+          found.status = 'removed';
+        }
+      } else if (change.operation === 'renameColumn' && change.columnName && change.newColumnName) {
+        const found = afterCols.find((c) => c.name === change.columnName);
+        if (found) {
+          found.oldName = found.name;
+          found.name = change.newColumnName;
+          found.status = 'modified';
+        }
+      } else if (change.operation === 'changeType' && change.columnName && change.dataType) {
+        const found = afterCols.find((c) => c.name === change.columnName);
+        if (found) {
+          found.oldType = found.type;
+          found.type = change.dataType;
+          found.status = 'modified';
+        }
+      }
+    }
+
+    return {
+      tableName: currentTableInfo.tableName,
+      beforeCols,
+      afterCols,
+    };
+  }, [currentTableInfo, stagedChanges, currentParams, isStep3Valid]);
+
+  // ── Evaluate Risks (Single or Staged Batch) ─────────────────────────────────
   const evaluateRisks = useCallback(async () => {
     setIsLoadingRisks(true);
     try {
-      const res = await window.electronAPI.invoke<SchemaUpdateRiskItem[]>(
-        'schema:analyze-risks',
-        {
-          params: currentParams,
-          tableInfo: currentTableInfo,
+      if (stagedChanges.length > 0) {
+        const allChanges: SchemaChangeParams[] = [
+          ...stagedChanges.map((s) => s.params),
+          ...(isStep3Valid ? [currentParams] : []),
+        ];
+        const allRisks: SchemaUpdateRiskItem[] = [];
+        for (const ch of allChanges) {
+          const tInfo = introspectedTables.find((t) => t.tableName === ch.tableName);
+          const res = await window.electronAPI.invoke<SchemaUpdateRiskItem[]>(
+            'schema:analyze-risks',
+            {
+              params: ch,
+              tableInfo: tInfo,
+            }
+          );
+          if (res.success && res.data) {
+            allRisks.push(...res.data);
+          }
         }
-      );
-      if (res.success && res.data) {
-        setRisks(res.data);
+        const seen = new Set<string>();
+        const uniqueRisks = allRisks.filter((r) => {
+          const key = `${r.id}_${r.title}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setRisks(uniqueRisks);
+      } else {
+        const res = await window.electronAPI.invoke<SchemaUpdateRiskItem[]>(
+          'schema:analyze-risks',
+          {
+            params: currentParams,
+            tableInfo: currentTableInfo,
+          }
+        );
+        if (res.success && res.data) {
+          setRisks(res.data);
+        }
       }
     } catch (e) {
       console.error('Failed to analyze risks:', e);
     } finally {
       setIsLoadingRisks(false);
     }
-  }, [currentParams, currentTableInfo]);
+  }, [currentParams, currentTableInfo, stagedChanges, isStep3Valid, introspectedTables]);
 
-  // ── Generate Scripts ───────────────────────────────────────────────────────
+  // ── Generate Scripts (Single or Staged Batch) ──────────────────────────────
   const generateScripts = useCallback(async () => {
     setIsGeneratingScripts(true);
+    setDryRunResult(null);
     try {
-      const res = await window.electronAPI.invoke<GeneratedScriptResult>(
-        'schema:generate-scripts',
-        {
-          params: currentParams,
-          schema: connectionConfig?.schema || 'public',
+      if (stagedChanges.length > 0) {
+        const allChanges: SchemaChangeParams[] = [
+          ...stagedChanges.map((s) => s.params),
+          ...(isStep3Valid ? [currentParams] : []),
+        ];
+        const forwardList: string[] = [];
+        const rollbackList: string[] = [];
+        for (const ch of allChanges) {
+          const res = await window.electronAPI.invoke<GeneratedScriptResult>(
+            'schema:generate-scripts',
+            {
+              params: ch,
+              schema: connectionConfig?.schema || 'public',
+            }
+          );
+          if (res.success && res.data) {
+            forwardList.push(res.data.forwardScript);
+            rollbackList.push(res.data.rollbackScript);
+          }
         }
-      );
-      if (res.success && res.data) {
-        setScripts(res.data);
+        setScripts({
+          forwardScript: forwardList.join('\n\n'),
+          rollbackScript: rollbackList.reverse().join('\n\n'),
+          operationSummary: `Batch execution of ${allChanges.length} schema changes`,
+        });
+      } else {
+        const res = await window.electronAPI.invoke<GeneratedScriptResult>(
+          'schema:generate-scripts',
+          {
+            params: currentParams,
+            schema: connectionConfig?.schema || 'public',
+          }
+        );
+        if (res.success && res.data) {
+          setScripts(res.data);
+        }
       }
     } catch (e) {
       console.error('Failed to generate scripts:', e);
     } finally {
       setIsGeneratingScripts(false);
     }
-  }, [currentParams, connectionConfig]);
+  }, [currentParams, connectionConfig, stagedChanges, isStep3Valid]);
 
   // Step Transition Effects
   useEffect(() => {
@@ -433,6 +619,51 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     setTimeout(() => setCopiedRollback(false), 2000);
   };
 
+  // ── Dry Run Simulation Execution ───────────────────────────────────────────
+  const handleExecuteDryRun = async () => {
+    if (!connectionConfig) return;
+    setIsDryRunning(true);
+    setDryRunResult(null);
+
+    const batchToSimulate: SchemaChangeParams[] = [
+      ...stagedChanges.map((s) => s.params),
+      ...(isStep3Valid ? [currentParams] : []),
+    ];
+
+    try {
+      const res = await window.electronAPI.invoke<DryRunExecutionResult>(
+        'schema:dry-run',
+        {
+          config: connectionConfig,
+          params: batchToSimulate[0] || currentParams,
+          batch: batchToSimulate.length > 0 ? batchToSimulate : undefined,
+          lockTimeoutMs: 5000,
+        }
+      );
+      if (res.data) {
+        setDryRunResult(res.data);
+      } else if (res.error) {
+        setDryRunResult({
+          success: false,
+          executionTimeMs: 0,
+          simulatedOnly: true,
+          message: res.error,
+          error: res.error,
+        });
+      }
+    } catch (err: unknown) {
+      setDryRunResult({
+        success: false,
+        executionTimeMs: 0,
+        simulatedOnly: true,
+        message: (err as Error).message || 'Dry run simulation failed',
+        error: (err as Error).message,
+      });
+    } finally {
+      setIsDryRunning(false);
+    }
+  };
+
   // ── Execute Schema Update on Live Database ─────────────────────────────────
   const handleApplyUpdate = async () => {
     if (!connectionConfig || !scripts) return;
@@ -441,6 +672,45 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     setCurrentStep(6);
 
     try {
+      const batchToExecute: SchemaChangeParams[] = [
+        ...stagedChanges.map((s) => s.params),
+        ...(isStep3Valid ? [currentParams] : []),
+      ];
+
+      if (batchToExecute.length > 1 || stagedChanges.length > 0) {
+        const res = await window.electronAPI.invoke<BatchExecutionResult>(
+          'schema:execute-batch',
+          {
+            config: connectionConfig,
+            batch: batchToExecute,
+          }
+        );
+        if (res.data) {
+          setExecutionResult({
+            success: res.data.success,
+            executionTimeMs: res.data.totalTimeMs,
+            message: res.data.success
+              ? `Successfully applied all ${res.data.appliedCount} staged schema change(s) in batch!`
+              : `Batch execution: ${res.data.appliedCount} applied, ${res.data.failedCount} failed.`,
+            sqlExecuted: res.data.results.map((r) => r.sqlExecuted).filter(Boolean).join('\n\n'),
+            error: res.data.errorMessage,
+          });
+          if (res.data.success) {
+            setStagedChanges([]);
+          }
+        } else {
+          setExecutionResult({
+            success: false,
+            executionTimeMs: 0,
+            message: res.error || 'Failed to execute batch',
+            error: res.error,
+          });
+        }
+        loadHistory();
+        return;
+      }
+
+      // Single change execution
       const res = await window.electronAPI.invoke<SchemaUpdateExecutionResult>(
         'schema:apply-update',
         {
@@ -1091,6 +1361,31 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                         <span>Enforce Unique Constraint</span>
                       </label>
                     </div>
+
+                    {/* Zero-Downtime CONCURRENTLY Toggle for PostgreSQL */}
+                    {dbType === 'postgresql' && (
+                      <div className="su-concurrent-box" style={{ gridColumn: 'span 2' }}>
+                        <div className="su-concurrent-info">
+                          <span className="su-concurrent-title">
+                            ⚡ Zero-Downtime Indexing (CONCURRENTLY)
+                          </span>
+                          <span className="su-concurrent-desc">
+                            Builds index without an exclusive write lock (SHARE UPDATE EXCLUSIVE lock). Safe for live production tables.
+                          </span>
+                        </div>
+                        <div
+                          className="su-toggle-container"
+                          onClick={() => setIsConcurrently(!isConcurrently)}
+                        >
+                          <div className={`su-toggle-track ${isConcurrently ? 'active' : ''}`}>
+                            <div className="su-toggle-thumb" />
+                          </div>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: isConcurrently ? '#16A34A' : 'var(--text-muted)' }}>
+                            {isConcurrently ? 'Active' : 'Off'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -1249,6 +1544,146 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 )}
               </div>
             )}
+
+            {/* Staging Queue Button */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.25rem' }}>
+              <button
+                type="button"
+                className="su-btn su-btn-secondary"
+                disabled={!isStep3Valid}
+                onClick={handleAddToStagingQueue}
+                style={{ borderColor: '#2563EB', color: '#2563EB', fontWeight: 600 }}
+              >
+                📥 Stage This Change (+ Add to Batch)
+              </button>
+            </div>
+
+            {/* Multi-Change Staging Queue Tray */}
+            {stagedChanges.length > 0 && (
+              <div className="su-staging-tray">
+                <div className="su-staging-header">
+                  <div className="su-staging-title">
+                    <span>📦 Staged Schema Evolution Queue</span>
+                    <span className="su-staging-counter">{stagedChanges.length} staged</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="su-btn su-btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                    onClick={handleClearStagingQueue}
+                  >
+                    Clear Queue
+                  </button>
+                </div>
+
+                <div className="su-staging-list">
+                  {stagedChanges.map((staged, idx) => (
+                    <div key={staged.id} className="su-staging-item">
+                      <div className="su-staging-item-left">
+                        <span style={{ fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          #{idx + 1}
+                        </span>
+                        <span className="su-staging-op-tag">
+                          {staged.params.operation}
+                        </span>
+                        <span className="su-staging-summary">
+                          {staged.summary}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="su-staging-remove-btn"
+                        title="Remove from queue"
+                        onClick={() => handleRemoveFromStagingQueue(staged.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Visual Schema Diff Panel */}
+            {schemaDiff && currentTableInfo && (
+              <div className="su-diff-card">
+                <div className="su-diff-header">
+                  <div className="su-diff-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                    </svg>
+                    <span>Visual Schema Impact Diff: "{schemaDiff.tableName}"</span>
+                  </div>
+                  <span className="su-tag" style={{ background: '#F1F5F9', color: '#475569' }}>
+                    Live Structural Preview
+                  </span>
+                </div>
+
+                <div className="su-diff-grid">
+                  {/* Before */}
+                  <div className="su-diff-col">
+                    <div className="su-diff-col-header">
+                      <span>Current Schema ({schemaDiff.beforeCols.length} columns)</span>
+                      <span className="su-diff-col-tag before">Before</span>
+                    </div>
+                    <div className="su-diff-list">
+                      {schemaDiff.beforeCols.length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>No existing columns introspected</div>
+                      ) : (
+                        schemaDiff.beforeCols.map((col) => (
+                          <div key={col.columnName} className="su-diff-row">
+                            <span style={{ fontWeight: 600 }}>{col.columnName}</span>
+                            <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{col.dataType}</span>
+                              <span style={{ fontSize: '0.6875rem', color: col.isNullable ? '#64748B' : '#DC2626' }}>
+                                {col.isNullable ? 'NULL' : 'NOT NULL'}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* After */}
+                  <div className="su-diff-col">
+                    <div className="su-diff-col-header">
+                      <span>Predicted Schema ({schemaDiff.afterCols.filter((c) => c.status !== 'removed').length} columns)</span>
+                      <span className="su-diff-col-tag after">Target After Apply</span>
+                    </div>
+                    <div className="su-diff-list">
+                      {schemaDiff.afterCols.map((col) => (
+                        <div key={col.name} className={`su-diff-row ${col.status}`}>
+                          <div>
+                            <span style={{ fontWeight: 600 }}>{col.name}</span>
+                            {col.oldName && (
+                              <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginLeft: '0.375rem' }}>
+                                (was {col.oldName})
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.75rem' }}>
+                              {col.type}
+                              {col.oldType && ` (was ${col.oldType})`}
+                            </span>
+                            {col.status === 'added' && (
+                              <span className="su-diff-badge add">+ ADD</span>
+                            )}
+                            {col.status === 'removed' && (
+                              <span className="su-diff-badge drop">- DROP</span>
+                            )}
+                            {col.status === 'modified' && (
+                              <span className="su-diff-badge mod">~ MOD</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         )}
 
@@ -1288,6 +1723,16 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                     </div>
                   </div>
 
+                  <div className="su-risk-counter policy" style={{ background: '#F5F3FF', borderColor: '#DDD6FE' }}>
+                    <div className="su-risk-count-num" style={{ color: '#7C3AED' }}>
+                      {risks.filter((r) => r.severity === 'policy').length}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#5B21B6' }}>Enterprise Policies</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Naming & Standards Guard</div>
+                    </div>
+                  </div>
+
                   <div className="su-risk-counter info">
                     <div className="su-risk-count-num" style={{ color: 'var(--status-success)' }}>
                       {risks.filter((r) => r.severity === 'info').length}
@@ -1303,11 +1748,18 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 {risks.map((risk) => (
                   <div key={risk.id} className={`su-risk-card ${risk.severity}`}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
-                        {risk.title}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {risk.severity === 'policy' && (
+                          <span className="su-policy-chip">
+                            🛡️ {risk.ruleId || 'POLICY'}
+                          </span>
+                        )}
+                        <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
+                          {risk.title}
+                        </span>
+                      </div>
                       <span
-                        className="su-tag"
+                        className={`su-tag ${risk.severity === 'policy' ? 'su-risk-badge policy' : ''}`}
                         style={{
                           textTransform: 'uppercase',
                           color:
@@ -1315,6 +1767,8 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                               ? 'var(--status-error)'
                               : risk.severity === 'warning'
                               ? 'var(--status-warning)'
+                              : risk.severity === 'policy'
+                              ? '#6D28D9'
                               : 'var(--status-success)',
                         }}
                       >
@@ -1422,6 +1876,34 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
               </div>
             </div>
 
+            {/* Dry Run Simulation Result Banner */}
+            {dryRunResult && (
+              <div className={`su-dryrun-box ${dryRunResult.success ? 'pass' : 'fail'}`}>
+                <div className="su-dryrun-header">
+                  <div className="su-dryrun-status">
+                    <span>{dryRunResult.success ? '✅' : '❌'}</span>
+                    <span>{dryRunResult.success ? 'Dry-Run Simulation Passed' : 'Dry-Run Simulation Failed'}</span>
+                  </div>
+                  <span className="su-tag" style={{ background: '#FFFFFF', fontWeight: 700 }}>
+                    {dryRunResult.executionTimeMs}ms • Auto-Rolled Back
+                  </span>
+                </div>
+                <div className="su-dryrun-msg">
+                  {dryRunResult.message}
+                </div>
+                {dryRunResult.suggestion && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#92400E', fontWeight: 600 }}>
+                    Suggestion: {dryRunResult.suggestion}
+                  </div>
+                )}
+                <div className="su-dryrun-chips">
+                  <span className="su-dryrun-chip">Lock Timeout: {dryRunResult.lockTimeoutMs || 5000}ms</span>
+                  <span className="su-dryrun-chip">Database: {connectionConfig?.database}</span>
+                  <span className="su-dryrun-chip">Zero Persistent Changes</span>
+                </div>
+              </div>
+            )}
+
             {/* Toolbar */}
             <div className="su-code-toolbar">
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1432,6 +1914,16 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 >
                   ⬇ Download Both Scripts (.sql)
                 </button>
+
+                <button
+                  type="button"
+                  className="su-btn su-btn-secondary"
+                  style={{ borderColor: '#2563EB', color: '#2563EB', fontWeight: 600 }}
+                  disabled={isDryRunning}
+                  onClick={handleExecuteDryRun}
+                >
+                  {isDryRunning ? '⏳ Simulating Dry-Run...' : '🧪 Execute Dry-Run (Zero-Downtime Test)'}
+                </button>
               </div>
 
               <button
@@ -1439,7 +1931,9 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 className="su-btn su-btn-primary"
                 onClick={() => setIsConfirmModalOpen(true)}
               >
-                ▶ Apply This Change →
+                {stagedChanges.length > 0
+                  ? `▶ Apply Staged Batch (${stagedChanges.length + (isStep3Valid ? 1 : 0)}) →`
+                  : '▶ Apply This Change →'}
               </button>
             </div>
           </section>
@@ -1548,6 +2042,8 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                       setAiResult(null);
                       setColumnName('');
                       setNewColumnName('');
+                      setStagedChanges([]);
+                      setDryRunResult(null);
                     }}
                   >
                     Make Another Change
@@ -1615,10 +2111,12 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
             <button
               type="button"
               className="su-btn su-btn-primary"
-              disabled={!isStep3Valid}
+              disabled={!isStep3Valid && stagedChanges.length === 0}
               onClick={() => setCurrentStep(4)}
             >
-              Analyze Risks →
+              {stagedChanges.length > 0
+                ? `Analyze Risks (${stagedChanges.length + (isStep3Valid ? 1 : 0)} Changes) →`
+                : 'Analyze Risks →'}
             </button>
           )}
 
@@ -1638,7 +2136,9 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
               className="su-btn su-btn-primary"
               onClick={() => setIsConfirmModalOpen(true)}
             >
-              ▶ Apply This Change →
+              {stagedChanges.length > 0
+                ? `▶ Apply Staged Batch (${stagedChanges.length + (isStep3Valid ? 1 : 0)}) →`
+                : '▶ Apply This Change →'}
             </button>
           )}
         </div>
@@ -1655,22 +2155,55 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
               You are about to execute DDL against <strong>{connectionConfig?.database}</strong> ({dbType}). This will modify the live schema.
             </p>
 
-            <div
-              style={{
-                background: 'var(--bg-sidebar)',
-                padding: '0.875rem',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.8125rem',
-                marginBottom: '1.5rem',
-                border: '1px solid var(--border-color)',
-              }}
-            >
-              <div><strong>Operation:</strong> {operation}</div>
-              <div><strong>Table:</strong> {tableName}</div>
-              {columnName && <div><strong>Column / Field:</strong> {columnName}</div>}
-              {newColumnName && <div><strong>New Name:</strong> {newColumnName}</div>}
-              <div><strong>Lock Timeout:</strong> 5 seconds</div>
-            </div>
+            {stagedChanges.length > 0 ? (
+              <div
+                style={{
+                  background: 'var(--bg-sidebar)',
+                  padding: '0.875rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.8125rem',
+                  marginBottom: '1.5rem',
+                  border: '1px solid var(--border-color)',
+                  maxHeight: '160px',
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+                  Staged Batch Queue ({stagedChanges.length + (isStep3Valid ? 1 : 0)} changes):
+                </div>
+                {stagedChanges.map((s, idx) => (
+                  <div key={s.id} style={{ marginBottom: '0.25rem' }}>
+                    #{idx + 1}: <strong>{s.params.operation}</strong> on <code>{s.params.tableName}</code> — {s.summary}
+                  </div>
+                ))}
+                {isStep3Valid && (
+                  <div>
+                    #{stagedChanges.length + 1}: <strong>{operation}</strong> on <code>{tableName}</code> — {formatStep3Summary(currentParams)}
+                  </div>
+                )}
+                <div style={{ marginTop: '0.5rem', color: 'var(--text-muted)' }}>
+                  <strong>Lock Timeout:</strong> 5 seconds
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  background: 'var(--bg-sidebar)',
+                  padding: '0.875rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.8125rem',
+                  marginBottom: '1.5rem',
+                  border: '1px solid var(--border-color)',
+                }}
+              >
+                <div><strong>Operation:</strong> {operation}</div>
+                <div><strong>Table:</strong> {tableName}</div>
+                {columnName && <div><strong>Column / Field:</strong> {columnName}</div>}
+                {newColumnName && <div><strong>New Name:</strong> {newColumnName}</div>}
+                {isConcurrently && <div><strong>Zero-Downtime:</strong> CONCURRENTLY enabled</div>}
+                <div><strong>Lock Timeout:</strong> 5 seconds</div>
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
               <button

@@ -428,6 +428,81 @@ const mongoDropInferred = generateMongoDbScripts({
 });
 assert(mongoDropInferred.forwardScript.includes('db.orders.dropIndex("idx_orders_status");'), 'MongoDB dropIndex generates inferred index name when indexName is omitted');
 
+// ── Test Group 6: Enterprise 10/10 Upgrades (CONCURRENTLY & Policy Guard) ─────
+
+console.log('\n--- Test Group 6: Enterprise 10/10 Upgrades ---');
+
+// 6.1 PostgreSQL addIndex with CONCURRENTLY
+const concurrentIdxRes = generatePostgreSqlScripts({
+  databaseType: 'postgresql',
+  operation: 'addIndex',
+  tableName: 'users',
+  columnName: 'email',
+  concurrently: true,
+});
+assert(concurrentIdxRes.forwardScript.includes('CREATE INDEX CONCURRENTLY "idx_users_email"'), 'addIndex with concurrently=true generates CREATE INDEX CONCURRENTLY');
+assert(!concurrentIdxRes.forwardScript.includes('BEGIN;') && !concurrentIdxRes.forwardScript.includes('COMMIT;'), 'CONCURRENTLY script executes outside transaction block (no BEGIN/COMMIT)');
+assert(concurrentIdxRes.rollbackScript.includes('DROP INDEX CONCURRENTLY IF EXISTS'), 'CONCURRENTLY rollback uses DROP INDEX CONCURRENTLY IF EXISTS');
+
+// 6.2 Policy Guard: Non-snake_case column name detection
+const snakeCaseRisks = analyzeSchemaUpdateRisks({
+  databaseType: 'postgresql',
+  operation: 'addColumn',
+  tableName: 'customers',
+  columnName: 'firstName',
+  dataType: 'VARCHAR(100)',
+});
+const snakePolicy = snakeCaseRisks.find((r) => r.id === 'policy_naming_column_snake_case');
+assert(snakePolicy !== undefined, 'Policy Guard detects non-snake_case column name (firstName)');
+assert(snakePolicy?.severity === 'policy', 'Naming policy violation has severity "policy"');
+assert(snakePolicy?.ruleId === 'PG-POLICY-001', 'Naming policy violation has ruleId PG-POLICY-001');
+
+// 6.3 Policy Guard: Reserved SQL keyword detection
+const reservedRisks = analyzeSchemaUpdateRisks({
+  databaseType: 'postgresql',
+  operation: 'addColumn',
+  tableName: 'accounts',
+  columnName: 'user',
+  dataType: 'VARCHAR(100)',
+});
+const reservedPolicy = reservedRisks.find((r) => r.id === 'policy_reserved_word_column');
+assert(reservedPolicy !== undefined, 'Policy Guard detects reserved SQL keyword "user"');
+assert(reservedPolicy?.severity === 'policy', 'Reserved keyword policy violation has severity "policy"');
+assert(reservedPolicy?.ruleId === 'PG-POLICY-002', 'Reserved keyword policy violation has ruleId PG-POLICY-002');
+
+// 6.4 Policy Guard: Large VARCHAR length detection
+const largeVarcharRisks = analyzeSchemaUpdateRisks({
+  databaseType: 'postgresql',
+  operation: 'addColumn',
+  tableName: 'posts',
+  columnName: 'content_preview',
+  dataType: 'VARCHAR(2500)',
+});
+const varcharPolicy = largeVarcharRisks.find((r) => r.id === 'policy_large_varchar');
+assert(varcharPolicy !== undefined, 'Policy Guard detects overly large VARCHAR length (2500)');
+assert(varcharPolicy?.severity === 'policy', 'Large VARCHAR policy violation has severity "policy"');
+assert(varcharPolicy?.ruleId === 'PG-POLICY-003', 'Large VARCHAR policy violation has ruleId PG-POLICY-003');
+
+// 6.5 Policy Guard: Unindexed Foreign Key on large table
+const unindexedFkRisks = analyzeSchemaUpdateRisks(
+  {
+    databaseType: 'postgresql',
+    operation: 'addForeignKey',
+    tableName: 'order_items',
+    columnName: 'product_id',
+    foreignTable: 'products',
+    foreignColumn: 'id',
+  },
+  {
+    tableName: 'order_items',
+    rowCount: 25000,
+    columns: [],
+  }
+);
+const fkPolicy = unindexedFkRisks.find((r) => r.id === 'policy_unindexed_foreign_key');
+assert(fkPolicy !== undefined, 'Policy Guard detects unindexed foreign key column on populated table');
+assert(fkPolicy?.severity === 'policy', 'Unindexed FK policy violation has severity "policy"');
+assert(fkPolicy?.ruleId === 'PG-POLICY-004', 'Unindexed FK policy violation has ruleId PG-POLICY-004');
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 
