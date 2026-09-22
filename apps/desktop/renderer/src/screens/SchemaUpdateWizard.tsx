@@ -27,6 +27,7 @@ import type {
   ScriptImportParseResult,
 } from '@migrateiq/shared';
 import { ConnectionForm } from '../components/ConnectionForm';
+import '../styles/wizard.css';
 import '../styles/schema-update.css';
 
 export interface SchemaUpdateWizardProps {}
@@ -872,68 +873,99 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
   return (
     <div className="su-container">
-      {/* ── Top Header & 7-Step Stepper ── */}
-      <header className="su-header">
-        <div className="su-title-row">
-          <div className="su-title-left">
-            <h1 className="su-title">
-              <span style={{ color: 'var(--brand-primary)' }}>MigrateIQ</span>
-              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>|</span>
-              Database Schema Evolution Workbench
-            </h1>
-            <span className="su-badge">Phase 11 Masterpiece</span>
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span
-              className={`su-env-badge ${environmentTier}`}
-              style={{ fontSize: '0.75rem', fontWeight: 800 }}
-            >
-              Tier: {environmentTier.toUpperCase()}
-            </span>
-
-            <button
-              className="su-btn su-btn-secondary"
-              style={{ fontSize: '0.8125rem', padding: '0.4rem 0.875rem' }}
-              onClick={() => setShowHistory(!showHistory)}
-            >
-              📋 {showHistory ? 'Close Ledger' : 'Schema Ledger'}
-            </button>
-          </div>
+      {/* ── Active Workbench Status Bar (Matches Migration Wizard) ── */}
+      <div className="wizard-status-bar">
+        <div className="wizard-status-left">
+          <span className="wizard-status-pill">Active</span>
+          <span className="wizard-status-direction">
+            {dbType === 'postgresql' ? 'PostgreSQL' : 'MongoDB'} Schema Evolution
+          </span>
+          <span className="wizard-status-step">
+            — Step {currentStep} of 7
+          </span>
         </div>
 
-        {/* 7-Step Navigation Stepper */}
-        <nav className="su-stepper" aria-label="Workbench Steps">
-          {[
-            { num: 1, label: 'Target & Env' },
-            { num: 2, label: 'Inspect & Drift' },
-            { num: 3, label: 'Evolution Studio' },
-            { num: 4, label: 'Impact & Policy' },
-            { num: 5, label: 'Packaging Lab' },
-            { num: 6, label: 'Dry-Run Cockpit' },
-            { num: 7, label: 'Live Execution' },
-          ].map((s, idx) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.375rem',
+              fontSize: '0.6875rem',
+              fontWeight: 700,
+              padding: '0.2rem 0.625rem',
+              borderRadius: '9999px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              backgroundColor: environmentTier === 'production' ? '#FEF2F2' : environmentTier === 'staging' ? '#FEF3C7' : '#F0FDF4',
+              color: environmentTier === 'production' ? '#DC2626' : environmentTier === 'staging' ? '#B45309' : '#15803D',
+              border: `1px solid ${environmentTier === 'production' ? '#FECACA' : environmentTier === 'staging' ? '#FDE68A' : '#BBF7D0'}`,
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                backgroundColor: environmentTier === 'production' ? '#DC2626' : environmentTier === 'staging' ? '#D97706' : '#16A34A',
+              }}
+            />
+            {environmentTier.toUpperCase()}
+          </span>
+
+          <button
+            type="button"
+            className={`wizard-fresh-btn ${showHistory ? 'active' : ''}`}
+            onClick={() => setShowHistory(!showHistory)}
+            title="Open in-database schema evolution audit ledger"
+          >
+            📋 {showHistory ? 'Close Ledger' : 'Schema Ledger'}
+            {historyItems.length > 0 && ` (${historyItems.length})`}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Step Progress Bar (Matches Migration Wizard) ── */}
+      <div className="wizard-progress-bar">
+        {[
+          { num: 1, label: 'Target & Env' },
+          { num: 2, label: 'Inspect & Drift' },
+          { num: 3, label: 'Evolution Studio' },
+          { num: 4, label: 'Impact & Policy' },
+          { num: 5, label: 'Packaging Lab' },
+          { num: 6, label: 'Dry Run' },
+          { num: 7, label: 'Live Execution' },
+        ].map((s, idx) => {
+          const isDone = s.num < currentStep;
+          const isActive = s.num === currentStep;
+          const canClick = s.num <= currentStep || isConnected;
+
+          return (
             <React.Fragment key={s.num}>
-              <button
-                type="button"
-                className={`su-step-item ${currentStep === s.num ? 'active' : ''} ${
-                  currentStep > s.num ? 'completed' : ''
-                }`}
-                onClick={() => {
-                  if (s.num <= currentStep || isConnected) {
-                    setCurrentStep(s.num);
-                  }
-                }}
-                disabled={s.num > 1 && !isConnected}
-              >
-                <span className="su-step-num">{currentStep > s.num ? '✓' : s.num}</span>
-                <span>{s.label}</span>
-              </button>
-              {idx < 6 && <div className="su-step-divider" />}
+              <div className="step-item">
+                <button
+                  type="button"
+                  className={`step-circle ${isDone ? 'completed' : ''} ${isActive ? 'active' : ''}`}
+                  onClick={() => {
+                    if (canClick) setCurrentStep(s.num);
+                  }}
+                  disabled={!canClick && s.num > 1}
+                  title={`Step ${s.num}: ${s.label}`}
+                >
+                  {isDone ? '✓' : s.num}
+                </button>
+                <span className={`step-label ${isDone ? 'completed' : ''} ${isActive ? 'active' : ''}`}>
+                  {s.label}
+                </span>
+              </div>
+
+              {idx < 6 && (
+                <div className={`step-connector ${isDone ? 'completed' : ''}`} />
+              )}
             </React.Fragment>
-          ))}
-        </nav>
-      </header>
+          );
+        })}
+      </div>
 
       {/* ── Main Content Body ── */}
       <main className="su-body">
@@ -1024,7 +1056,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
         {/* ── STEP 1: Target Database & Environment Tier ── */}
         {currentStep === 1 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <section className="su-card">
               <div className="su-card-header">
                 <h2 className="su-card-title">Step 1 — Target Database & Environment Tier</h2>
@@ -1033,54 +1065,98 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 </p>
               </div>
 
-              {/* Database Engine Selector */}
-              <div className="su-db-grid">
-                <div
-                  className={`su-db-card ${dbType === 'postgresql' ? 'selected' : ''}`}
-                  onClick={() => handleSelectDbType('postgresql')}
-                >
-                  <div className="su-db-icon-wrap" style={{ color: '#2563EB' }}>🐘</div>
-                  <h3 className="su-db-card-title">PostgreSQL Database</h3>
-                  <p className="su-db-card-p">
-                    Transactional DDL with advisory locking, atomic catalog inspection, and automated reverse migrations.
-                  </p>
-                  <div className="su-feature-tags">
-                    <span className="su-tag">ACID Transactions</span>
-                    <span className="su-tag">Advisory Lock</span>
-                    <span className="su-tag">Catalog Check</span>
-                  </div>
+              {/* Enterprise Info Callout */}
+              <div className="su-callout-banner">
+                <span style={{ fontSize: '1.25rem' }}>🛡️</span>
+                <div>
+                  <strong>Enterprise Evolution Shield:</strong> MigrateIQ applies changes within transactional advisory locks, monitors out-of-band catalog drift, and generates automatic reverse rollback scripts for complete zero-downtime safety.
+                </div>
+              </div>
+
+              {/* 01: Database Engine Selector */}
+              <div>
+                <div className="su-section-eyebrow">
+                  <span className="su-section-num">01</span>
+                  <span>TARGET DATABASE ENGINE</span>
                 </div>
 
-                <div
-                  className={`su-db-card ${dbType === 'mongodb' ? 'selected' : ''}`}
-                  onClick={() => handleSelectDbType('mongodb')}
-                >
-                  <div className="su-db-icon-wrap" style={{ color: '#16A34A' }}>🍃</div>
-                  <h3 className="su-db-card-title">MongoDB Database</h3>
-                  <p className="su-db-card-p">
-                    Dynamic collection updates, $jsonSchema validation rules, secondary indexes, and atomic rollbacks.
-                  </p>
-                  <div className="su-feature-tags">
-                    <span className="su-tag">$jsonSchema</span>
-                    <span className="su-tag">Atomic UpdateMany</span>
-                    <span className="su-tag">Collection Lock</span>
+                <div className="su-db-grid">
+                  <div
+                    className={`su-db-card ${dbType === 'postgresql' ? 'selected' : ''}`}
+                    onClick={() => handleSelectDbType('postgresql')}
+                  >
+                    {dbType === 'postgresql' && (
+                      <span className="su-card-selected-badge">✓ Selected</span>
+                    )}
+                    <div className="su-db-icon-wrap" style={{ color: '#2563EB' }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="1.5" />
+                        <path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4v4c0 .6-.4 1-1 1h-2" stroke="#1D4ED8" strokeWidth="1.75" strokeLinecap="round" />
+                        <path d="M15 11c.8-.4 1.8-.2 2.2.6" stroke="#1D4ED8" strokeWidth="1.75" strokeLinecap="round" />
+                        <circle cx="10" cy="11" r="1" fill="#1D4ED8" />
+                      </svg>
+                    </div>
+                    <div className="su-db-card-content">
+                      <h3 className="su-db-card-title">PostgreSQL Database</h3>
+                      <p className="su-db-card-p">
+                        Transactional DDL with advisory locking, atomic catalog inspection, and automated reverse migrations.
+                      </p>
+                      <div className="su-feature-tags">
+                        <span className="su-tag">🔒 ACID Transactions</span>
+                        <span className="su-tag">🛡️ Advisory Lock</span>
+                        <span className="su-tag">📑 Catalog Check</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`su-db-card ${dbType === 'mongodb' ? 'selected' : ''}`}
+                    onClick={() => handleSelectDbType('mongodb')}
+                  >
+                    {dbType === 'mongodb' && (
+                      <span className="su-card-selected-badge">✓ Selected</span>
+                    )}
+                    <div className="su-db-icon-wrap" style={{ color: '#16A34A' }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#F0FDF4" stroke="#22C55E" strokeWidth="1.5" />
+                        <path d="M12 4.5c.3 1.2 4.5 5 4.5 9 0 2.5-2 4.5-4.5 6-2.5-1.5-4.5-3.5-4.5-6 0-4 4.2-7.8 4.5-9z" fill="#DCFCE7" stroke="#16A34A" strokeWidth="1.5" strokeLinejoin="round" />
+                        <path d="M12 5v14" stroke="#15803D" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <div className="su-db-card-content">
+                      <h3 className="su-db-card-title">MongoDB Database</h3>
+                      <p className="su-db-card-p">
+                        Dynamic collection updates, $jsonSchema validation rules, secondary indexes, and atomic rollbacks.
+                      </p>
+                      <div className="su-feature-tags">
+                        <span className="su-tag">📋 $jsonSchema</span>
+                        <span className="su-tag">⚡ Atomic UpdateMany</span>
+                        <span className="su-tag">🔒 Collection Lock</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Environment Tier Selector */}
-              <div style={{ marginTop: '1.5rem' }}>
-                <label className="su-label" style={{ marginBottom: '0.5rem' }}>
-                  Target Environment Tier:
-                </label>
+              {/* 02: Environment Tier Selector */}
+              <div>
+                <div className="su-section-eyebrow">
+                  <span className="su-section-num">02</span>
+                  <span>DEPLOYMENT ENVIRONMENT TIER</span>
+                </div>
                 <div className="su-env-grid">
                   <div
-                    className={`su-env-card ${environmentTier === 'development' ? 'active' : ''}`}
+                    className={`su-env-card ${environmentTier === 'development' ? 'active dev' : ''}`}
                     onClick={() => setEnvironmentTier('development')}
                   >
                     <div className="su-env-header">
-                      <span className="su-env-title">Development</span>
-                      <span className="su-env-badge dev">Dev Sandbox</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span className="su-env-title">Development</span>
+                        <span className="su-env-badge dev">Dev Sandbox</span>
+                      </div>
+                      <div className={`su-radio-indicator ${environmentTier === 'development' ? 'active-dev' : ''}`}>
+                        {environmentTier === 'development' && <div className="su-radio-dot-inner" />}
+                      </div>
                     </div>
                     <p className="su-env-desc">
                       Fast iteration sandbox. In-place migrations with immediate feedback and automatic recovery.
@@ -1088,12 +1164,17 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   </div>
 
                   <div
-                    className={`su-env-card ${environmentTier === 'staging' ? 'active' : ''}`}
+                    className={`su-env-card ${environmentTier === 'staging' ? 'active staging' : ''}`}
                     onClick={() => setEnvironmentTier('staging')}
                   >
                     <div className="su-env-header">
-                      <span className="su-env-title">Staging / QA</span>
-                      <span className="su-env-badge staging">Pre-Production</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span className="su-env-title">Staging / QA</span>
+                        <span className="su-env-badge staging">Pre-Production</span>
+                      </div>
+                      <div className={`su-radio-indicator ${environmentTier === 'staging' ? 'active-staging' : ''}`}>
+                        {environmentTier === 'staging' && <div className="su-radio-dot-inner" />}
+                      </div>
                     </div>
                     <p className="su-env-desc">
                       Pre-release validation. Verifies lock hold times, simulated rollbacks, and schema drift.
@@ -1101,12 +1182,17 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   </div>
 
                   <div
-                    className={`su-env-card prod ${environmentTier === 'production' ? 'active' : ''}`}
+                    className={`su-env-card prod ${environmentTier === 'production' ? 'active prod' : ''}`}
                     onClick={() => setEnvironmentTier('production')}
                   >
                     <div className="su-env-header">
-                      <span className="su-env-title">Production</span>
-                      <span className="su-env-badge prod">Strict Shield</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span className="su-env-title">Production</span>
+                        <span className="su-env-badge prod">Strict Shield</span>
+                      </div>
+                      <div className={`su-radio-indicator ${environmentTier === 'production' ? 'active-prod' : ''}`}>
+                        {environmentTier === 'production' && <div className="su-radio-dot-inner" />}
+                      </div>
                     </div>
                     <p className="su-env-desc">
                       Live customer database. Requires zero-downtime Expand & Contract, backup table snapshot, and explicit operator authorization.
@@ -1118,8 +1204,12 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 </div>
               </div>
 
-              {/* Connection Form */}
-              <div style={{ marginTop: '1.75rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1.5rem' }}>
+              {/* 03: Connection Form */}
+              <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1.5rem' }}>
+                <div className="su-section-eyebrow">
+                  <span className="su-section-num">03</span>
+                  <span>DATABASE CONNECTION & CATALOG INTROSPECTION</span>
+                </div>
                 {isConnected && connectionConfig && (
                   <div
                     style={{
@@ -2279,6 +2369,23 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
               ← Back
             </button>
           )}
+
+          {currentStep === 1 && (
+            <div className="su-footer-status">
+              <span>{dbType === 'postgresql' ? '🐘' : '🍃'}</span>
+              <span>Target: <strong>{dbType === 'postgresql' ? 'PostgreSQL' : 'MongoDB'}</strong></span>
+              <span style={{ color: '#cbd5e1' }}>•</span>
+              <span>Tier: <strong style={{ color: environmentTier === 'production' ? '#DC2626' : environmentTier === 'staging' ? '#B45309' : '#15803D' }}>{environmentTier.toUpperCase()}</strong></span>
+              <span style={{ color: '#cbd5e1' }}>•</span>
+              <span>
+                {isConnected ? (
+                  <span style={{ color: '#16A34A', fontWeight: 600 }}>● Catalog Introspected ({introspectedTables.length} relations)</span>
+                ) : (
+                  <span style={{ color: '#64748B' }}>○ Connect database to continue</span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         <div>
@@ -2288,6 +2395,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
               className="su-btn su-btn-primary"
               disabled={!isConnected}
               onClick={() => setCurrentStep(2)}
+              title={!isConnected ? 'Connect database catalog first to proceed' : 'Proceed to Schema Drift Radar'}
             >
               Continue to Inspection & Drift Radar →
             </button>
