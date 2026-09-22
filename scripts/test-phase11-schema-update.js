@@ -36,6 +36,7 @@ const {
   sanitizeSqlType,
   formatSqlDefaultClause,
   formatMongoDefaultValue,
+  formatSuccessMessage,
 } = require('../apps/desktop/dist-electron/handlers/schemaUpdate');
 
 // ── Test Group 1: PostgreSQL Script Generation (8 Operations) ────────────────
@@ -377,6 +378,55 @@ const mongoDropIdx = generateMongoDbScripts({
   // columnName omitted
 });
 assert(!mongoDropIdx.rollbackScript.includes('createIndex({ "_id": 1 }, { name:'), 'MongoDB dropIndex rollback never creates illegal custom index on _id');
+
+// 5.7 onDelete Whitelisting & SQL Injection Prevention
+const injectedFk = generatePostgreSqlScripts({
+  databaseType: 'postgresql',
+  operation: 'addForeignKey',
+  tableName: 'orders',
+  columnName: 'customer_id',
+  foreignTable: 'customers',
+  foreignColumn: 'id',
+  onDelete: 'CASCADE; DROP TABLE users;--',
+});
+assert(injectedFk.forwardScript.includes('ON DELETE NO ACTION;'), 'addForeignKey rejects injected onDelete and falls back to NO ACTION');
+
+// 5.8 Engine-Aware Risk Detection (MongoDB ignores PostgreSQL 23502 NOT NULL check)
+const mongoRisks = analyzeSchemaUpdateRisks(
+  {
+    databaseType: 'mongodb',
+    operation: 'addColumn',
+    tableName: 'orders',
+    columnName: 'tracking_code',
+    isNullable: false,
+  },
+  {
+    tableName: 'orders',
+    rowCount: 50000,
+    columns: [],
+  }
+);
+assert(!mongoRisks.some((r) => r.id === 'risk_not_null_no_default_populated'), 'MongoDB ignores PostgreSQL error 23502 NOT NULL populated table risk');
+
+// 5.9 Natural English Success Message Formatting
+const successMsg = formatSuccessMessage({
+  databaseType: 'postgresql',
+  operation: 'addColumn',
+  tableName: 'users',
+  columnName: 'loyalty_points',
+  dataType: 'INTEGER',
+  isNullable: true,
+});
+assert(successMsg.includes('loyalty_points') && successMsg.includes('users'), 'formatSuccessMessage formats natural English description');
+
+// 5.10 MongoDB dropIndex with Inferred Index Name
+const mongoDropInferred = generateMongoDbScripts({
+  databaseType: 'mongodb',
+  operation: 'dropIndex',
+  tableName: 'orders',
+  columnName: 'status',
+});
+assert(mongoDropInferred.forwardScript.includes('db.orders.dropIndex("idx_orders_status");'), 'MongoDB dropIndex generates inferred index name when indexName is omitted');
 
 
 // ── Summary ──────────────────────────────────────────────────────────────────

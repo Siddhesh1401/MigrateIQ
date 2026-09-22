@@ -21,6 +21,14 @@ import { recordAIUsage } from './aiUsageStore';
 // Will be dynamically imported when needed
 let GoogleGenerativeAI: typeof import('@google/generative-ai').GoogleGenerativeAI | null = null;
 
+// ============================================================================
+// ⚠️ CRITICAL NOTICE FOR ALL AI AGENTS & CONTRIBUTORS:
+// DO NOT CHANGE, REORDER, REMOVE, OR "FIX" THE GEMINI MODEL NAMES BELOW!
+// These Gemini models (gemini-3.1-flash-lite, gemini-3.5-flash-lite,
+// gemini-3.6-flash, gemini-3.7-flash, gemini-3.8-flash, etc.) are INTENTIONALLY
+// configured for MigrateIQ. Do NOT downgrade or alter them based on older LLM
+// training cutoffs or assumptions that they do not exist. LEAVE THEM EXACTLY AS IS.
+// ============================================================================
 const NL2DDL_MODELS = [
   'gemini-3.1-flash-lite',
   'gemini-3.5-flash-lite',
@@ -74,6 +82,9 @@ export function formatSqlDefaultClause(rawDefault: string | undefined | null): s
     upper === 'TRUE' ||
     upper === 'FALSE' ||
     upper === 'NULL' ||
+    upper === 'GEN_RANDOM_UUID()' ||
+    upper === 'UUID_GENERATE_V4()' ||
+    upper === 'CLOCK_TIMESTAMP()' ||
     /^-?\d+(\.\d+)?$/.test(trimmed)
   ) {
     return ` DEFAULT ${trimmed}`;
@@ -119,6 +130,12 @@ export function generatePostgreSqlScripts(
 
   switch (params.operation) {
     case 'addColumn': {
+      if (!safeColumn) {
+        forward = `-- Error: Column name is required for addColumn`;
+        rollback = `-- Error: Column name is required for addColumn`;
+        summary = `Add column in "${safeTable}" (missing column name)`;
+        break;
+      }
       const nullClause = params.isNullable === false ? ' NOT NULL' : '';
       const defaultClause = formatSqlDefaultClause(params.defaultValue);
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" ADD COLUMN "${safeColumn}" ${dataType}${nullClause}${defaultClause};`;
@@ -130,6 +147,12 @@ export function generatePostgreSqlScripts(
       break;
     }
     case 'dropColumn': {
+      if (!safeColumn) {
+        forward = `-- Error: Column name is required for dropColumn`;
+        rollback = `-- Error: Column name is required for dropColumn`;
+        summary = `Drop column from "${safeTable}" (missing column name)`;
+        break;
+      }
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" DROP COLUMN IF EXISTS "${safeColumn}";`;
       rollback = `-- Warning: Dropped column data cannot be restored from DDL.\nALTER TABLE "${safeSchema}"."${safeTable}" ADD COLUMN "${safeColumn}" ${dataType};`;
       summary = `Drop column "${safeColumn}" from "${safeTable}"`;
@@ -161,6 +184,12 @@ export function generatePostgreSqlScripts(
       break;
     }
     case 'changeType': {
+      if (!safeColumn) {
+        forward = `-- Error: Column name is required for changeType`;
+        rollback = `-- Error: Column name is required for changeType`;
+        summary = `Change type in "${safeTable}" (missing column name)`;
+        break;
+      }
       const rollbackType = sanitizeSqlType(params.originalDataType || 'TEXT');
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" ALTER COLUMN "${safeColumn}" TYPE ${dataType} USING "${safeColumn}"::${dataType};`;
       rollback = `ALTER TABLE "${safeSchema}"."${safeTable}" ALTER COLUMN "${safeColumn}" TYPE ${rollbackType} USING "${safeColumn}"::${rollbackType};`;
@@ -169,6 +198,12 @@ export function generatePostgreSqlScripts(
       break;
     }
     case 'addIndex': {
+      if (!safeColumn && !params.indexName) {
+        forward = `-- Error: Column name or index name is required for addIndex`;
+        rollback = `-- Error: Column name or index name is required for addIndex`;
+        summary = `Add index in "${safeTable}" (missing column)`;
+        break;
+      }
       const idxName = sanitizeIdentifier(
         params.indexName || `idx_${safeTable}_${safeColumn}`
       );
@@ -179,7 +214,13 @@ export function generatePostgreSqlScripts(
       break;
     }
     case 'dropIndex': {
-      const idxName = sanitizeIdentifier(params.indexName || `idx_${safeTable}_${safeColumn}`);
+      const idxName = sanitizeIdentifier(params.indexName || (safeColumn ? `idx_${safeTable}_${safeColumn}` : ''));
+      if (!idxName || idxName === 'public') {
+        forward = `-- Error: Index name or column name is required for dropIndex`;
+        rollback = `-- Error: Index name or column name is required for dropIndex`;
+        summary = `Drop index from "${safeTable}" (missing index name)`;
+        break;
+      }
       forward = `DROP INDEX IF EXISTS "${safeSchema}"."${idxName}";`;
       rollback = `CREATE INDEX "${idxName}" ON "${safeSchema}"."${safeTable}" ("${safeColumn || 'id'}");`;
       summary = `Drop index "${idxName}" from "${safeTable}"`;
@@ -198,7 +239,10 @@ export function generatePostgreSqlScripts(
       const fkName = sanitizeIdentifier(
         `fk_${safeTable}_${safeColumn}_${safeForeignTable}`
       );
-      const onDelete = params.onDelete || 'NO ACTION';
+      const VALID_ON_DELETE = new Set(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION', 'SET DEFAULT']);
+      const rawOnDelete = (params.onDelete || 'NO ACTION').toUpperCase();
+      const onDelete = VALID_ON_DELETE.has(rawOnDelete) ? rawOnDelete : 'NO ACTION';
+
       forward = `ALTER TABLE "${safeSchema}"."${safeTable}" ADD CONSTRAINT "${fkName}" FOREIGN KEY ("${safeColumn}") REFERENCES "${safeSchema}"."${safeForeignTable}" ("${safeForeignCol}") ON DELETE ${onDelete};`;
       rollback = `ALTER TABLE "${safeSchema}"."${safeTable}" DROP CONSTRAINT IF EXISTS "${fkName}";`;
       summary = `Add foreign key from "${safeTable}"."${safeColumn}" to "${safeForeignTable}"."${safeForeignCol}"`;
@@ -251,6 +295,12 @@ export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScr
 
   switch (params.operation) {
     case 'addColumn': {
+      if (!safeColumn) {
+        forward = `// Error: Field name is required for addColumn`;
+        rollback = `// Error: Field name is required for addColumn`;
+        summary = `Add field to "${safeTable}" (missing field name)`;
+        break;
+      }
       const { scriptValue } = formatMongoDefaultValue(params.defaultValue);
       forward = `db.${safeTable}.updateMany({ "${safeColumn}": { $exists: false } }, { $set: { "${safeColumn}": ${scriptValue} } });`;
       rollback = `db.${safeTable}.updateMany({}, { $unset: { "${safeColumn}": "" } });`;
@@ -258,6 +308,12 @@ export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScr
       break;
     }
     case 'dropColumn': {
+      if (!safeColumn) {
+        forward = `// Error: Field name is required for dropColumn`;
+        rollback = `// Error: Field name is required for dropColumn`;
+        summary = `Drop field from "${safeTable}" (missing field name)`;
+        break;
+      }
       forward = `db.${safeTable}.updateMany({}, { $unset: { "${safeColumn}": "" } });`;
       rollback = `// Warning: Dropped field data cannot be restored without a backup.\ndb.${safeTable}.updateMany({ "${safeColumn}": { $exists: false } }, { $set: { "${safeColumn}": null } });`;
       summary = `Drop field "${safeColumn}" from collection "${safeTable}"`;
@@ -265,18 +321,36 @@ export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScr
       break;
     }
     case 'renameColumn': {
+      if (!safeColumn || !safeNewColumn) {
+        forward = `// Error: Both current and new field names are required for renameColumn`;
+        rollback = `// Error: Both current and new field names are required for renameColumn`;
+        summary = `Rename field in "${safeTable}" (missing parameter)`;
+        break;
+      }
       forward = `db.${safeTable}.updateMany({}, { $rename: { "${safeColumn}": "${safeNewColumn}" } });`;
       rollback = `db.${safeTable}.updateMany({}, { $rename: { "${safeNewColumn}": "${safeColumn}" } });`;
       summary = `Rename field "${safeColumn}" to "${safeNewColumn}" in "${safeTable}"`;
       break;
     }
     case 'renameTable': {
+      if (!safeNewTable) {
+        forward = `// Error: New collection name is required for renameTable`;
+        rollback = `// Error: New collection name is required for renameTable`;
+        summary = `Rename collection "${safeTable}" (missing new name)`;
+        break;
+      }
       forward = `db.${safeTable}.renameCollection("${safeNewTable}");`;
       rollback = `db.${safeNewTable}.renameCollection("${safeTable}");`;
       summary = `Rename collection "${safeTable}" to "${safeNewTable}"`;
       break;
     }
     case 'addIndex': {
+      if (!safeColumn) {
+        forward = `// Error: Field name is required for addIndex`;
+        rollback = `// Error: Field name is required for addIndex`;
+        summary = `Create index on "${safeTable}" (missing field)`;
+        break;
+      }
       const idxName = sanitizeIdentifier(
         params.indexName || `idx_${safeTable}_${safeColumn}`
       );
@@ -289,7 +363,13 @@ export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScr
       break;
     }
     case 'dropIndex': {
-      const idxName = sanitizeIdentifier(params.indexName || `idx_${safeTable}_${safeColumn}`);
+      const idxName = sanitizeIdentifier(params.indexName || (safeColumn ? `idx_${safeTable}_${safeColumn}` : ''));
+      if (!idxName || idxName === 'public') {
+        forward = `// Error: Index name or column name is required for dropIndex`;
+        rollback = `// Error: Index name or column name is required for dropIndex`;
+        summary = `Drop index from "${safeTable}" (missing index name)`;
+        break;
+      }
       forward = `db.${safeTable}.dropIndex("${idxName}");`;
       rollback = safeColumn
         ? `db.${safeTable}.createIndex({ "${safeColumn}": 1 }, { name: "${idxName}" });`
@@ -298,9 +378,9 @@ export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScr
       break;
     }
     default:
-      forward = `// MongoDB operation`;
-      rollback = `// MongoDB rollback`;
-      summary = `MongoDB operation`;
+      forward = `// Error: Unsupported operation "${params.operation}" for MongoDB`;
+      rollback = `// Error: Unsupported rollback for "${params.operation}"`;
+      summary = `Unsupported MongoDB operation: ${params.operation}`;
   }
 
   return {
@@ -322,8 +402,9 @@ export function analyzeSchemaUpdateRisks(
   const tableName = params.tableName;
   const colName = params.columnName || 'column';
 
-  // Rule 1: NOT NULL constraint without default on populated table
+  // Rule 1: NOT NULL constraint without default on populated table (PostgreSQL only)
   if (
+    params.databaseType === 'postgresql' &&
     params.operation === 'addColumn' &&
     params.isNullable === false &&
     (!params.defaultValue || params.defaultValue.trim() === '')
@@ -350,18 +431,18 @@ export function analyzeSchemaUpdateRisks(
     }
   }
 
-  // Rule 2: Dropping column (Irreversible data loss)
+  // Rule 2: Dropping column (Irreversible data loss) - applies to both PostgreSQL and MongoDB
   if (params.operation === 'dropColumn') {
     risks.push({
       id: 'risk_drop_column_loss',
       severity: 'critical',
       title: 'Irreversible Data Loss Risk',
-      description: `Dropping column "${colName}" will permanently destroy all data stored in this column across all ${rowCount.toLocaleString()} rows. This operation is IRREVERSIBLE once committed.`,
+      description: `Dropping ${params.databaseType === 'mongodb' ? 'field' : 'column'} "${colName}" will permanently destroy all data stored in this ${params.databaseType === 'mongodb' ? 'field' : 'column'} across all ${rowCount.toLocaleString()} ${params.databaseType === 'mongodb' ? 'documents' : 'rows'}. This operation is IRREVERSIBLE once committed.`,
     });
   }
 
-  // Rule 3: Changing column type
-  if (params.operation === 'changeType') {
+  // Rule 3: Changing column type (PostgreSQL only)
+  if (params.databaseType === 'postgresql' && params.operation === 'changeType') {
     risks.push({
       id: 'risk_change_type_lock',
       severity: 'warning',
@@ -370,7 +451,7 @@ export function analyzeSchemaUpdateRisks(
     });
   }
 
-  // Rule 4: Dropping index
+  // Rule 4: Dropping index (applies to both PostgreSQL and MongoDB)
   if (params.operation === 'dropIndex') {
     risks.push({
       id: 'risk_drop_index_perf',
@@ -380,8 +461,8 @@ export function analyzeSchemaUpdateRisks(
     });
   }
 
-  // Rule 5: Adding Foreign Key
-  if (params.operation === 'addForeignKey') {
+  // Rule 5: Adding Foreign Key (PostgreSQL only)
+  if (params.databaseType === 'postgresql' && params.operation === 'addForeignKey') {
     risks.push({
       id: 'risk_add_fk_validation',
       severity: 'warning',
@@ -530,6 +611,31 @@ export function parseNaturalLanguageOffline(
   }
 
   return null;
+}
+
+// ── Format Natural Language Success Message ──────────────────────────────────
+
+export function formatSuccessMessage(params: SchemaChangeParams): string {
+  switch (params.operation) {
+    case 'addColumn':
+      return `Column "${params.columnName}" (${params.dataType || 'field'}, ${params.isNullable === false ? 'NOT NULL' : 'nullable'}) has been added to the "${params.tableName}" table.`;
+    case 'dropColumn':
+      return `Column "${params.columnName}" has been dropped from the "${params.tableName}" table.`;
+    case 'renameColumn':
+      return `Column "${params.columnName}" has been renamed to "${params.newColumnName}" in the "${params.tableName}" table.`;
+    case 'renameTable':
+      return `Table "${params.tableName}" has been renamed to "${params.newTableName}".`;
+    case 'changeType':
+      return `Column "${params.columnName}" type in "${params.tableName}" has been changed to ${params.dataType}.`;
+    case 'addIndex':
+      return `${params.isUnique ? 'Unique index' : 'Index'} "${params.indexName || `idx_${params.tableName}_${params.columnName}`}" has been created on "${params.tableName}".`;
+    case 'dropIndex':
+      return `Index "${params.indexName || `idx_${params.tableName}_${params.columnName}`}" has been dropped from "${params.tableName}".`;
+    case 'addForeignKey':
+      return `Foreign key constraint from "${params.tableName}"."${params.columnName}" to "${params.foreignTable}"."${params.foreignColumn || 'id'}" has been added.`;
+    default:
+      return `Schema change applied successfully to "${params.tableName}".`;
+  }
 }
 
 // ── Gemini NL2DDL Interpretation ─────────────────────────────────────────────
@@ -735,6 +841,24 @@ export function setupSchemaUpdateHandlers(): void {
     }
   );
 
+  // Helper: Extract non-empty database name from config or connection string
+  function extractDbName(config: ConnectionConfig): string {
+    if (config.database && config.database.trim()) return config.database.trim();
+    if (config.connectionString) {
+      try {
+        const normalized = config.connectionString
+          .replace(/^mongodb\+srv:\/\//i, 'https://')
+          .replace(/^mongodb:\/\//i, 'http://')
+          .replace(/^postgresql:\/\//i, 'http://')
+          .replace(/^postgres:\/\//i, 'http://');
+        const u = new URL(normalized);
+        const pathname = u.pathname.replace(/^\//, '');
+        if (pathname) return pathname.split('?')[0];
+      } catch {}
+    }
+    return 'default';
+  }
+
   // 4. Live Execution of Schema Update
   ipcMain.handle(
     'schema:apply-update',
@@ -742,21 +866,38 @@ export function setupSchemaUpdateHandlers(): void {
       _event,
       payload: {
         config: ConnectionConfig;
-        forwardScript: string;
-        rollbackScript: string;
+        forwardScript?: string;
+        rollbackScript?: string;
         params: SchemaChangeParams;
       }
     ): Promise<IPCResponse<SchemaUpdateExecutionResult>> => {
       const startTime = Date.now();
-      const { config, forwardScript, rollbackScript, params } = payload;
+      const { config, params } = payload;
 
       if (!config) {
         return { success: false, error: 'Database connection configuration is missing.' };
       }
+      if (!params || !params.tableName || !params.operation) {
+        return { success: false, error: 'Valid schema change parameters are required.' };
+      }
+
+      const dbName = extractDbName(config);
+      const successMsg = formatSuccessMessage(params);
 
       if (params.databaseType === 'postgresql') {
         let pgClient: PgClient | null = null;
         try {
+          // Security hardening: Regenerate SQL from params and target schema on backend
+          // instead of blindly executing arbitrary strings sent across IPC
+          const scriptObj = generatePostgreSqlScripts(params, config.schema || 'public');
+          if (scriptObj.forwardScript.includes('-- Error:')) {
+            return {
+              success: false,
+              error: 'Cannot execute update: Required schema change parameters are missing or invalid.',
+            };
+          }
+          const safeSqlToExecute = scriptObj.forwardScript;
+
           const pgConfig = config.connectionString
             ? {
                 connectionString: config.connectionString,
@@ -778,8 +919,8 @@ export function setupSchemaUpdateHandlers(): void {
           pgClient = new PgClient(pgConfig);
           await pgClient.connect();
 
-          // Execute script inside PostgreSQL
-          await pgClient.query(forwardScript);
+          // Execute safe verified script inside PostgreSQL
+          await pgClient.query(safeSqlToExecute);
           const duration = Date.now() - startTime;
 
           // Record history
@@ -787,11 +928,11 @@ export function setupSchemaUpdateHandlers(): void {
             id: randomUUID(),
             timestamp: new Date().toISOString(),
             databaseType: 'postgresql',
-            databaseName: config.database,
+            databaseName: dbName,
             operation: params.operation,
             tableName: params.tableName,
-            forwardScript,
-            rollbackScript,
+            forwardScript: safeSqlToExecute,
+            rollbackScript: scriptObj.rollbackScript,
             status: 'applied',
             durationMs: duration,
           };
@@ -803,8 +944,8 @@ export function setupSchemaUpdateHandlers(): void {
             data: {
               success: true,
               executionTimeMs: duration,
-              message: `Schema update applied successfully in ${duration}ms!`,
-              sqlExecuted: forwardScript,
+              message: successMsg,
+              sqlExecuted: safeSqlToExecute,
             },
           };
         } catch (err: unknown) {
@@ -831,16 +972,18 @@ export function setupSchemaUpdateHandlers(): void {
             suggestion = 'Verify the column name against the table structure.';
           }
 
+          const scriptObj = generatePostgreSqlScripts(params, config.schema || 'public');
+
           // Record failed history
           const historyItem: SchemaHistoryItem = {
             id: randomUUID(),
             timestamp: new Date().toISOString(),
             databaseType: 'postgresql',
-            databaseName: config.database,
+            databaseName: dbName,
             operation: params.operation,
             tableName: params.tableName,
-            forwardScript,
-            rollbackScript,
+            forwardScript: scriptObj.forwardScript,
+            rollbackScript: scriptObj.rollbackScript,
             status: 'failed',
             durationMs: Date.now() - startTime,
             errorMessage: userFriendlyMessage,
@@ -857,7 +1000,7 @@ export function setupSchemaUpdateHandlers(): void {
               errorCode: code,
               error: userFriendlyMessage,
               suggestion,
-              sqlExecuted: forwardScript,
+              sqlExecuted: scriptObj.forwardScript,
             },
             error: userFriendlyMessage,
           };
@@ -870,6 +1013,14 @@ export function setupSchemaUpdateHandlers(): void {
         // MongoDB execution
         let mongoClient: MongoClient | null = null;
         try {
+          const scriptObj = generateMongoDbScripts(params);
+          if (scriptObj.forwardScript.includes('// Error:')) {
+            return {
+              success: false,
+              error: 'Cannot execute update: Required schema change parameters are missing or invalid for MongoDB.',
+            };
+          }
+
           const uri =
             config.connectionString ||
             `mongodb://${config.user ? `${encodeURIComponent(config.user)}:${encodeURIComponent(config.password || '')}@` : ''}${config.host || 'localhost'}:${config.port || 27017}`;
@@ -883,26 +1034,50 @@ export function setupSchemaUpdateHandlers(): void {
 
           // Execute corresponding native MongoDB command
           const collection = db.collection(params.tableName);
+          let opExecuted = false;
+
           if (params.operation === 'addColumn' && params.columnName) {
             const { nativeValue: defVal } = formatMongoDefaultValue(params.defaultValue);
             await collection.updateMany(
               { [params.columnName]: { $exists: false } },
               { $set: { [params.columnName]: defVal } }
             );
+            opExecuted = true;
           } else if (params.operation === 'dropColumn' && params.columnName) {
             await collection.updateMany({}, { $unset: { [params.columnName]: '' } });
+            opExecuted = true;
           } else if (params.operation === 'renameColumn' && params.columnName && params.newColumnName) {
             await collection.updateMany({}, { $rename: { [params.columnName]: params.newColumnName } });
+            opExecuted = true;
           } else if (params.operation === 'renameTable' && params.newTableName) {
             await collection.rename(params.newTableName);
+            opExecuted = true;
           } else if (params.operation === 'addIndex' && params.columnName) {
             const idxOpts: Record<string, unknown> = {};
             if (params.indexName) idxOpts.name = params.indexName;
             if (params.isUnique) idxOpts.unique = true;
             if (params.sparse) idxOpts.sparse = true;
             await collection.createIndex({ [params.columnName]: 1 }, idxOpts);
-          } else if (params.operation === 'dropIndex' && params.indexName) {
-            await collection.dropIndex(params.indexName);
+            opExecuted = true;
+          } else if (params.operation === 'dropIndex') {
+            const idxName = params.indexName || (params.columnName ? sanitizeIdentifier(`idx_${params.tableName}_${params.columnName}`) : '');
+            if (!idxName || idxName === 'public') {
+              return { success: false, error: 'Index name or column name is required to drop an index in MongoDB.' };
+            }
+            await collection.dropIndex(idxName);
+            opExecuted = true;
+          } else {
+            return {
+              success: false,
+              error: `Operation "${params.operation}" is not supported or missing required fields on MongoDB collections.`,
+            };
+          }
+
+          if (!opExecuted) {
+            return {
+              success: false,
+              error: `MongoDB operation "${params.operation}" could not be completed with the provided parameters.`,
+            };
           }
 
           const duration = Date.now() - startTime;
@@ -912,11 +1087,11 @@ export function setupSchemaUpdateHandlers(): void {
             id: randomUUID(),
             timestamp: new Date().toISOString(),
             databaseType: 'mongodb',
-            databaseName: config.database,
+            databaseName: dbName,
             operation: params.operation,
             tableName: params.tableName,
-            forwardScript,
-            rollbackScript,
+            forwardScript: scriptObj.forwardScript,
+            rollbackScript: scriptObj.rollbackScript,
             status: 'applied',
             durationMs: duration,
           };
@@ -928,12 +1103,13 @@ export function setupSchemaUpdateHandlers(): void {
             data: {
               success: true,
               executionTimeMs: duration,
-              message: `MongoDB collection update executed successfully in ${duration}ms!`,
-              sqlExecuted: forwardScript,
+              message: successMsg,
+              sqlExecuted: scriptObj.forwardScript,
             },
           };
         } catch (err: unknown) {
           const msg = maskSensitiveFields((err as Error).message || 'MongoDB update failed');
+          const scriptObj = generateMongoDbScripts(params);
           return {
             success: false,
             data: {
@@ -941,7 +1117,7 @@ export function setupSchemaUpdateHandlers(): void {
               executionTimeMs: Date.now() - startTime,
               message: msg,
               error: msg,
-              sqlExecuted: forwardScript,
+              sqlExecuted: scriptObj.forwardScript,
             },
             error: msg,
           };

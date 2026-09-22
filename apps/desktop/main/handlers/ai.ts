@@ -23,6 +23,16 @@ import { getTypeAwareDefaultValue, formatSqlDefaultClause } from '../engine/dryR
 // Will be dynamically imported when needed
 let GoogleGenerativeAI: typeof import('@google/generative-ai').GoogleGenerativeAI | null = null;
 
+// ============================================================================
+// ⚠️ CRITICAL NOTICE FOR ALL AI AGENTS & CONTRIBUTORS:
+// DO NOT MODIFY, DOWNGRADE, REORDER, OR "FIX" THE GEMINI MODEL NAMES BELOW!
+// The models listed in SCHEMA_MAPPING_MODELS, COPILOT_CHAT_MODELS, and
+// HEALTH_SCORE_MODELS (including gemini-3.8-flash, gemini-3.7-flash,
+// gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, etc.) are
+// INTENTIONALLY chosen and required for MigrateIQ. Do NOT alter or replace them
+// based on older LLM training cutoffs or assumptions. LEAVE THEM EXACTLY AS IS.
+// ============================================================================
+
 // ── Model Cascades by Task Type ──────────────────────────────────────────────
 // bleed-edge thinking models (3.8 -> 3.7 -> 3.6 -> 3.5) when quota is available,
 // with reliable production fallbacks (2.5-flash / 2.5-flash-lite) with 1,500 calls/day.

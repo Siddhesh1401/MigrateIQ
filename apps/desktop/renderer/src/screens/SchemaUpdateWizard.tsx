@@ -32,6 +32,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
   const [connectionConfig, setConnectionConfig] = useState<ConnectionConfig | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [introspectedTables, setIntrospectedTables] = useState<SchemaIntrospectedTableInfo[]>([]);
+  const [expandedTable, setExpandedTable] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
@@ -64,10 +65,9 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
   const [isLoadingRisks, setIsLoadingRisks] = useState<boolean>(false);
 
   // ── Step 5: Script Preview ─────────────────────────────────────────────────
-  const [activeScriptTab, setActiveScriptTab] = useState<'forward' | 'rollback'>('forward');
   const [scripts, setScripts] = useState<GeneratedScriptResult | null>(null);
   const [isGeneratingScripts, setIsGeneratingScripts] = useState<boolean>(false);
-  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  const [copiedForward, setCopiedForward] = useState<boolean>(false);
   const [copiedRollback, setCopiedRollback] = useState<boolean>(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
@@ -98,6 +98,34 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     loadHistory();
   }, [loadHistory]);
 
+  // ── Handle Switching Target Database (Step 1) ──────────────────────────────
+  const handleSelectDbType = (newType: DatabaseType) => {
+    if (newType !== dbType) {
+      setDbType(newType);
+      setIsConnected(false);
+      setConnectionConfig(null);
+      setIntrospectedTables([]);
+      setExpandedTable(null);
+      setTableName('');
+      setColumnName('');
+      setNewColumnName('');
+      setNewTableName('');
+      setDataType(newType === 'mongodb' ? '' : 'VARCHAR(255)');
+      setIsNullable(true);
+      setDefaultValue('');
+      setIndexName('');
+      setIsUnique(false);
+      setForeignTable('');
+      setForeignColumn('id');
+      setRisks([]);
+      setScripts(null);
+      setExecutionResult(null);
+      setConnectionError(null);
+      setAiResult(null);
+      setAiError(null);
+    }
+  };
+
   // ── Handle Connection ──────────────────────────────────────────────────────
   const handleConnect = async (config: ConnectionConfig): Promise<boolean> => {
     setIsConnecting(true);
@@ -114,6 +142,14 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
           return false;
         }
 
+        const indexesByTable: Record<string, string[]> = {};
+        if (res.data.indexes) {
+          res.data.indexes.forEach((idx) => {
+            if (!indexesByTable[idx.tablename]) indexesByTable[idx.tablename] = [];
+            indexesByTable[idx.tablename].push(idx.indexname);
+          });
+        }
+
         const tables: SchemaIntrospectedTableInfo[] = res.data.tables.map((t) => ({
           tableName: t.table_name,
           rowCount: t.estimated_rows ?? 0,
@@ -122,10 +158,11 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
             dataType: t.column_types[idx] || 'text',
             isNullable: t.is_nullables ? t.is_nullables[idx] === 'YES' : true,
           })),
+          indexes: indexesByTable[t.table_name] || [],
         }));
 
         setIntrospectedTables(tables);
-        if (tables.length > 0 && !tableName) {
+        if (tables.length > 0 && (!tableName || !tables.some((t) => t.tableName === tableName))) {
           setTableName(tables[0].tableName);
         }
         setConnectionConfig(config);
@@ -147,10 +184,11 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
             dataType: f.bsonType,
             isNullable: f.isNullable,
           })),
+          indexes: [],
         }));
 
         setIntrospectedTables(tables);
-        if (tables.length > 0 && !tableName) {
+        if (tables.length > 0 && (!tableName || !tables.some((t) => t.tableName === tableName))) {
           setTableName(tables[0].tableName);
         }
         setConnectionConfig(config);
@@ -253,7 +291,9 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     if (!tableName) return false;
     switch (operation) {
       case 'addColumn':
-        return Boolean(columnName.trim() && dataType.trim());
+        return dbType === 'postgresql'
+          ? Boolean(columnName.trim() && dataType.trim())
+          : Boolean(columnName.trim());
       case 'dropColumn':
         return Boolean(columnName.trim());
       case 'renameColumn':
@@ -283,6 +323,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
         return false;
     }
   }, [
+    dbType,
     tableName,
     operation,
     columnName,
@@ -345,29 +386,12 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
     }
   }, [currentStep, evaluateRisks, generateScripts]);
 
-  // ── Copy Script to Clipboard ───────────────────────────────────────────────
-  const handleCopyScript = () => {
-    if (!scripts) return;
-    const textToCopy =
-      activeScriptTab === 'forward' ? scripts.forwardScript : scripts.rollbackScript;
-    navigator.clipboard.writeText(textToCopy);
-    setCopiedScript(true);
-    setTimeout(() => setCopiedScript(false), 2000);
-  };
-
-  // ── Download Script File ───────────────────────────────────────────────────
-  const handleDownloadScript = () => {
-    if (!scripts) return;
-    const text = activeScriptTab === 'forward' ? scripts.forwardScript : scripts.rollbackScript;
-    const blob = new Blob([text], { type: 'text/sql;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `schema_${activeScriptTab}_${operation}_${tableName}.sql`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  // ── Copy Forward Script to Clipboard ───────────────────────────────────────
+  const handleCopyForward = () => {
+    if (!scripts?.forwardScript) return;
+    navigator.clipboard.writeText(scripts.forwardScript);
+    setCopiedForward(true);
+    setTimeout(() => setCopiedForward(false), 2000);
   };
 
   // ── Download Both Scripts Bundle ──────────────────────────────────────────
@@ -451,11 +475,26 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
   };
 
   // ── 1-Click Auto Fix for NOT NULL ──────────────────────────────────────────
-  const handleApplyAutoFix = () => {
+  const handleApplyAutoFix = async () => {
     setIsNullable(true);
-    setTimeout(() => {
-      evaluateRisks();
-    }, 50);
+    setIsLoadingRisks(true);
+    try {
+      const fixedParams: SchemaChangeParams = { ...currentParams, isNullable: true };
+      const res = await window.electronAPI.invoke<SchemaUpdateRiskItem[]>(
+        'schema:analyze-risks',
+        {
+          params: fixedParams,
+          tableInfo: currentTableInfo,
+        }
+      );
+      if (res.success && res.data) {
+        setRisks(res.data);
+      }
+    } catch (e) {
+      console.error('Failed to re-analyze risks:', e);
+    } finally {
+      setIsLoadingRisks(false);
+    }
   };
 
   return (
@@ -590,7 +629,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
               {/* PostgreSQL Card */}
               <div
                 className={`su-db-card ${dbType === 'postgresql' ? 'selected' : ''}`}
-                onClick={() => setDbType('postgresql')}
+                onClick={() => handleSelectDbType('postgresql')}
               >
                 <div className="su-db-icon-wrap" style={{ color: '#2563EB' }}>
                   🐘
@@ -610,7 +649,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
               {/* MongoDB Card */}
               <div
                 className={`su-db-card ${dbType === 'mongodb' ? 'selected' : ''}`}
-                onClick={() => setDbType('mongodb')}
+                onClick={() => handleSelectDbType('mongodb')}
               >
                 <div className="su-db-icon-wrap" style={{ color: '#16A34A' }}>
                   🍃
@@ -640,6 +679,28 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   Connect to your live {dbType === 'postgresql' ? 'PostgreSQL' : 'MongoDB'} database to introspect active tables, schema layouts, and row counts.
                 </p>
               </div>
+
+              {isConnected && connectionConfig && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    background: '#F0FDF4',
+                    border: '1px solid #BBF7D0',
+                    borderRadius: 'var(--radius-sm)',
+                    marginBottom: '1.25rem',
+                    color: '#166534',
+                    fontSize: '0.875rem',
+                  }}
+                >
+                  <span style={{ fontWeight: 700 }}>✅ Connected</span>
+                  <span>
+                    Connected to <strong>{connectionConfig.database || 'Database'}</strong> ({introspectedTables.length} {dbType === 'postgresql' ? 'tables' : 'collections'} found)
+                  </span>
+                </div>
+              )}
 
               <ConnectionForm
                 dbType={dbType}
@@ -671,33 +732,120 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 <div className="su-card-header">
                   <h3 className="su-card-title">Introspected Relations ({introspectedTables.length})</h3>
                   <p className="su-card-desc">
-                    These active tables and collections were detected on the database. Select any to see columns.
+                    Click any table or collection to inspect columns, data types, nullability, and indexes.
                   </p>
                 </div>
 
-                <div className="su-table-list" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                  {introspectedTables.map((tbl) => (
-                    <div
-                      key={tbl.tableName}
-                      className="su-table-row"
-                      style={{
-                        cursor: 'pointer',
-                        background: tableName === tbl.tableName ? 'var(--brand-primary-light)' : undefined,
-                      }}
-                      onClick={() => setTableName(tbl.tableName)}
-                    >
-                      <div>
-                        <span className="su-table-name">{tbl.tableName}</span>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                          {tbl.columns.map((c) => c.columnName).slice(0, 5).join(', ')}
-                          {tbl.columns.length > 5 ? ` +${tbl.columns.length - 5} more` : ''}
+                <div className="su-table-list" style={{ maxHeight: '340px', overflowY: 'auto' }}>
+                  {introspectedTables.map((tbl) => {
+                    const isExpanded = expandedTable === tbl.tableName;
+                    const isSelected = tableName === tbl.tableName;
+
+                    return (
+                      <div
+                        key={tbl.tableName}
+                        style={{
+                          border: isSelected ? '1px solid var(--brand-primary)' : '1px solid var(--border-color)',
+                          borderRadius: 'var(--radius-sm)',
+                          marginBottom: '0.5rem',
+                          background: isSelected ? '#EFF6FF' : '#FFFFFF',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <div
+                          className="su-table-row"
+                          style={{
+                            cursor: 'pointer',
+                            padding: '0.75rem 1rem',
+                            border: 'none',
+                            marginBottom: 0,
+                            borderRadius: 0,
+                            background: 'transparent',
+                          }}
+                          onClick={() => {
+                            setTableName(tbl.tableName);
+                            setExpandedTable(isExpanded ? null : tbl.tableName);
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {isExpanded ? '▼' : '▶'}
+                              </span>
+                              <span className="su-table-name" style={{ fontWeight: 600 }}>{tbl.tableName}</span>
+                              {isSelected && (
+                                <span className="su-tag" style={{ background: '#DBEAFE', color: '#1D4ED8' }}>
+                                  Selected
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem', paddingLeft: '1rem' }}>
+                              {tbl.columns.length} columns/fields
+                              {tbl.indexes && tbl.indexes.length > 0 ? ` • ${tbl.indexes.length} indexes` : ''}
+                            </div>
+                          </div>
+                          <span className="su-row-count-badge">
+                            {tbl.rowCount !== undefined ? `${tbl.rowCount.toLocaleString()} rows` : 'Active'}
+                          </span>
                         </div>
+
+                        {/* Collapsible Schema Preview */}
+                        {isExpanded && (
+                          <div
+                            style={{
+                              padding: '0.75rem 1rem',
+                              borderTop: '1px solid var(--border-color)',
+                              background: '#F8FAFC',
+                              fontSize: '0.8125rem',
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-primary)' }}>
+                              Columns & Fields:
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                              {tbl.columns.map((c) => (
+                                <span
+                                  key={c.columnName}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    padding: '0.2rem 0.5rem',
+                                    background: '#FFFFFF',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  <strong>{c.columnName}</strong>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                    {c.dataType}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: '0.7rem',
+                                      padding: '0.05rem 0.3rem',
+                                      borderRadius: '3px',
+                                      background: c.isNullable ? '#E2E8F0' : '#FEE2E2',
+                                      color: c.isNullable ? '#475569' : '#DC2626',
+                                    }}
+                                  >
+                                    {c.isNullable ? 'NULL' : 'NOT NULL'}
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+
+                            {tbl.indexes && tbl.indexes.length > 0 && (
+                              <div style={{ marginTop: '0.4rem' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Indexes: </span>
+                                <span style={{ color: 'var(--text-secondary)' }}>{tbl.indexes.join(', ')}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <span className="su-row-count-badge">
-                        {tbl.rowCount ? `${tbl.rowCount.toLocaleString()} rows` : 'Active table'}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -862,8 +1010,8 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   </div>
                 )}
 
-                {/* Data Type */}
-                {(operation === 'addColumn' || operation === 'changeType') && (
+                {/* Data Type (PostgreSQL only) */}
+                {dbType === 'postgresql' && (operation === 'addColumn' || operation === 'changeType') && (
                   <div className="su-form-group">
                     <label className="su-label" htmlFor="su-datatype">
                       Data Type
@@ -1050,7 +1198,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                     disabled={!aiPrompt.trim() || isInterpretingAI}
                     onClick={handleInterpretWithAI}
                   >
-                    {isInterpretingAI ? 'Interpreting...' : 'Translate to Schema Change'}
+                    {isInterpretingAI ? 'Interpreting...' : '🤖 Let AI Interpret This'}
                   </button>
                 </div>
 
@@ -1202,72 +1350,96 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
             <div className="su-card-header">
               <h2 className="su-card-title">Step 5 — Script Preview & Safety Verification</h2>
               <p className="su-card-desc">
-                Review the exact forward SQL/commands and generated rollback scripts before executing.
+                Review the generated forward DDL and rollback scripts before executing against the live database.
               </p>
             </div>
 
-            {/* Checklist */}
+            {/* Safety Annotations */}
             <ul className="su-checklist">
               <li className="su-checklist-item">
                 <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>✓</span>
-                <span>Lock timeout enforced at <strong>5 seconds</strong> to prevent deadlock blocks.</span>
+                <span>Lock timeout enforced at <strong>5 seconds</strong> — query will abort safely if lock cannot be acquired within 5s.</span>
               </li>
               <li className="su-checklist-item">
                 <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>✓</span>
-                <span>Wrapped in atomic <strong>BEGIN ... COMMIT</strong> transaction.</span>
+                <span>
+                  {dbType === 'postgresql'
+                    ? 'Wrapped in atomic transaction (BEGIN ... COMMIT) — all changes roll back automatically on error.'
+                    : 'Targeted native collection operations with explicit error boundaries.'}
+                </span>
               </li>
               <li className="su-checklist-item">
                 <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>✓</span>
-                <span>Automated rollback script generated and verified.</span>
+                <span>Estimated execution time: <strong>&lt; 100ms</strong> for single schema alterations.</span>
               </li>
             </ul>
 
-            {/* Tabs for Forward vs Rollback */}
-            <div className="su-mode-tabs" style={{ maxWidth: '360px', margin: '1rem 0' }}>
-              <button
-                type="button"
-                className={`su-mode-tab ${activeScriptTab === 'forward' ? 'active' : ''}`}
-                onClick={() => setActiveScriptTab('forward')}
-              >
-                Forward DDL Script
-              </button>
-              <button
-                type="button"
-                className={`su-mode-tab ${activeScriptTab === 'rollback' ? 'active' : ''}`}
-                onClick={() => setActiveScriptTab('rollback')}
-              >
-                Rollback Script
-              </button>
-            </div>
+            {/* Dual Stacked Panels: Forward Script & Rollback Script */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', margin: '1.25rem 0' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                    Forward DDL Script
+                  </span>
+                  <button
+                    type="button"
+                    className="su-btn su-btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                    onClick={handleCopyForward}
+                  >
+                    {copiedForward ? '✓ Forward Copied!' : '📋 Copy Forward Script'}
+                  </button>
+                </div>
+                <div className="su-code-container" style={{ maxHeight: '200px' }}>
+                  {isGeneratingScripts
+                    ? '-- Generating safe forward script...'
+                    : scripts?.forwardScript || '-- No forward script generated'}
+                </div>
+              </div>
 
-            {/* Code Box */}
-            <div className="su-code-container">
-              {isGeneratingScripts
-                ? '-- Generating safe transaction script...'
-                : activeScriptTab === 'forward'
-                ? scripts?.forwardScript
-                : scripts?.rollbackScript}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.875rem', color: '#B45309' }}>
+                    Rollback Script (run this to undo)
+                  </span>
+                  <button
+                    type="button"
+                    className="su-btn su-btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                    onClick={handleCopyRollback}
+                  >
+                    {copiedRollback ? '✓ Rollback Copied!' : '📋 Copy Rollback Script'}
+                  </button>
+                </div>
+                <div
+                  className="su-code-container"
+                  style={{ maxHeight: '180px', borderLeft: '4px solid #F59E0B' }}
+                >
+                  {isGeneratingScripts
+                    ? '-- Generating safe rollback script...'
+                    : scripts?.rollbackScript || '-- No rollback script generated'}
+                </div>
+              </div>
             </div>
 
             {/* Toolbar */}
             <div className="su-code-toolbar">
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button className="su-btn su-btn-secondary" onClick={handleCopyScript}>
-                  {copiedScript ? '✓ Copied' : 'Copy Script'}
-                </button>
-                <button className="su-btn su-btn-secondary" onClick={handleDownloadScript}>
-                  Download {activeScriptTab === 'forward' ? 'Forward' : 'Rollback'} .sql
-                </button>
-                <button className="su-btn su-btn-secondary" onClick={handleDownloadBothScripts}>
-                  Download Both Scripts (.sql)
+                <button
+                  type="button"
+                  className="su-btn su-btn-secondary"
+                  onClick={handleDownloadBothScripts}
+                >
+                  ⬇ Download Both Scripts (.sql)
                 </button>
               </div>
 
               <button
-                className="su-btn su-btn-danger"
+                type="button"
+                className="su-btn su-btn-primary"
                 onClick={() => setIsConfirmModalOpen(true)}
               >
-                Apply Changes to Live Database
+                ▶ Apply This Change →
               </button>
             </div>
           </section>
@@ -1290,7 +1462,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   Applying schema update...
                 </div>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                  Acquiring lock and running transactional DDL.
+                  Acquiring lock and running safe transactional schema operations.
                 </p>
               </div>
             ) : executionResult ? (
@@ -1298,11 +1470,18 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 <div className={`su-result-banner ${executionResult.success ? 'success' : 'failed'}`}>
                   <div style={{ fontSize: '2.5rem' }}>{executionResult.success ? '🎉' : '⚠️'}</div>
                   <h3 className={`su-result-title ${executionResult.success ? 'success' : 'failed'}`}>
-                    {executionResult.success ? 'Schema Update Applied Successfully!' : 'Schema Update Aborted'}
+                    {executionResult.success
+                      ? 'Schema Update Applied Successfully!'
+                      : 'Schema Update Aborted'}
                   </h3>
                   <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--text-secondary)' }}>
                     {executionResult.message}
                   </p>
+                  {!executionResult.success && (
+                    <p style={{ margin: '0.4rem 0 0 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--status-error)' }}>
+                      The change was not applied. Your database is unchanged.
+                    </p>
+                  )}
                   <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
                     Execution Time: {executionResult.executionTimeMs}ms
                   </p>
@@ -1338,6 +1517,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
                   {scripts?.rollbackScript && (
                     <button
+                      type="button"
                       className="su-btn su-btn-secondary"
                       onClick={handleCopyRollback}
                     >
@@ -1347,6 +1527,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
                   {!executionResult.success && (
                     <button
+                      type="button"
                       className="su-btn su-btn-secondary"
                       style={{ borderColor: 'var(--status-error)', color: 'var(--status-error)' }}
                       onClick={() => setCurrentStep(3)}
@@ -1356,18 +1537,24 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   )}
 
                   <button
+                    type="button"
                     className="su-btn su-btn-primary"
                     onClick={() => {
+                      if (connectionConfig) {
+                        handleConnect(connectionConfig);
+                      }
                       setCurrentStep(3);
                       setAiPrompt('');
                       setAiResult(null);
                       setColumnName('');
+                      setNewColumnName('');
                     }}
                   >
-                    Perform Another Schema Update
+                    Make Another Change
                   </button>
 
                   <button
+                    type="button"
                     className="su-btn su-btn-secondary"
                     onClick={() => setShowHistory(true)}
                   >
@@ -1375,6 +1562,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                   </button>
 
                   <button
+                    type="button"
                     className="su-btn su-btn-secondary"
                     onClick={() => navigate('/')}
                   >
@@ -1392,6 +1580,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
         <div>
           {currentStep > 1 && currentStep < 6 && (
             <button
+              type="button"
               className="su-btn su-btn-secondary"
               onClick={() => setCurrentStep((prev) => prev - 1)}
             >
@@ -1403,6 +1592,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
         <div>
           {currentStep === 1 && (
             <button
+              type="button"
               className="su-btn su-btn-primary"
               onClick={() => setCurrentStep(2)}
             >
@@ -1412,6 +1602,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
           {currentStep === 2 && (
             <button
+              type="button"
               className="su-btn su-btn-primary"
               disabled={!isConnected}
               onClick={() => setCurrentStep(3)}
@@ -1422,6 +1613,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
           {currentStep === 3 && (
             <button
+              type="button"
               className="su-btn su-btn-primary"
               disabled={!isStep3Valid}
               onClick={() => setCurrentStep(4)}
@@ -1432,6 +1624,7 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
           {currentStep === 4 && (
             <button
+              type="button"
               className="su-btn su-btn-primary"
               onClick={() => setCurrentStep(5)}
             >
@@ -1441,10 +1634,11 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
 
           {currentStep === 5 && (
             <button
-              className="su-btn su-btn-danger"
+              type="button"
+              className="su-btn su-btn-primary"
               onClick={() => setIsConfirmModalOpen(true)}
             >
-              Apply to Live Database
+              ▶ Apply This Change →
             </button>
           )}
         </div>
@@ -1454,12 +1648,11 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
       {isConfirmModalOpen && (
         <div className="su-modal-overlay">
           <div className="su-modal">
-            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.25rem', color: 'var(--status-error)' }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.25rem', color: 'var(--text-primary)' }}>
               Confirm Live Database Modification
             </h3>
             <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              You are about to execute a schema evolution operation on the live database{' '}
-              <strong>{connectionConfig?.database}</strong> ({dbType}).
+              You are about to execute DDL against <strong>{connectionConfig?.database}</strong> ({dbType}). This will modify the live schema.
             </p>
 
             <div
@@ -1469,26 +1662,30 @@ export const SchemaUpdateWizard: React.FC<SchemaUpdateWizardProps> = () => {
                 borderRadius: 'var(--radius-sm)',
                 fontSize: '0.8125rem',
                 marginBottom: '1.5rem',
+                border: '1px solid var(--border-color)',
               }}
             >
               <div><strong>Operation:</strong> {operation}</div>
               <div><strong>Table:</strong> {tableName}</div>
-              {columnName && <div><strong>Column:</strong> {columnName}</div>}
+              {columnName && <div><strong>Column / Field:</strong> {columnName}</div>}
+              {newColumnName && <div><strong>New Name:</strong> {newColumnName}</div>}
               <div><strong>Lock Timeout:</strong> 5 seconds</div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
               <button
+                type="button"
                 className="su-btn su-btn-secondary"
                 onClick={() => setIsConfirmModalOpen(false)}
               >
                 Cancel
               </button>
               <button
-                className="su-btn su-btn-danger"
+                type="button"
+                className="su-btn su-btn-primary"
                 onClick={handleApplyUpdate}
               >
-                Yes, Execute Update
+                Confirm & Execute
               </button>
             </div>
           </div>

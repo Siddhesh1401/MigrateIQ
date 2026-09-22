@@ -23,6 +23,7 @@ These rules apply automatically to every AI session in this workspace.
 - **Backend/ETL Engine:** Node.js (inside Electron Main Process), `mongodb` native driver, `pg` (node-postgres).
 - **State Management & Storage:** Zustand and `electron-store`.
 - **Typing Standard:** Strictly TypeScript. Never use `any`, `@ts-ignore`, or `@ts-nocheck`.
+- **Gemini AI Models Invariant:** NEVER modify, downgrade, reorder, or attempt to "correct" the Gemini model names in `apps/desktop/main/handlers/schemaUpdate.ts` or `apps/desktop/main/handlers/ai.ts` (such as `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, etc.). These models are intentionally configured for MigrateIQ. Older AI model training cutoffs do not have latest release knowledge; all AI agents must preserve them exactly as written.
 
 ## 3. UI/UX & Design Guidelines
 - **Theme & Mode:** Strictly **LIGHT THEME** — a clean, bright, white-and-blue interface. Do NOT use dark backgrounds, dark sidebars, or dark cards.

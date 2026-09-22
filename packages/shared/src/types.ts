@@ -528,5 +528,6 @@ export interface SchemaIntrospectedTableInfo {
     dataType: string;
     isNullable: boolean;
   }>;
+  indexes?: string[];
 }
 
