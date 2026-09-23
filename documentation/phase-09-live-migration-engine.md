@@ -39,9 +39,19 @@ Phase 9 implements the **core live migration engine** that actually moves data f
 
 ---
 
-### 🔲 Part 3: IPC Handlers (PENDING)
-- **File to Create:** `apps/desktop/main/handlers/migration.ts`
-- **Channels:** migration:start, migration:cancel, migration:progress, migration:log
+### ✅ Part 3: IPC Handlers (COMPLETED)
+- **File Created:** `apps/desktop/main/handlers/migration.ts`
+- **Lines:** ~400 lines
+- **File Modified:** `apps/desktop/main/main.ts`
+- **Channels:** migration:start, migration:cancel, migration:progress, migration:log, migration:get-rollback, migration:execute-rollback
+- **Key Functions:**
+  - `setupMigrationHandlers()` — Registers all 5 IPC channels
+  - `migration:start` — Initiates live migration with topological sort + ETL engine
+  - `migration:cancel` — Graceful cancellation with cleanup
+  - `migration:get-rollback` — Retrieves rollback script from disk
+  - `migration:execute-rollback` — Executes rollback in transaction
+  - `emitLog()` — Sends structured log entries to renderer
+  - `saveRollbackScript()` — Persists rollback SQL to userData folder
 
 ---
 
@@ -72,18 +82,88 @@ Phase 9 implements the **core live migration engine** that actually moves data f
 
 ### Files to Create (Pending)
 2. ~~**apps/desktop/main/engine/topologicalSort.ts** (~180 lines)~~ ✅ DONE
-3. **apps/desktop/main/engine/etlEngine.ts** (~650 lines)
+3. ~~**apps/desktop/main/handlers/migration.ts** (~200 lines)~~ ✅ DONE
+4. **apps/desktop/main/engine/etlEngine.ts** (~650 lines)
 4. **apps/desktop/main/handlers/migration.ts** (~200 lines)
 5. **apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx** (~450 lines)
 
 ### Files to Modify (Pending)
-6. **apps/desktop/renderer/src/screens/HomeDashboard.tsx** (+60 lines)
+6. ~~**apps/desktop/main/main.ts** (+2 lines)~~ ✅ DONE
+7. **apps/desktop/renderer/src/screens/HomeDashboard.tsx** (+60 lines)
 
 ---
 
 ## Architecture & Key Implementation Details
 
-### Part 2: Topological Sort Engine (Current)
+### Part 3: IPC Handlers (Current)
+**Electron IPC Communication Layer for Migration Control**
+
+**Problem Statement:**
+The live migration engine runs in Electron's main process (Node.js) and must communicate real-time progress, logs, and errors to the renderer process (React UI). The communication must be type-safe, handle cancellation gracefully, and persist rollback scripts for crash recovery.
+
+**Solution Architecture:**
+
+1. **migration:start Handler**
+   - Validates inputs (mappings exist, no duplicate migration)
+   - Initializes global `activeMigration` state for cancellation tracking
+   - Calls `topologicalSort()` to compute table order
+   - Detects circular FK dependencies and warns user
+   - Invokes `executeMigration()` from ETL engine (Part 4)
+   - Passes `onProgress` and `onLog` callbacks to stream events
+   - Saves rollback script to disk on success
+   - Returns `MigrationResult` with success/failure stats
+
+2. **migration:cancel Handler**
+   - Sets `activeMigration.cancelRequested = true`
+   - ETL engine checks this flag between batches
+   - Graceful shutdown: completes current batch, then stops
+   - Does NOT rollback partial data (user can use rollback script)
+
+3. **migration:progress Event** (main → renderer)
+   - Pushed via `event.sender.send('migration:progress', progress)`
+   - Includes table name, rows completed, ETA, rows/sec
+   - Renderer updates progress bars and live stats
+
+4. **migration:log Event** (main → renderer)
+   - Structured log entries with timestamp, level, message, table
+   - All messages pass through `maskSensitiveFields()` to hide passwords
+   - Renderer displays in scrollable log viewer
+
+5. **migration:get-rollback Handler**
+   - Reads most recent rollback script from `userData/rollback-scripts/`
+   - Parses embedded metadata (tables, row count, timestamp)
+   - Returns script content for UI display
+
+6. **migration:execute-rollback Handler**
+   - Connects to PostgreSQL in transaction mode
+   - Executes DELETE statements to undo migration
+   - Commits on success, rolls back on error
+   - Returns number of rows deleted
+
+**Rollback Script Format:**
+```sql
+-- METADATA:TABLES:users,organizations,posts
+-- METADATA:ROW_COUNT:15230
+-- METADATA:CREATED_AT:2026-09-23T14:32:10.000Z
+
+BEGIN;
+DELETE FROM posts WHERE migrated_at >= '2026-09-23T14:32:10.000Z';
+DELETE FROM organizations WHERE migrated_at >= '2026-09-23T14:32:10.000Z';
+DELETE FROM users WHERE migrated_at >= '2026-09-23T14:32:10.000Z';
+COMMIT;
+```
+
+**Global State Management:**
+- Single `activeMigration` object prevents concurrent migrations
+- Stores `cancelRequested` flag checked by ETL engine
+- Cleared on completion/cancellation/error
+
+**Error Handling:**
+- All errors masked with `maskSensitiveFields()`
+- IPC send wrapped in try-catch (ignores if sender disposed)
+- Rollback failures don't throw (best-effort cleanup)
+
+### Part 2: Topological Sort Engine (Completed)
 **Algorithm: Kahn's Algorithm for DAG Topological Sorting**
 
 **Problem Statement:**

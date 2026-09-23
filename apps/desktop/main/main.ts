@@ -7,6 +7,7 @@ import { setupAIUsageHandlers } from './handlers/aiUsageStore';
 import { setupRiskHandlers } from './handlers/risk';
 import { setupDryRunHandlers } from './handlers/dryRun';
 import { setupSchemaUpdateHandlers } from './handlers/schemaUpdate';
+import { setupMigrationHandlers } from './handlers/migration';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -82,6 +83,9 @@ app.whenReady().then(() => {
 
   // Setup IPC handlers for dry run simulation (Step 6)
   setupDryRunHandlers();
+
+  // Setup IPC handlers for live migration engine (Phase 9)
+  setupMigrationHandlers();
 
   // Setup IPC handlers for schema update assistant (Phase 11)
   setupSchemaUpdateHandlers();
