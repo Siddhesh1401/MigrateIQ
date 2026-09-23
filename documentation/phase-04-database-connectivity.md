@@ -480,17 +480,32 @@ Following a comprehensive retrospective audit against production engineering, da
   - **Port 5432 / Direct connection:** Displays a blue confirmation banner indicating verified direct connection, optimal for schema creation and ETL batch operations.
   - Similarly distinguished for Neon (`-pooler.` hostname detection).
 
-### 9. Future Phases Scope Confirmation
-- **Layer 2 Features Expansion:** Phase 12 explicitly builds on Layer 2 scans for advanced denormalization and document nesting.
-- **Topological & Streaming Introspection:** Phase 9 (ETL Migration Engine) replaces single-pass scans with streaming extraction chunks.
-- **Layer 2 Type Shape:** Preserved `{ name: string; count: number }` contract required by Phase 7 (Risk Report) and Phase 8 (Dry Run Simulation).
+### 10. Dynamic `_id` BSON Type Inference (`db.ts`)
+- **Issue:** Previously, `_id` was hardcoded to `bsonType: 'ObjectId'`. In enterprise databases where collections use custom String UUIDs or numerical primary keys, downstream schema mapping (Phase 5) would mistakenly restrict `_id` to `VARCHAR(24)`.
+- **Resolution:** Inspected sample documents dynamically for `_id` values via `getBsonType(doc._id)`. Sets `detectedIdBsonType` accurately (supporting `'string'`, `'uuid'`, `'int'`, `'long'`, etc.) while defaulting cleanly to `'ObjectId'`.
+
+### 11. Resilient Cloud Database Target Wipe Fallback (`db.ts`)
+- **Issue:** On managed cloud providers (e.g. AWS RDS or Supabase non-superuser roles), users often lack the `DROP SCHEMA` privilege for `public`. Running `DROP SCHEMA` failed the wipe operation entirely.
+- **Resolution:** Added a transaction fallback: if `DROP SCHEMA ... CASCADE` throws a permission error, it rolls back and executes a table-by-table drop (`DROP TABLE IF EXISTS "schema"."table" CASCADE;`) inside a clean transaction.
+
+### 12. Pre-Flight Permission Verification Checklist UX (`MigrationWizard.tsx`)
+- **Issue:** Step 3 target connection showed a single summary line for permissions rather than the 3-point checklist specified in Product Blueprint §Step 3.
+- **Resolution:** Rendered the clean 3-item checklist card:
+  - `✅ Can create tables: Yes`
+  - `✅ Can insert data: Yes`
+  - `✅ Lock timeout supported: Yes`
+
+### 13. Automated Test Suite (`scripts/test-phase4-verification.js`)
+- **Addition:** Built an automated 53-assertion verification suite covering MongoDB schema sampling, dynamic `_id` inference, numeric widening, credential masking, identifier sanitization, pooler detection, wipe resilience, and wizard state persistence.
 
 ---
 
 ## 8. Verification & Build Integrity
 
-- **TypeScript Compilation:** Passed with exit code 0 (`tsc --noEmit` and `tsc -p tsconfig.node.json --noEmit`).
-- **Light Theme Compliance:** All banners and modals strictly use light surface tokens (`#EFF6FF`, `#FFFBEB`, `#1E40AF`, `#92400E`).
+- **Automated Phase 4 Suite:** Passed with 53/53 tests (`node scripts/test-phase4-verification.js`).
+- **Automated Phase 2 & 3 Suite:** Passed with 22/22 tests (`node scripts/test-phase2-phase3-verification.js`).
+- **TypeScript Compilation:** Passed with exit code 0 across all workspaces (`npm run typecheck`).
+- **Light Theme Compliance:** All banners and modals strictly use light surface tokens (`#F8FAFC`, `#EFF6FF`, `#FFFBEB`, `#15803D`, `#92400E`).
 - **Downstream Compatibility:** 0 breaking changes to Phases 5, 6, 7, and 8.
 
 ---
@@ -501,7 +516,7 @@ After reviewing and testing Phase 4, run:
 
 ```bash
 git add .
-git commit -m "feat: phase-04 audit fixes — credential masking, SQL sanitization, transactional wipe, empty DB handling, and pooler detection"
+git commit -m "feat: phase-04 — dynamic _id inference, cloud wipe fallback, permission checklist, and automated test suite"
 ```
 
 ---

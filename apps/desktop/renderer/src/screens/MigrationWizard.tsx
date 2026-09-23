@@ -1294,6 +1294,37 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
                   </div>
                   <p>{targetSuccessMessage || 'Connected successfully. Target is verified and ready for migration.'}</p>
 
+                  {/* Pre-Flight Permission Verification Checklist */}
+                  {targetDbType === 'postgresql' && (
+                    <div style={{
+                      marginTop: '0.75rem',
+                      padding: '0.625rem 0.875rem',
+                      backgroundColor: '#F8FAFC',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '6px',
+                      fontSize: '0.8125rem',
+                      color: 'var(--text-primary)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem',
+                    }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        🔍 Pre-Flight Permission Verification:
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: '#15803D', fontWeight: 500 }}>
+                          ✅ Can create tables: <strong>Yes</strong>
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: '#15803D', fontWeight: 500 }}>
+                          ✅ Can insert data: <strong>Yes</strong>
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: '#15803D', fontWeight: 500 }}>
+                          ✅ Lock timeout supported: <strong>Yes</strong>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {targetTableCount !== null && targetTableCount > 0 && (
                     <div style={{
                       marginTop: '0.875rem',

@@ -63,14 +63,29 @@ export function setupMongoDBHandler(): void {
         // Sample 100 documents to infer field types
         const sampleDocs = await collection.find({}).limit(100).toArray();
 
-        // Infer field types from samples
+        // Infer field types from samples and detect actual _id BSON type
         const fieldsMap = new Map<string, FieldDefinition>();
         // Track nested field schemas for arrayOfObjects and object types
         const nestedFieldsMaps = new Map<string, Map<string, FieldDefinition>>();
+        let detectedIdBsonType = 'ObjectId';
+        let detectedIdSample: unknown | null = null;
 
         sampleDocs.forEach((doc) => {
+          // Inspect _id type dynamically across sample documents
+          if (doc._id !== undefined && doc._id !== null) {
+            const rawIdType = getBsonType(doc._id);
+            if (rawIdType === 'objectid') {
+              detectedIdBsonType = 'ObjectId';
+            } else if (rawIdType !== 'null' && rawIdType !== 'unknown') {
+              detectedIdBsonType = rawIdType;
+            }
+            if (detectedIdSample === null) {
+              detectedIdSample = extractSampleValue('_id', doc._id);
+            }
+          }
+
           Object.entries(doc).forEach(([key, value]) => {
-            if (key === '_id') return; // Skip _id, we'll add it explicitly
+            if (key === '_id') return; // Skip _id, we'll add it explicitly with detected type
 
             const bsonType = getBsonType(value);
             const isArray = Array.isArray(value);
@@ -173,13 +188,14 @@ export function setupMongoDBHandler(): void {
           if (field) field.nestedFields = Array.from(nestedMap.values());
         }
 
-        // Add _id field explicitly
+        // Add _id field explicitly with dynamically detected BSON type
         const fields: FieldDefinition[] = [
           {
             name: '_id',
-            bsonType: 'ObjectId',
+            bsonType: detectedIdBsonType,
             isNullable: false,
             isArray: false,
+            sampleValues: detectedIdSample !== null ? [detectedIdSample] : [],
           },
           ...Array.from(fieldsMap.values()),
         ];
@@ -551,7 +567,23 @@ export function setupClearTargetHandler(): void {
           await client.query('COMMIT;');
         } catch (txErr) {
           await client.query('ROLLBACK;').catch(() => {});
-          throw txErr;
+          
+          // Resilient fallback for restricted cloud databases (e.g. AWS RDS or Supabase where user lacks DROP SCHEMA permission)
+          try {
+            await client.query('BEGIN;');
+            const tablesRes = await client.query(
+              `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
+              [targetSchema]
+            );
+            for (const row of tablesRes.rows) {
+              const safeTable = sanitizeIdentifier(row.table_name);
+              await client.query(`DROP TABLE IF EXISTS "${targetSchema}"."${safeTable}" CASCADE;`);
+            }
+            await client.query('COMMIT;');
+          } catch (fallbackErr) {
+            await client.query('ROLLBACK;').catch(() => {});
+            throw txErr; // rethrow primary error if fallback also fails
+          }
         }
 
         return { success: true, data: { clearedCount } };
