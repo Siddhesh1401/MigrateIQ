@@ -21,7 +21,12 @@ export interface ConnectionConfig {
 export interface FieldDefinition {
   name: string;
   bsonType: string;
+  /** Original SQL data type from PostgreSQL introspection (e.g. "VARCHAR(100)", "SERIAL", "TIMESTAMPTZ") */
   sqlType?: string;
+  /** Dot-notation field path for deeply nested fields (e.g. "address.city") */
+  path?: string;
+  /** Pre-resolved FK reference from PostgreSQL introspection (e.g. "users.id") */
+  foreignKeyToParent?: string;
   isNullable: boolean;
   isArray: boolean;
   sampleValues?: unknown[];

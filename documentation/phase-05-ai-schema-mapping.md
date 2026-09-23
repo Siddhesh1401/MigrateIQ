@@ -1071,10 +1071,13 @@ Added to MongoDB success card in Step 2:
 
 ## Verification & Test Results
 
-The bidirectional engine was verified via automated end-to-end testing:
+The bidirectional engine and audit recovery fixes were verified via comprehensive automated testing:
 - **MongoDB → PostgreSQL:** Verified correct conversion of ObjectIds (`VARCHAR(24)`), strings (`TEXT`), dates (`TIMESTAMPTZ`), objects/arrays (`JSONB`), and double precision numbers.
 - **PostgreSQL → MongoDB:** Verified preservation of SQL source types (`SERIAL`, `VARCHAR(100)`, `NUMERIC(10,2)`, `TIMESTAMP`, `INT`) against `scripts/seed-sample-dbs.js` and accurate mapping to BSON target types (`int`, `string`, `decimal`, `date`, `bool`).
-- **TypeScript Compilation:** `npm run typecheck` (`tsc --noEmit && tsc -p tsconfig.node.json --noEmit`) passes with **0 errors**.
+- **Array → Child Table Rule (AGENTS.md §4):** Verified that `arrayOfObjects` triggers child table creation and automatically injects a `sort_order INTEGER NOT NULL` column (`sortOrderColumn: true`) immediately following the child table row in `ruleEngine.ts`, `ai.ts`, `generatePostgresDdl()`, and the interactive child table details inspector.
+- **Deep Audit Recovery Suite (`scripts/test-phase5-rule-engine.js`):** **45 unit tests passed with 0 failures**, covering identifier sanitization, reserved keyword collision prevention, dot-notation path flattening, BSON↔PostgreSQL type mapping, array-to-child-table sort order injection, index inference, and mapping rules summary integrity.
+- **Zero `any` Casts:** Eliminated all `any` casts in `ruleEngine.ts` by extending `FieldDefinition` in `@migrateiq/shared`.
+- **TypeScript Compilation:** `npm run typecheck` (`tsc --noEmit && tsc -p tsconfig.node.json --noEmit`) passes with **0 errors across all workspaces**.
 - **Main Process Compilation:** `npm run build:main` passes with **0 errors**.
 
 ---

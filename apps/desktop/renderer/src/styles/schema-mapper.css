@@ -1215,6 +1215,12 @@ tr.active-targeted-row {
   border: 1px solid #BBF7D0;
 }
 
+.copilot-status-tag.inactive {
+  color: #64748B;
+  background-color: #F1F5F9;
+  border-color: #CBD5E1;
+}
+
 .copilot-modified-counter {
   font-size: 0.75rem;
   font-weight: 600;
@@ -1372,6 +1378,12 @@ tr.active-targeted-row {
   background-color: #DCFCE7;
   padding: 0.125rem 0.4375rem;
   border-radius: 9999px;
+}
+
+.copilot-live-pill.offline {
+  color: #64748B;
+  background-color: #F1F5F9;
+  border: 1px solid #CBD5E1;
 }
 
 .copilot-modal-subtitle {

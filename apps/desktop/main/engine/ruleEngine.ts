@@ -69,7 +69,8 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
     if (direction === 'postgres-to-mongo') {
       // For PostgreSQL → MongoDB, source fields are SQL types that should be mapped to BSON
       mapFunc = (field: FieldDefinition) => {
-        const rawSql = (field as any).sqlType || field.bsonType;
+        // Use sqlType if available (PostgreSQL introspection path) or fall back to bsonType
+        const rawSql = field.sqlType || field.bsonType;
         const bsonType = postgresTypeToBsonType(rawSql, field);
         return {
           id: field.name, // Use field name as ID (will be randomized by caller if needed)
@@ -81,20 +82,47 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
           include: true,
           isChildTable: false,
           childTableName: undefined,
-          foreignKeyToParent: (field as any).foreignKeyToParent || undefined,
+          foreignKeyToParent: field.foreignKeyToParent || undefined,
           transformationRule: undefined,
         };
       };
     }
 
-    const fields = schema.fields.map((field) => {
+    // Map fields and inject sort_order for any child table fields (AGENTS.md: Array → Child Table Rule)
+    const rawFields = schema.fields.map((field) => {
       const mapping = mapFunc(field, schema.collectionName);
-      // Ensure field has a UUID (use the already-imported randomUUID)
+      // Ensure field has a UUID
       if (!mapping.id || mapping.id === field.name) {
         mapping.id = randomUUID();
       }
       return mapping;
     });
+
+    // After mapping, inject sort_order column immediately after each child-table row
+    const fields: FieldMapping[] = [];
+    for (const mapping of rawFields) {
+      fields.push(mapping);
+      if (mapping.isChildTable && mapping.childTableName) {
+        // AGENTS.md §4 — Array → Child Table Rule:
+        // Always add sort_order INTEGER NOT NULL to preserve original array element ordering.
+        // Value is set to 0-based index during ETL. User may rename or exclude this column.
+        fields.push({
+          id: randomUUID(),
+          sourceField: 'sort_order',
+          sourceType: 'auto',
+          targetColumn: 'sort_order',
+          targetType: 'INTEGER',
+          isNullable: false,
+          include: true,
+          isChildTable: false,
+          childTableName: undefined,
+          foreignKeyToParent: undefined,
+          sortOrderColumn: true,
+          transformationRule: 'sort_order',
+        });
+      }
+    }
+    const fieldsWithSortOrder = fields;
 
     // Auto-generate indexes (basic mappings only)
     const indexes: IndexMapping[] = [];
@@ -127,7 +155,7 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
     return {
       collectionName: schema.collectionName,
       targetTableName: sanitizePostgresIdentifier(schema.collectionName, true),
-      fields,
+      fields: fieldsWithSortOrder,
       indexes,
       childTables: [], // Child tables for array-of-objects handled separately
     };
@@ -138,8 +166,10 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
  * Map a single MongoDB field to a PostgreSQL column
  */
 function mapFieldToPostgres(field: FieldDefinition, collectionName: string): FieldMapping {
-  const fieldName = field.name || (field as any).path || 'field';
-  const effectiveBsonType = field.bsonType || (field as any).type || 'string';
+  // Use path (dot-notation) if available, otherwise name; fall back to 'field'
+  const fieldName = field.name || field.path || 'field';
+  // Use bsonType directly; sqlType is only present on PostgreSQL-sourced fields
+  const effectiveBsonType = field.bsonType || 'string';
   const targetType = bsonTypeToPostgresType(effectiveBsonType, field);
   
   // Flatten nested field names and guard against PostgreSQL reserved words
@@ -188,7 +218,7 @@ function mapFieldToPostgres(field: FieldDefinition, collectionName: string): Fie
  * Core BSON → PostgreSQL type mapping rules
  */
 function bsonTypeToPostgresType(bsonType: string, field: FieldDefinition): string {
-  const typeStr = (bsonType || (field as any)?.type || 'string').toLowerCase();
+  const typeStr = (bsonType || field.bsonType || 'string').toLowerCase();
   switch (typeStr) {
     // ── Core Types ──
     case 'objectid':

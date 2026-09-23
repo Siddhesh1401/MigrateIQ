@@ -1256,17 +1256,57 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
     if (!Array.isArray(mappingObj.fields)) {
       throw new Error(`AI returned collection mapping "${mappingObj.collectionName}" without a valid fields array.`);
     }
+
+    // ARCH-1: Sanitize each field in the AI response — coerce missing/wrong-type values
+    for (const f of mappingObj.fields as Record<string, unknown>[]) {
+      if (!f || typeof f !== 'object') continue;
+      if (typeof f.sourceField !== 'string') f.sourceField = String(f.sourceField ?? 'field');
+      if (typeof f.targetColumn !== 'string') f.targetColumn = String(f.targetColumn ?? f.sourceField ?? 'column');
+      if (typeof f.targetType !== 'string' || !f.targetType) f.targetType = isPgToMongo ? 'string' : 'TEXT';
+      if (typeof f.isNullable !== 'boolean') f.isNullable = Boolean(f.isNullable ?? true);
+      if (typeof f.include !== 'boolean') f.include = true;
+      if (!f.id) f.id = randomUUID();
+    }
   }
 
   const mappings: CollectionMapping[] = rawMappings as CollectionMapping[];
 
-  // Validate and add UUIDs if missing, and ensure indexes are properly populated
+  // Validate, add UUIDs if missing, inject sort_order for child tables, and ensure indexes are populated
   mappings.forEach((mapping) => {
+    // Build enriched fields array with sort_order injected after each child-table field
+    const enrichedFields: CollectionMapping['fields'] = [];
     mapping.fields.forEach((field) => {
       if (!field.id) {
         field.id = randomUUID();
       }
+      enrichedFields.push(field);
+
+      // AGENTS.md §4 — Array → Child Table Rule:
+      // Inject sort_order INTEGER NOT NULL after each child-table field so that the
+      // 0-based index of the original array element is preserved during ETL.
+      if (field.isChildTable && field.childTableName) {
+        const alreadyHasSortOrder = mapping.fields.some(
+          (f) => f.sortOrderColumn || f.targetColumn === 'sort_order'
+        );
+        if (!alreadyHasSortOrder) {
+          enrichedFields.push({
+            id: randomUUID(),
+            sourceField: 'sort_order',
+            sourceType: 'auto',
+            targetColumn: 'sort_order',
+            targetType: 'INTEGER',
+            isNullable: false,
+            include: true,
+            isChildTable: false,
+            childTableName: undefined,
+            foreignKeyToParent: undefined,
+            sortOrderColumn: true,
+            transformationRule: 'sort_order',
+          });
+        }
+      }
     });
+    mapping.fields = enrichedFields;
 
     const srcSchema = schemas.find((s) => s.collectionName === mapping.collectionName);
     if (srcSchema && srcSchema.indexes && srcSchema.indexes.length > 0) {

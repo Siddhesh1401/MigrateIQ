@@ -13,6 +13,27 @@ export interface SchemaMapperProps {
   onRegenerate?: () => void;
 }
 
+/** Fields selected in the mapper table for AI Copilot bulk operations. */
+export interface TargetField {
+  collectionName: string;
+  fieldId: string;
+  fieldName: string;
+  targetColumn: string;
+  rowNum: number;
+}
+
+/** A single message in the AI Schema Copilot conversation history. */
+export interface CopilotMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  timestamp: string;
+  text: string;
+  targets?: TargetField[];
+  isQuestion?: boolean;
+  changeCount?: number;
+  snapshotBefore?: CollectionMapping[];
+}
+
 export const POSTGRES_TYPES = [
   'TEXT',
   'VARCHAR(24)',
@@ -203,6 +224,8 @@ function generatePostgresDdl(mappings: CollectionMapping[], schemas?: SourceSche
       const childDefs: string[] = [
         '  "id" BIGSERIAL PRIMARY KEY',
         `  "${f.foreignKeyToParent || `${col.targetTableName}_id`}" VARCHAR(24) NOT NULL REFERENCES "${col.targetTableName}"("id") ON DELETE CASCADE`,
+        // AGENTS.md §4 — Array → Child Table Rule: sort_order preserves original array element ordering
+        '  "sort_order" INTEGER NOT NULL',
       ];
 
       const srcCol = schemas?.find((s) => s.collectionName === col.collectionName);
@@ -264,25 +287,6 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
   const [showDdlModal, setShowDdlModal] = useState(false);
   const [copiedDdl, setCopiedDdl] = useState(false);
 
-  // AI Schema Copilot State & History Tracking
-  interface TargetField {
-    collectionName: string;
-    fieldId: string;
-    fieldName: string;
-    targetColumn: string;
-    rowNum: number;
-  }
-
-  interface CopilotMessage {
-    id: string;
-    role: 'user' | 'assistant';
-    timestamp: string;
-    text: string;
-    targets?: TargetField[];
-    isQuestion?: boolean;
-    changeCount?: number;
-    snapshotBefore?: CollectionMapping[];
-  }
 
   const [showCopilotModal, setShowCopilotModal] = useState(false);
   const [selectedTargets, setSelectedTargets] = useState<TargetField[]>([]);
@@ -794,7 +798,9 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
             )}
           </div>
           <p className="mapper-banner-subtitle">
-            Review the inferred PostgreSQL table structure and column mappings below. You can customize column names, modify data types, or exclude fields before proceeding.
+            {isPgToMongo
+              ? 'Review the inferred MongoDB collection schema and field mappings below. You can customize field names, BSON types, or exclude fields before proceeding.'
+              : 'Review the inferred PostgreSQL table structure and column mappings below. You can customize column names, modify data types, or exclude fields before proceeding.'}
           </p>
         </div>
       </div>
@@ -815,7 +821,16 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
               <span className="copilot-card-title">AI Schema Copilot</span>
-              <span className="copilot-status-tag">Active</span>
+              <span
+                className={`copilot-status-tag ${Boolean(import.meta.env.VITE_GEMINI_API_KEY) ? 'active' : 'inactive'}`}
+                title={
+                  Boolean(import.meta.env.VITE_GEMINI_API_KEY)
+                    ? 'Gemini AI Copilot is active and ready'
+                    : 'No VITE_GEMINI_API_KEY detected in environment. Configure API key to enable AI Copilot.'
+                }
+              >
+                {Boolean(import.meta.env.VITE_GEMINI_API_KEY) ? 'Active' : 'Offline (No API Key)'}
+              </span>
               {aiModifiedCount > 0 && (
                 <span className="copilot-modified-counter">
                   ✨ {aiModifiedCount} column{aiModifiedCount > 1 ? 's' : ''} modified by AI
@@ -1059,7 +1074,7 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                                       ⚡ Was Nested
                                     </span>
                                   )}
-                                  {(field.foreignKeyToParent || (field.sourceField !== '_id' && (field.sourceField.endsWith('_id') || field.sourceField.endsWith('Id')))) && (
+                                  {!field.sortOrderColumn && (field.foreignKeyToParent || (field.sourceField !== '_id' && (field.sourceField.endsWith('_id') || field.sourceField.endsWith('Id')))) && (
                                     <span className="field-badge fk-badge" title="Inferred Foreign Key relationship">
                                       🔗 FK → {field.foreignKeyToParent || field.sourceField.replace(/_?id$/i, '') + 's'}
                                     </span>
@@ -1080,6 +1095,12 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                                       {expandedChildTables.has(field.id) ? 'Hide Columns ▴' : 'View Columns ▾'}
                                     </button>
                                   )}
+                                  {field.sortOrderColumn && (
+                                    <span className="field-badge sort-order-badge" title="Auto-generated column (AGENTS.md §4). Preserves original array element ordering during ETL. You may rename or exclude this column.">
+                                      📋 Auto: Sort Order
+                                    </span>
+                                  )}
+
                                 </div>
                               </div>
                             </td>
@@ -1201,9 +1222,9 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                                         <td>No</td>
                                       </tr>
                                       <tr>
-                                        <td><code>_array_index</code></td>
+                                        <td><code>sort_order</code></td>
                                         <td><code>INTEGER</code></td>
-                                        <td><span className="role-tag index">Array Position Order</span></td>
+                                        <td><span className="role-tag index">Sort Order (0-based array index)</span></td>
                                         <td>No</td>
                                       </tr>
                                       {getChildColumns(collection.collectionName, field.sourceField).map((col) => (
@@ -1457,7 +1478,9 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <h3 className="copilot-modal-title">AI Schema Copilot Workspace</h3>
-                    <span className="copilot-live-pill">● Online</span>
+                    <span className={`copilot-live-pill ${Boolean(import.meta.env.VITE_GEMINI_API_KEY) ? 'online' : 'offline'}`}>
+                      {Boolean(import.meta.env.VITE_GEMINI_API_KEY) ? '● Online' : '○ Offline (No API Key)'}
+                    </span>
                     {aiModifiedCount > 0 && (
                       <span className="copilot-modified-counter">
                         ✨ {aiModifiedCount} column{aiModifiedCount > 1 ? 's' : ''} modified
