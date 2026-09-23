@@ -690,108 +690,12 @@ export interface ScriptImportParseResult {
 // Phase 9: Live Migration Engine Types
 // ============================================
 
-export interface MigrationProgressEvent {
-  type: 'start' | 'table_start' | 'table_progress' | 'table_complete' | 'complete' | 'error' | 'cancel';
-  
-  // Overall migration stats
-  totalTables?: number;
-  completedTables?: number;
-  
-  // Current table stats
-  currentTable?: string;
-  currentTableRows?: number;
-  currentTableRowsCompleted?: number;
-  currentTableProgress?: number; // 0-100
-  
-  // Current batch stats
-  currentBatch?: number;
-  totalBatches?: number;
-  
-  // Performance metrics
-  rowsPerSecond?: number;
-  estimatedTimeRemainingMs?: number;
-  
-  // Error handling
-  error?: string;
-  skippedRows?: SkippedRow[];
-  
-  // Timestamps
-  startTime?: string;
-  endTime?: string;
+// Skipped row during live migration
+export interface SkippedRow {
+  documentId: string;
+  reason: string;
+  sourceDocument?: string;
 }
-
-export interface MigrationLogEntry {
-  timestamp: string;
-  level: 'info' | 'warn' | 'error' | 'debug';
-  table?: string;
-  message: string;
-  details?: Record<string, unknown>;
-}
-
-export interface TableMigrationProgress {
-  tableName: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-  totalRows: number;
-  rowsCompleted: number;
-  percentComplete: number;
-  startTime?: string;
-  endTime?: string;
-  error?: string;
-  skippedRows: SkippedRow[];
-}
-
-export interface MigrationResult {
-  success: boolean;
-  totalTables: number;
-  completedTables: number;
-  failedTables: number;
-  totalRows: number;
-  migratedRows: number;
-  skippedRows: number;
-  duration: number; // milliseconds
-  startTime: string;
-  endTime: string;
-  error?: string;
-  tableResults: TableMigrationProgress[];
-  rollbackScript?: string;
-}
-
-export interface MigrationRollbackInfo {
-  available: boolean;
-  tables: string[];
-  rowCount: number;
-  createdAt: string;
-  script?: string;
-}
-
-export interface TopologicalSortResult {
-  success: boolean;
-  orderedTables: string[];
-  cycles?: Array<{
-    tables: string[];
-    foreignKeys: string[];
-  }>;
-  error?: string;
-}
-
-export interface ETLBatchResult {
-  success: boolean;
-  rowsProcessed: number;
-  rowsSkipped: number;
-  skippedRows: SkippedRow[];
-  error?: string;
-}
-
-// Enhanced SkippedRow type for Phase 9
-export interface EnhancedSkippedRow extends SkippedRow {
-  batchNumber?: number;
-  retryAttempt?: number;
-  stackTrace?: string;
-}
-
-// ============================================
-// Phase 9: Live Migration Engine Types
-// ============================================
 
 export interface MigrationProgressEvent {
   type: 'start' | 'table_start' | 'table_progress' | 'table_complete' | 'complete' | 'error' | 'cancel';

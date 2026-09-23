@@ -447,7 +447,7 @@ Create `main/handlers/ai.ts`:
    Rules: ObjectId → VARCHAR(24), ISODate → TIMESTAMPTZ, Nested object (1-2 levels) → flatten with underscore,
    Array of objects → separate child table with FK, Array of primitives → PostgreSQL array type, etc.
    ```
-4. Sends to Gemini API (`gemini-1.5-flash` — free tier)
+4. Sends to Gemini API (`gemini latest model)
 5. Validates the response JSON against the `FieldMapping[]` Zod schema
 6. If token limit exceeded: split schema into batches of 5 collections and merge results
 7. Returns the validated mapping

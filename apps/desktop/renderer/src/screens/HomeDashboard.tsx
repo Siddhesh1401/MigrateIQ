@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { MigrationHistoryItem, WizardStateSnapshot } from '@migrateiq/shared';
+import type { MigrationHistoryItem, WizardStateSnapshot, MigrationRollbackInfo } from '@migrateiq/shared';
 import { useWizardStore } from '../store/wizardStore';
 import '../styles/dashboard.css';
 
@@ -13,6 +13,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   const [inProgressState, setInProgressState] = useState<WizardStateSnapshot | null>(null);
   const [resumeDismissed, setResumeDismissed]  = useState(false);
   const [selectedReport, setSelectedReport]   = useState<MigrationHistoryItem | null>(null);
+  const [rollbackInfo, setRollbackInfo] = useState<MigrationRollbackInfo | null>(null);
+  const [rollbackDismissed, setRollbackDismissed] = useState(false);
   const modalCardRef = useRef<HTMLDivElement | null>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
 
@@ -33,6 +35,16 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
       .then((response) => {
         if (response.success && Array.isArray(response.data)) {
           setMigrations(response.data);
+        }
+      })
+      .catch(() => {});
+
+    // 3. Check for available rollback scripts (Phase 9 - Crash Recovery)
+    window.electronAPI
+      .invoke<MigrationRollbackInfo>('migration:get-rollback')
+      .then((response) => {
+        if (response.success && response.data?.available) {
+          setRollbackInfo(response.data);
         }
       })
       .catch(() => {});
@@ -58,6 +70,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
   }, [selectedReport]);
 
   const showResumeBanner = !resumeDismissed && inProgressState !== null;
+  const showRollbackBanner = !rollbackDismissed && rollbackInfo !== null && rollbackInfo.available;
 
   const handleResume = (): void => {
     if (inProgressState?.direction) {
@@ -88,6 +101,35 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
     setInProgressState(null);
     wizardStore.reset();
     await window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
+  };
+
+  const handleViewRollback = (): void => {
+    if (!rollbackInfo?.script) return;
+    
+    // Open rollback script in a modal or new window
+    const confirmed = confirm(
+      `⚠️ ROLLBACK SCRIPT AVAILABLE\n\n` +
+      `Tables: ${rollbackInfo.tables.join(', ')}\n` +
+      `Rows: ${rollbackInfo.rowCount.toLocaleString()}\n` +
+      `Created: ${new Date(rollbackInfo.createdAt).toLocaleString()}\n\n` +
+      `View script details?`
+    );
+
+    if (confirmed) {
+      // Create a temporary modal or download the script
+      const blob = new Blob([rollbackInfo.script], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rollback-${rollbackInfo.createdAt.replace(/[:.]/g, '-')}.sql`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleDismissRollback = (): void => {
+    setRollbackDismissed(true);
+    setRollbackInfo(null);
   };
 
   const handleStartNewMigration = (): void => {
@@ -124,6 +166,29 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
 
   return (
     <div className="dashboard-container">
+
+      {/* ── Rollback Available Banner (Phase 9 - Crash Recovery) ── */}
+      {showRollbackBanner && (
+        <div className="rollback-banner" role="alert">
+          <div className="rollback-content">
+            <div className="rollback-icon">🔄</div>
+            <div>
+              <strong>Rollback script available</strong>
+              <span style={{ display: 'block', marginTop: '0.125rem', color: 'var(--text-muted)', fontSize: '0.8125rem', fontWeight: 400 }}>
+                {rollbackInfo.tables.length} table(s) • {rollbackInfo.rowCount.toLocaleString()} rows • {new Date(rollbackInfo.createdAt).toLocaleDateString()}
+              </span>
+            </div>
+          </div>
+          <div className="rollback-actions">
+            <button className="rollback-discard-btn" onClick={handleDismissRollback} title="Dismiss this notification">
+              Dismiss ×
+            </button>
+            <button className="rollback-button" onClick={handleViewRollback}>
+              Download Script →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Resume Banner ── */}
       {showResumeBanner && (

@@ -27,6 +27,89 @@
   animation: slideDown 0.3s ease;
 }
 
+/* ── Rollback Banner (Phase 9 - Crash Recovery) ──────── */
+.rollback-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+  border: 1px solid #86EFAC;
+  border-left: 4px solid #16A34A;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  animation: slideDown 0.3s ease;
+}
+
+.rollback-content {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.rollback-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: #16A34A;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.rollback-actions {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+}
+
+.rollback-discard-btn {
+  background: none;
+  border: 1px solid #86EFAC;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  padding: 0.4rem 0.75rem;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.rollback-discard-btn:hover {
+  background: rgba(22, 163, 74, 0.06);
+  border-color: #4ADE80;
+  color: #16A34A;
+}
+
+.rollback-button {
+  background: #16A34A;
+  color: #FFFFFF;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1.125rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(22, 163, 74, 0.2);
+}
+
+.rollback-button:hover {
+  background: #15803D;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+  transform: translateY(-1px);
+}
+
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-8px); }
   to   { opacity: 1; transform: translateY(0); }
