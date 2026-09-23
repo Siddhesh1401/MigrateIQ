@@ -1,4 +1,4 @@
-# Phase 9: Live Migration Engine — Documentation
+# Phase 9: Live Migration Engine ΓÇö Documentation
 
 ## Phase Summary & Goal
 Phase 9 implements the **core live migration engine** that actually moves data from MongoDB to PostgreSQL. This is the most critical phase of MigrateIQ. All previous phases (0-8) were preparation, analysis, and schema design. Phase 9 executes the actual ETL (Extract-Transform-Load) operation with streaming, progress tracking, error isolation, and crash recovery.
@@ -7,71 +7,71 @@ Phase 9 implements the **core live migration engine** that actually moves data f
 
 ## Progress Status
 
-### ✅ Part 1: TypeScript Types (COMPLETED)
+### Γ£à Part 1: TypeScript Types (COMPLETED)
 - **File Modified:** `packages/shared/src/types.ts`
 - **Lines Added:** ~120 lines
 - **Types Added:**
-  - `MigrationProgressEvent` — Real-time progress updates sent from main → renderer
-  - `MigrationLogEntry` — Structured log entries with levels (info/warn/error/debug)
-  - `TableMigrationProgress` — Per-table migration status tracking
-  - `MigrationResult` — Final migration summary with success/failure stats
-  - `MigrationRollbackInfo` — Rollback availability and script generation
-  - `TopologicalSortResult` — Table dependency ordering results
-  - `ETLBatchResult` — Batch-level processing results
-  - `EnhancedSkippedRow` — Extended SkippedRow with batch number and retry info
+  - `MigrationProgressEvent` ΓÇö Real-time progress updates sent from main ΓåÆ renderer
+  - `MigrationLogEntry` ΓÇö Structured log entries with levels (info/warn/error/debug)
+  - `TableMigrationProgress` ΓÇö Per-table migration status tracking
+  - `MigrationResult` ΓÇö Final migration summary with success/failure stats
+  - `MigrationRollbackInfo` ΓÇö Rollback availability and script generation
+  - `TopologicalSortResult` ΓÇö Table dependency ordering results
+  - `ETLBatchResult` ΓÇö Batch-level processing results
+  - `EnhancedSkippedRow` ΓÇö Extended SkippedRow with batch number and retry info
 
 **Verification:** TypeScript types compile without errors.
 
 ---
 
-### ✅ Part 2: Topological Sort Engine (COMPLETED)
+### Γ£à Part 2: Topological Sort Engine (COMPLETED)
 - **File Created:** `apps/desktop/main/engine/topologicalSort.ts`
 - **Lines:** ~370 lines
 - **Algorithm:** Kahn's Algorithm (DAG ordering)
 - **Handles:** Circular FK detection and safe ordering
 - **Key Functions:**
-  - `topologicalSort()` — Main entry point, returns ordered tables
-  - `buildDependencyGraph()` — Constructs directed graph from FK relationships
-  - `detectCycles()` — DFS-based cycle detection
-  - `extractCycleEdges()` — Identifies FKs that participate in cycles
-  - `kahnsAlgorithm()` — Safe table ordering (0 in-degree first)
-  - `generateDeferredConstraintsSql()` — Creates ALTER TABLE statements for circular FKs
+  - `topologicalSort()` ΓÇö Main entry point, returns ordered tables
+  - `buildDependencyGraph()` ΓÇö Constructs directed graph from FK relationships
+  - `detectCycles()` ΓÇö DFS-based cycle detection
+  - `extractCycleEdges()` ΓÇö Identifies FKs that participate in cycles
+  - `kahnsAlgorithm()` ΓÇö Safe table ordering (0 in-degree first)
+  - `generateDeferredConstraintsSql()` ΓÇö Creates ALTER TABLE statements for circular FKs
 
 ---
 
-### ✅ Part 3: IPC Handlers (COMPLETED)
+### Γ£à Part 3: IPC Handlers (COMPLETED)
 - **File Created:** `apps/desktop/main/handlers/migration.ts`
 - **Lines:** ~400 lines
 - **File Modified:** `apps/desktop/main/main.ts`
 - **Channels:** migration:start, migration:cancel, migration:progress, migration:log, migration:get-rollback, migration:execute-rollback
 - **Key Functions:**
-  - `setupMigrationHandlers()` — Registers all 5 IPC channels
-  - `migration:start` — Initiates live migration with topological sort + ETL engine
-  - `migration:cancel` — Graceful cancellation with cleanup
-  - `migration:get-rollback` — Retrieves rollback script from disk
-  - `migration:execute-rollback` — Executes rollback in transaction
-  - `emitLog()` — Sends structured log entries to renderer
-  - `saveRollbackScript()` — Persists rollback SQL to userData folder
+  - `setupMigrationHandlers()` ΓÇö Registers all 5 IPC channels
+  - `migration:start` ΓÇö Initiates live migration with topological sort + ETL engine
+  - `migration:cancel` ΓÇö Graceful cancellation with cleanup
+  - `migration:get-rollback` ΓÇö Retrieves rollback script from disk
+  - `migration:execute-rollback` ΓÇö Executes rollback in transaction
+  - `emitLog()` ΓÇö Sends structured log entries to renderer
+  - `saveRollbackScript()` ΓÇö Persists rollback SQL to userData folder
 
 ---
 
-### ✅ Part 4: ETL Engine (COMPLETED)
+### Γ£à Part 4: ETL Engine (COMPLETED)
 - **File Created:** `apps/desktop/main/engine/etlEngine.ts`
 - **Lines:** ~680 lines
 - **Core Logic:** Streaming cursor, batch insert, row-level retry
 - **Key Functions:**
-  - `executeMigration()` — Main entry point, orchestrates entire migration
-  - `processBatch()` — Batch insert with row-by-row fallback on error
-  - `buildBatchInsertSql()` — Generates multi-row INSERT with parameterized queries
-  - `buildSingleInsertSql()` — Single-row INSERT for retry logic
-  - `generateCreateTableDdl()` — DDL generation with Array→Child Table Rule
-  - `extractFieldValue()` — MongoDB document parsing with dot-notation support
-  - `transformValueForSql()` — Type conversion (ObjectId→VARCHAR, Date→TIMESTAMPTZ, etc.)
-  - `generateRollbackScript()` — Creates DELETE statements with metadata
+  - `executeMigration()` ΓÇö Main entry point, orchestrates entire migration
+  - `processBatch()` ΓÇö Batch insert with row-by-row fallback on error
+  - `buildBatchInsertSql()` ΓÇö Generates multi-row INSERT with parameterized queries
+  - `buildSingleInsertSql()` ΓÇö Single-row INSERT for retry logic
+  - `generateCreateTableDdl()` ΓÇö DDL generation with ArrayΓåÆChild Table Rule
+  - `extractFieldValue()` ΓÇö MongoDB document parsing with dot-notation support
+  - `transformValueForSql()` ΓÇö Type conversion (ObjectIdΓåÆVARCHAR, DateΓåÆTIMESTAMPTZ, etc.)
+  - `generateRollbackScript()` ΓÇö Creates DELETE statements with metadata
 
 ---
 
-### ✅ Part 5: Progress UI (COMPLETED)
+### Γ£à Part 5: Progress UI (COMPLETED)
 - **File Created:** `apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx`
 - **File Created:** `apps/desktop/renderer/src/styles/migration-progress.css`
 - **Lines:** ~570 lines (React) + ~450 lines (CSS)
@@ -86,7 +86,7 @@ Phase 9 implements the **core live migration engine** that actually moves data f
 
 ---
 
-### ✅ Part 6: Crash Recovery (COMPLETED)
+### Γ£à Part 6: Crash Recovery (COMPLETED)
 - **File Modified:** `apps/desktop/renderer/src/screens/HomeDashboard.tsx`
 - **File Modified:** `apps/desktop/renderer/src/styles/dashboard.css`
 - **Lines Added:** ~40 lines (React) + ~90 lines (CSS)
@@ -108,18 +108,18 @@ Phase 9 implements the **core live migration engine** that actually moves data f
    - All types use strict typing (no `any` or `@ts-ignore`)
 
 ### Files to Create (Pending)
-2. ~~**apps/desktop/main/engine/topologicalSort.ts** (~180 lines)~~ ✅ DONE
-3. ~~**apps/desktop/main/handlers/migration.ts** (~200 lines)~~ ✅ DONE
-4. ~~**apps/desktop/main/engine/etlEngine.ts** (~650 lines)~~ ✅ DONE
-5. ~~**apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx** (~450 lines)~~ ✅ DONE
-6. ~~**apps/desktop/renderer/src/styles/migration-progress.css** (~450 lines)~~ ✅ DONE
+2. ~~**apps/desktop/main/engine/topologicalSort.ts** (~180 lines)~~ Γ£à DONE
+3. ~~**apps/desktop/main/handlers/migration.ts** (~200 lines)~~ Γ£à DONE
+4. ~~**apps/desktop/main/engine/etlEngine.ts** (~650 lines)~~ Γ£à DONE
+5. ~~**apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx** (~450 lines)~~ Γ£à DONE
+6. ~~**apps/desktop/renderer/src/styles/migration-progress.css** (~450 lines)~~ Γ£à DONE
 4. **apps/desktop/main/handlers/migration.ts** (~200 lines)
 5. **apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx** (~450 lines)
 
 ### Files to Modify (Pending)
-6. ~~**apps/desktop/main/main.ts** (+2 lines)~~ ✅ DONE
-7. ~~**apps/desktop/renderer/src/screens/HomeDashboard.tsx** (+40 lines)~~ ✅ DONE
-8. ~~**apps/desktop/renderer/src/styles/dashboard.css** (+90 lines)~~ ✅ DONE
+6. ~~**apps/desktop/main/main.ts** (+2 lines)~~ Γ£à DONE
+7. ~~**apps/desktop/renderer/src/screens/HomeDashboard.tsx** (+40 lines)~~ Γ£à DONE
+8. ~~**apps/desktop/renderer/src/styles/dashboard.css** (+90 lines)~~ Γ£à DONE
 
 ---
 
@@ -154,13 +154,13 @@ Migrating 20,000+ documents from MongoDB to PostgreSQL requires memory-efficient
    - Computes ETA: `(totalRows - rowsCompleted) / rowsPerSec`
    - Updates UI every batch (not every row) for smooth 60fps
 
-4. **Type Conversion (MongoDB → PostgreSQL)**
-   - `ObjectId` → `VARCHAR` (hex string)
-   - `Date` → `TIMESTAMPTZ` (ISO 8601)
-   - `NumberLong` → `BIGINT`
-   - `Decimal128` → `NUMERIC`
-   - Embedded objects → `JSONB`
-   - Arrays → `TEXT[]` or child table (depends on mapping)
+4. **Type Conversion (MongoDB ΓåÆ PostgreSQL)**
+   - `ObjectId` ΓåÆ `VARCHAR` (hex string)
+   - `Date` ΓåÆ `TIMESTAMPTZ` (ISO 8601)
+   - `NumberLong` ΓåÆ `BIGINT`
+   - `Decimal128` ΓåÆ `NUMERIC`
+   - Embedded objects ΓåÆ `JSONB`
+   - Arrays ΓåÆ `TEXT[]` or child table (depends on mapping)
 
 5. **Chunk-Level Error Isolation**
    - Each batch processed independently
@@ -203,7 +203,7 @@ Migrating 20,000+ documents from MongoDB to PostgreSQL requires memory-efficient
    3b. Accumulate batch of 500 docs
    3c. Extract + transform each field
    3d. INSERT INTO table VALUES (...500 rows...)
-   3e. If batch fails → retry row-by-row
+   3e. If batch fails ΓåÆ retry row-by-row
    3f. Update progress bar + ETA
    3g. Check cancellation flag
 4. Generate rollback script
@@ -234,12 +234,12 @@ The live migration engine runs in Electron's main process (Node.js) and must com
    - Graceful shutdown: completes current batch, then stops
    - Does NOT rollback partial data (user can use rollback script)
 
-3. **migration:progress Event** (main → renderer)
+3. **migration:progress Event** (main ΓåÆ renderer)
    - Pushed via `event.sender.send('migration:progress', progress)`
    - Includes table name, rows completed, ETA, rows/sec
    - Renderer updates progress bars and live stats
 
-4. **migration:log Event** (main → renderer)
+4. **migration:log Event** (main ΓåÆ renderer)
    - Structured log entries with timestamp, level, message, table
    - All messages pass through `maskSensitiveFields()` to hide passwords
    - Renderer displays in scrollable log viewer
@@ -282,7 +282,7 @@ COMMIT;
 **Algorithm: Kahn's Algorithm for DAG Topological Sorting**
 
 **Problem Statement:**
-When migrating data from MongoDB to PostgreSQL, tables must be created and populated in an order that respects foreign key constraints. If Table A references Table B, then Table B must be created and populated BEFORE Table A. However, circular dependencies (e.g., `users.organization_id → organizations.id` AND `organizations.created_by → users.id`) make this impossible with standard ordering.
+When migrating data from MongoDB to PostgreSQL, tables must be created and populated in an order that respects foreign key constraints. If Table A references Table B, then Table B must be created and populated BEFORE Table A. However, circular dependencies (e.g., `users.organization_id ΓåÆ organizations.id` AND `organizations.created_by ΓåÆ users.id`) make this impossible with standard ordering.
 
 **Solution Architecture:**
 
@@ -316,8 +316,8 @@ When migrating data from MongoDB to PostgreSQL, tables must be created and popul
 ```
 Tables: users, organizations
 FKs:
-  - users.organization_id → organizations.id
-  - organizations.created_by → users.id
+  - users.organization_id ΓåÆ organizations.id
+  - organizations.created_by ΓåÆ users.id
 
 Without cycle handling: DEADLOCK (can't create either table first)
 
@@ -339,40 +339,40 @@ With cycle handling:
 ### Part 1: TypeScript Types (Completed)
 **Foundation Types for Migration Engine:**
 
-1. **MigrationProgressEvent** — Real-time progress updates
+1. **MigrationProgressEvent** ΓÇö Real-time progress updates
    - Tracks overall migration progress (totalTables, completedTables)
    - Tracks current table progress (currentTable, rowsCompleted)
    - Performance metrics (rowsPerSecond, estimatedTimeRemainingMs)
    - Error handling (skippedRows array)
 
-2. **MigrationLogEntry** — Structured logging
+2. **MigrationLogEntry** ΓÇö Structured logging
    - Levels: info, warn, error, debug
    - Optional table context
    - Structured details object for debugging
 
-3. **TableMigrationProgress** — Per-table state
+3. **TableMigrationProgress** ΓÇö Per-table state
    - Status: pending | running | completed | failed | skipped
    - Row counts and percentage
    - Start/end timestamps
    - Skipped rows collection
 
-4. **MigrationResult** — Final summary
+4. **MigrationResult** ΓÇö Final summary
    - Success/failure counts per table
    - Total rows migrated vs skipped
    - Duration in milliseconds
    - Rollback script generation
 
-5. **TopologicalSortResult** — Dependency ordering
+5. **TopologicalSortResult** ΓÇö Dependency ordering
    - Ordered list of tables (safe migration order)
    - Circular dependency detection
    - FK cycle information
 
-6. **ETLBatchResult** — Batch processing results
+6. **ETLBatchResult** ΓÇö Batch processing results
    - Rows processed in batch
    - Rows skipped with reasons
    - Error isolation per batch
 
-7. **EnhancedSkippedRow** — Extended error tracking
+7. **EnhancedSkippedRow** ΓÇö Extended error tracking
    - Batch number for context
    - Retry attempt count
    - Full stack trace for debugging
@@ -381,13 +381,13 @@ With cycle handling:
 
 ## Verification & Test Results
 
-### All Parts Verified ✅
-✅ **Part 1 - TypeScript Types:** Types compile successfully, no breaking changes  
-✅ **Part 2 - Topological Sort:** Algorithm handles cycles, produces safe ordering  
-✅ **Part 3 - IPC Handlers:** All 5 channels registered in main.ts  
-✅ **Part 4 - ETL Engine:** Streaming cursor, batch processing, error isolation implemented  
-✅ **Part 5 - Progress UI:** All 4 states (idle, running, completed, error) implemented  
-✅ **Part 6 - Crash Recovery:** Rollback banner displays when scripts available
+### All Parts Verified Γ£à
+Γ£à **Part 1 - TypeScript Types:** Types compile successfully, no breaking changes  
+Γ£à **Part 2 - Topological Sort:** Algorithm handles cycles, produces safe ordering  
+Γ£à **Part 3 - IPC Handlers:** All 5 channels registered in main.ts  
+Γ£à **Part 4 - ETL Engine:** Streaming cursor, batch processing, error isolation implemented  
+Γ£à **Part 5 - Progress UI:** All 4 states (idle, running, completed, error) implemented  
+Γ£à **Part 6 - Crash Recovery:** Rollback banner displays when scripts available
 
 ---
 
@@ -409,24 +409,24 @@ With cycle handling:
 9. `apps/desktop/renderer/src/styles/dashboard.css` (+90 lines)
 
 **Key Achievements:**
-- ✅ Memory-efficient streaming (no OOM on 20,000+ docs)
-- ✅ Batch insert with row-level fallback (1 bad row doesn't fail 20,000 good ones)
-- ✅ Real-time ETA calculation (rows/sec, time remaining)
-- ✅ Circular FK handling with deferred constraints
-- ✅ Password masking in all logs
-- ✅ Rollback script generation with crash recovery
-- ✅ 4-state UI (idle, running, completed, error)
-- ✅ Cancellation support between batches
+- Γ£à Memory-efficient streaming (no OOM on 20,000+ docs)
+- Γ£à Batch insert with row-level fallback (1 bad row doesn't fail 20,000 good ones)
+- Γ£à Real-time ETA calculation (rows/sec, time remaining)
+- Γ£à Circular FK handling with deferred constraints
+- Γ£à Password masking in all logs
+- Γ£à Rollback script generation with crash recovery
+- Γ£à 4-state UI (idle, running, completed, error)
+- Γ£à Cancellation support between batches
 
 ---
 
 ## Verification & Test Results (Legacy)
 
 ### Part 1 Verification
-✅ **TypeScript Compilation:** Types added successfully to `packages/shared/src/types.ts`  
-✅ **No Breaking Changes:** All existing types remain unchanged  
-✅ **Strict Typing:** No use of `any`, `@ts-ignore`, or `@ts-nocheck`  
-✅ **Export Correctness:** All interfaces use `export` keyword for cross-package usage
+Γ£à **TypeScript Compilation:** Types added successfully to `packages/shared/src/types.ts`  
+Γ£à **No Breaking Changes:** All existing types remain unchanged  
+Γ£à **Strict Typing:** No use of `any`, `@ts-ignore`, or `@ts-nocheck`  
+Γ£à **Export Correctness:** All interfaces use `export` keyword for cross-package usage
 
 ---
 
@@ -446,9 +446,9 @@ With cycle handling:
 ## Next Phase Handoff
 
 ### Prerequisites for Part 2 (Topological Sort)
-- ✅ `TopologicalSortResult` type defined
-- ✅ Can now implement Kahn's Algorithm with proper return type
-- ✅ Will use existing `RiskAnalysis.circularForeignKeyChains` from Phase 8 for cycle detection
+- Γ£à `TopologicalSortResult` type defined
+- Γ£à Can now implement Kahn's Algorithm with proper return type
+- Γ£à Will use existing `RiskAnalysis.circularForeignKeyChains` from Phase 8 for cycle detection
 
 ### State Established
 - Type system foundation complete
@@ -461,19 +461,19 @@ With cycle handling:
 ## Technical Highlights for FYP Report
 
 ### Why This Phase is Critical
-Phase 9 is the **execution engine** — all previous phases were planning. This is where MigrateIQ proves it can safely move millions of rows without data loss.
+Phase 9 is the **execution engine** ΓÇö all previous phases were planning. This is where MigrateIQ proves it can safely move millions of rows without data loss.
 
 ### Key Challenges Solved in Part 1
 1. **Progress Granularity:** Types support both table-level AND row-level progress tracking
 2. **Error Isolation:** Batch-level error tracking prevents one bad row from failing entire migration
-3. **IPC Type Safety:** All events use strict TypeScript types across Electron's main↔renderer boundary
+3. **IPC Type Safety:** All events use strict TypeScript types across Electron's mainΓåörenderer boundary
 4. **Extensibility:** Types designed for future enhancements (e.g., parallel table migration)
 
 ---
 
 ---
 
-## ✅ PHASE 9 COMPLETE — Final Summary
+## Γ£à PHASE 9 COMPLETE ΓÇö Final Summary
 
 All 6 parts have been successfully implemented and documented.
 
@@ -514,7 +514,7 @@ git commit -m "feat(phase-09): implement IPC handlers for live migration control
 
 - Add migration:start handler with topological sort integration
 - Add migration:cancel for graceful cancellation
-- Add migration:progress event streaming (main→renderer)
+- Add migration:progress event streaming (mainΓåÆrenderer)
 - Add migration:log for structured logging with password masking
 - Add migration:get-rollback to retrieve rollback scripts
 - Add migration:execute-rollback for transaction-safe rollback
@@ -566,7 +566,7 @@ git commit -m "feat(phase-09): implement crash recovery with rollback detection 
 - Add download script button (exports SQL file)
 - Add dismiss button to hide notification
 - Check migration:get-rollback IPC on dashboard load
-- Style rollback banner with green gradient (#ECFDF5 → #D1FAE5)
+- Style rollback banner with green gradient (#ECFDF5 ΓåÆ #D1FAE5)
 - Update phase 9 documentation (Part 6/6 complete)
 - Mark Phase 9 as COMPLETE in implementation plan"
 ```
@@ -601,7 +601,7 @@ Part 4 - ETL Streaming Engine:
 - MongoDB cursor with batch streaming (500 rows, O(batchSize) memory)
 - Batch insert with row-by-row retry fallback for error isolation
 - Real-time ETA calculation (rows/sec, time remaining)
-- Type conversion (ObjectId→VARCHAR, Date→TIMESTAMPTZ, JSONB)
+- Type conversion (ObjectIdΓåÆVARCHAR, DateΓåÆTIMESTAMPTZ, JSONB)
 - Rollback script generation with metadata
 - Throughput: 1,000-2,000 rows/sec, graceful cancellation
 
@@ -624,13 +624,13 @@ TOTAL: ~2,550 lines across 9 files
 - 3 files modified (~132 lines)
 
 KEY FEATURES:
-✅ Memory-efficient streaming (no OOM on 20K+ docs)
-✅ Chunk-level error isolation (1 bad row ≠ 20K failure)
-✅ Circular FK handling with deferred constraints
-✅ Real-time progress with ETA calculation
-✅ Password masking in all logs
-✅ Rollback script generation for crash recovery
-✅ 4-state UI with cancel support
+Γ£à Memory-efficient streaming (no OOM on 20K+ docs)
+Γ£à Chunk-level error isolation (1 bad row Γëá 20K failure)
+Γ£à Circular FK handling with deferred constraints
+Γ£à Real-time progress with ETA calculation
+Γ£à Password masking in all logs
+Γ£à Rollback script generation for crash recovery
+Γ£à 4-state UI with cancel support
 
 Referenced: phase_plan-v2.md Lines 472-605, product_blueprint-v7.md Step 7"
 ```
@@ -639,3 +639,91 @@ Referenced: phase_plan-v2.md Lines 472-605, product_blueprint-v7.md Step 7"
 
 *Phase 9 implementation complete. Ready for testing and git commit.*
 
+---
+
+## 🔍 Post-Audit Recovery (Retrospective — Phase 9 Build Fix)
+
+A deep retrospective audit was performed after the initial implementation. The following 18 TypeScript errors and 6 data integrity bugs were discovered and resolved.
+
+### Build Errors Fixed (18 Total)
+
+| # | Error Code | Location | Root Cause | Fix Applied |
+|---|-----------|----------|-----------|-------------|
+| 1–2 | TS2740 | `etlEngine.ts:291,319` | Two `interface MigrationResult` in `types.ts` — TypeScript declaration-merging required ALL fields from both. ETL engine only returned Phase 9 fields. | Renamed Phase 0 shape to `LegacyMigrationHistoryResult` in `types.ts` |
+| 3–10 | TS2339 | `etlEngine.ts` (8 places) | `f.targetField` — property is named `targetColumn` on `FieldMapping`. Wrong name used throughout engine. | Replaced all `targetField` with `targetColumn` |
+| 11–14 | TS2339 | `topologicalSort.ts` (4 places) | Same `targetField` error in FK constraint generation functions | Replaced all `targetField` with `targetColumn` |
+| 15 | TS6133 | `migration.ts:22` | `MongoClient` imported but never used | Removed import |
+| 16 | TS6133 | `migration.ts:32` | `TableMigrationProgress` imported but never used | Removed import |
+| 17 | TS6133 | `migration.ts:35` | `MigrationOptions` imported but never used | Removed import |
+| 18 | TS2552 | `etlEngine.ts:114,115` | `onRollbackScriptReady` added to `MigrationOptions` interface but not destructured from `options` at the top of `executeMigration()` | Added to destructure statement |
+
+**Verification:** `npx tsc -p apps/desktop/tsconfig.node.json --noEmit` exits with **code 0, 0 errors**.
+
+---
+
+### Data Integrity Bugs Fixed (6 Total)
+
+#### Bug 1: Rollback Script Generated After Success (Not Before INSERT)
+- **Problem:** `generateRollbackScript()` was called at the end of a successful migration — if the app crashed mid-migration, no rollback script existed on disk.
+- **Fix:** Added `onRollbackScriptReady?: (script: string) => Promise<void>` to `MigrationOptions`. The rollback script is now generated from `tableOrder` and saved to disk **before the first `CREATE TABLE`**. Crash recovery is now safe regardless of where the migration fails.
+
+#### Bug 2: Rollback SQL Used `migrated_at` Column (Column Never Existed)
+- **Original SQL:** `DELETE FROM "table" WHERE migrated_at >= 'timestamp'`
+- **Problem:** The `migrated_at` column was never added to DDL generation and was never inserted during ETL. This SQL would always fail with a column-not-found error.
+- **Fix:** Switched to `DROP TABLE IF EXISTS "table" CASCADE` in **reverse topological order**. This is the correct rollback strategy for initial schema migration and matches industry tools like Flyway and Liquibase.
+
+#### Bug 3: `sort_order` Always DEFAULT 0 (Array Element Order Lost)
+- **Problem:** `sort_order` was added to `CREATE TABLE` DDL for child tables but no value was ever passed in `INSERT`. All rows got `DEFAULT 0`, destroying the original array element ordering.
+- **Fix:** `buildBatchInsertSql()` and `buildSingleInsertSql()` now detect child tables (`isChildTable` flag) and inject `sort_order = batchStartRowIndex + rowIdx` into the INSERT VALUES — the 0-based index of each array element as required by AGENTS.md "Array → Child Table Rule".
+
+#### Bug 4: `findMapping()` Returned Parent Mapping for Child Tables
+- **Problem:** The old `findMapping()` returned the parent `CollectionMapping` when given a child table name. Child table INSERTs then used the parent's field definitions, writing parent data into child table columns.
+- **Fix:** Rewrote as three dedicated helpers:
+  - `findMappingForTable()` — returns the correct **child** `CollectionMapping` for child table names
+  - `isChildTableName()` — returns `true` if a table is a child
+  - `findParentMappingForChild()` — returns the parent whose MongoDB collection to stream from
+
+#### Bug 5: IPC Log Channel Sent JSON String Instead of Object
+- **Original code:** `event.sender.send('migration:log', maskSensitiveFields(JSON.stringify(log)))`
+- **Problem:** Electron IPC auto-serialises JavaScript objects via structured clone. Wrapping in `JSON.stringify()` double-serialised the object — the renderer received a raw JSON string, not a `MigrationLogEntry`. Every property access returned `undefined`, making the live log viewer show nothing meaningful.
+- **Fix:** `event.sender.send('migration:log', log)` — send the object directly. Masking is applied separately to the message field in `emitLog()`.
+
+#### Bug 6: MongoDB Cursor Had No `noCursorTimeout`
+- **Problem:** MongoDB's default server-side cursor timeout is 10 minutes. For very large collections or slow hardware, the cursor could expire mid-migration and silently stop enumeration with no error thrown — leaving the migration partially complete with no indication of what happened.
+- **Fix:** Added `.addCursorFlag('noCursorTimeout', true)` to all collection cursors in `etlEngine.ts`.
+
+---
+
+### UX Gaps Fixed
+
+#### Warning Confirmation Modal (Required by Product Blueprint)
+- `product_blueprint-v7.md` Step 7 specifies a confirmation dialog before migration starts.
+- **Added:** `confirming` state in `MigrationProgressScreen` that renders a modal with:
+  - Backup reminder
+  - Snapshot limitation warning box ("New data written to MongoDB AFTER you click 'Start' will NOT be included")
+  - "Cancel" (grey) and "Yes, Start Migration" (red `btn-danger`) buttons
+
+#### Step 7 Was a Placeholder (MigrationProgressScreen Never Wired)
+- `MigrationWizard.tsx` had `wizardStep > 6 → "This step will be built in Phase 9..."` as a placeholder that was never replaced.
+- **Fixed:** Imported `MigrationProgressScreen` and rendered it at `wizardStep === 7` with correct `onBack` (→ step 6) and `onComplete` (→ step 8) callbacks.
+
+#### Auto-scroll Checkbox Used Ref, Not State
+- The auto-scroll checkbox was backed by `autoScrollRef.current` set in an `onChange` handler. Since refs don't trigger re-renders, the checkbox appeared visually frozen (never showed the checked/unchecked state updating).
+- **Fixed:** Changed to `useState(true)` for the checkbox; kept the ref in sync via `useEffect` for use inside IPC event callbacks (which capture the ref, not the state).
+
+#### Retry Button Kept Stale Logs from Previous Failed Run
+- Clicking "Try Again" on the error screen called `setStatus('idle')` only — the previous run's logs and error message remained visible when the next run started.
+- **Fixed:** Retry now clears `logs`, `progress`, and `errorMessage` before returning to idle state.
+
+#### Migration History Never Saved to electron-store
+- After a successful migration, no record was written to the app's history store, so the HomeDashboard history panel always showed empty.
+- **Fixed:** Added `saveMigrationHistory()` in `migration.ts` — called after a successful migration, creates a `MigrationHistoryItem` and saves it to electron-store under the `migrationHistory` key.
+
+---
+
+### Post-Audit Git Commit
+
+```bash
+git add .
+git commit -m "fix: phase-09 — resolve 18 TS errors, wire MigrationProgressScreen, fix rollback/sort_order/IPC/child-table"
+```

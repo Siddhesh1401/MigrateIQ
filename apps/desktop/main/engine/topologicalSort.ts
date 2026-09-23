@@ -266,8 +266,8 @@ function extractCycleEdges(cycles: string[][], mappings: CollectionMapping[]): F
         if (participatesInCycle) {
           deferredConstraints.push({
             tableName,
-            constraintName: `fk_${tableName}_${field.targetField}`,
-            columnName: field.targetField,
+            constraintName: `fk_${tableName}_${field.targetColumn}`,
+            columnName: field.targetColumn,
             referencedTable,
             referencedColumn,
             onDelete: 'CASCADE',
@@ -296,8 +296,8 @@ function extractCycleEdges(cycles: string[][], mappings: CollectionMapping[]): F
             if (participatesInCycle) {
               deferredConstraints.push({
                 tableName: childTableName,
-                constraintName: `fk_${childTableName}_${field.targetField}`,
-                columnName: field.targetField,
+                constraintName: `fk_${childTableName}_${field.targetColumn}`,
+                columnName: field.targetColumn,
                 referencedTable,
                 referencedColumn,
                 onDelete: 'CASCADE',

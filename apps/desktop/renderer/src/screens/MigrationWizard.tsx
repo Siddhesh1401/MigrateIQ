@@ -15,6 +15,7 @@ import { ConnectionForm } from '../components/ConnectionForm';
 import { SchemaMapper } from './SchemaMapper';
 import { RiskReport } from './RiskReport';
 import { DryRunScreen } from './DryRunScreen';
+import MigrationProgressScreen from './MigrationProgressScreen';
 import '../styles/wizard.css';
 
 export interface MigrationWizardProps {}
@@ -1623,16 +1624,31 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
           />
         )}
 
-        {/* ── Steps 7+ (Placeholder for Phase 9) ── */}
-        {wizardStore.wizardStep > 6 && (
+        {/* ── Step 7: Live Migration ── */}
+        {wizardStore.wizardStep === 7 && (
+          <MigrationProgressScreen
+            onBack={() => wizardStore.setWizardStep(6)}
+            onComplete={() => {
+              // Clear in-progress wizard state since migration succeeded
+              window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
+              wizardStore.setWizardStep(8);
+            }}
+          />
+        )}
+
+        {/* ── Step 8+ (Placeholder for Phase 10: Migration Complete) ── */}
+        {wizardStore.wizardStep > 7 && (
           <div className="wizard-step">
             <h2 className="step-heading">Step {wizardStore.wizardStep} of 8</h2>
             <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>
-              This step will be built in Phase 9: Live ETL Migration Engine.
+              Migration is complete! The detailed audit report and performance benchmarks will be built in Phase 10.
             </p>
             <div className="wizard-buttons">
-              <button className="btn-secondary" onClick={handleBackStep}>
-                ← Back
+              <button className="btn-primary" onClick={() => {
+                wizardStore.reset();
+                window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
+              }}>
+                Start New Migration
               </button>
             </div>
           </div>

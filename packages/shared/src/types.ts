@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MigrateIQ - Shared TypeScript Types
  */
 
@@ -176,7 +176,8 @@ export interface SkippedRowLog {
   rawSample?: string;
 }
 
-export interface MigrationResult {
+/** @deprecated Use MigrationResult (Phase 9) instead. Kept for reference only. */
+export interface LegacyMigrationHistoryResult {
   migrationId: string;
   direction: 'mongo_to_postgres' | 'postgres_to_mongo';
   sourceDatabase: string;

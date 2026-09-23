@@ -35,15 +35,18 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
 }) => {
   const { sourceConfig, targetConfig, schemaMapping } = useWizardStore();
 
-  const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'error' | 'cancelled'>('idle');
+  const [status, setStatus] = useState<'idle' | 'confirming' | 'running' | 'completed' | 'error' | 'cancelled'>('idle');
   const [progress, setProgress] = useState<MigrationProgressEvent | null>(null);
   const [logs, setLogs] = useState<MigrationLogEntry[]>([]);
   const [result, setResult] = useState<MigrationResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showRollback, setShowRollback] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  // Keep ref in sync with state (for use inside IPC callbacks)
+  useEffect(() => { autoScrollRef.current = autoScroll; }, [autoScroll]);
 
   // Listen to IPC progress events
   useEffect(() => {
@@ -76,10 +79,14 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
 
   // Auto-scroll logs to bottom
   useEffect(() => {
-    if (autoScrollRef.current && logContainerRef.current) {
+    if (autoScroll && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
-  }, [logs]);
+  }, [logs, autoScroll]);
+
+  const handleConfirmStart = (): void => {
+    setStatus('confirming');
+  };
 
   const handleStartMigration = async () => {
     if (!sourceConfig || !targetConfig || !schemaMapping) {
@@ -114,6 +121,10 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
       setErrorMessage(msg);
       setStatus('error');
     }
+  };
+
+  const handleCancelConfirm = (): void => {
+    setStatus('idle');
   };
 
   const handleCancelMigration = async () => {
@@ -222,9 +233,57 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
           <button className="btn-secondary" onClick={onBack}>
             ← Back
           </button>
-          <button className="btn-primary" onClick={handleStartMigration}>
+          <button className="btn-primary" onClick={handleConfirmStart}>
             Start Migration →
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================
+  // Render: Confirmation Modal
+  // ============================================
+  if (status === 'confirming') {
+    return (
+      <div className="migration-progress-container">
+        <div className="migration-modal-overlay">
+          <div className="migration-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="migration-confirm-title">
+            <div className="migration-confirm-modal-header">
+              <span className="migration-confirm-modal-icon">⚠️</span>
+              <h2 id="migration-confirm-title">You are about to run the actual migration.</h2>
+            </div>
+
+            <div className="migration-confirm-modal-body">
+              <p>
+                This will <strong>create tables and insert data</strong> into your PostgreSQL database.
+                Make sure you have a backup of your existing data before continuing.
+              </p>
+
+              <div className="migration-confirm-snapshot-warning">
+                <div className="migration-confirm-snapshot-title">⚠️ IMPORTANT: This is a snapshot migration.</div>
+                <p>New data written to MongoDB <strong>AFTER you click "Start"</strong> will NOT be included.</p>
+                <p>Recommendation: Put your application in <strong>maintenance mode</strong> (stop new writes) before running for best accuracy.</p>
+              </div>
+            </div>
+
+            <div className="migration-confirm-modal-actions">
+              <button
+                id="migration-confirm-cancel-btn"
+                className="btn-secondary"
+                onClick={handleCancelConfirm}
+              >
+                Cancel
+              </button>
+              <button
+                id="migration-confirm-start-btn"
+                className="btn-danger"
+                onClick={handleStartMigration}
+              >
+                Yes, Start Migration
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -303,8 +362,9 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
             <label className="migration-log-autoscroll">
               <input
                 type="checkbox"
-                checked={autoScrollRef.current}
-                onChange={(e) => { autoScrollRef.current = e.target.checked; }}
+                id="migration-autoscroll-toggle"
+                checked={autoScroll}
+                onChange={(e) => setAutoScroll(e.target.checked)}
               />
               Auto-scroll
             </label>
@@ -476,7 +536,13 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
         <button className="btn-secondary" onClick={onBack}>
           ← Back to Wizard
         </button>
-        <button className="btn-primary" onClick={() => setStatus('idle')}>
+        <button className="btn-primary" onClick={() => {
+          // Clear logs when retrying so old run logs don't persist
+          setLogs([]);
+          setProgress(null);
+          setErrorMessage(null);
+          setStatus('idle');
+        }}>
           Try Again
         </button>
       </div>

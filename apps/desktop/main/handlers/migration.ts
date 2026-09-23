@@ -19,7 +19,6 @@
  */
 
 import { ipcMain } from 'electron';
-import { MongoClient } from 'mongodb';
 import { Client as PgClient } from 'pg';
 import type {
   IPCResponse,
@@ -29,10 +28,10 @@ import type {
   MigrationRollbackInfo,
   ConnectionConfig,
   CollectionMapping,
-  TableMigrationProgress
+  MigrationHistoryItem
 } from '@migrateiq/shared';
 import { topologicalSort } from '../engine/topologicalSort';
-import { executeMigration, MigrationOptions } from '../engine/etlEngine';
+import { executeMigration } from '../engine/etlEngine';
 import { maskSensitiveFields } from '../utils';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -145,17 +144,22 @@ export function setupMigrationHandlers(): void {
           },
           onLog: (log: MigrationLogEntry) => {
             try {
-              event.sender.send('migration:log', maskSensitiveFields(JSON.stringify(log)));
+              // Send the MigrationLogEntry object directly (NOT JSON-stringified)
+              event.sender.send('migration:log', log);
             } catch {
               // Ignore errors if sender is disposed
             }
           },
-          checkCancellation: () => activeMigration?.cancelRequested || false
+          checkCancellation: () => activeMigration?.cancelRequested || false,
+          // Save rollback script BEFORE first INSERT (crash recovery)
+          onRollbackScriptReady: async (script: string) => {
+            await saveRollbackScript(script, new Date().toISOString());
+          }
         });
 
-        // Step 3: Save rollback script to disk
-        if (migrationResult.success && migrationResult.rollbackScript) {
-          await saveRollbackScript(migrationResult.rollbackScript, migrationResult.startTime);
+        // Step 3: Save migration result to history
+        if (migrationResult.success) {
+          await saveMigrationHistory(migrationResult, sourceConfig, targetConfig);
         }
 
         // Clear active migration state
@@ -370,7 +374,7 @@ function emitLog(
 }
 
 /**
- * Saves rollback script to disk for crash recovery
+ * Saves rollback script to disk for crash recovery.
  */
 async function saveRollbackScript(script: string, timestamp: string): Promise<void> {
   const rollbackDir = path.join(app.getPath('userData'), 'rollback-scripts');
@@ -380,6 +384,47 @@ async function saveRollbackScript(script: string, timestamp: string): Promise<vo
   const filePath = path.join(rollbackDir, filename);
 
   await fs.writeFile(filePath, script, 'utf-8');
+}
+
+/**
+ * Saves a completed migration to the electron-store history.
+ */
+async function saveMigrationHistory(
+  result: MigrationResult,
+  sourceConfig: ConnectionConfig,
+  targetConfig: ConnectionConfig
+): Promise<void> {
+  try {
+    const historyItem: MigrationHistoryItem = {
+      id: `migration-${Date.now()}`,
+      dateTime: result.endTime,
+      direction: 'MongoDB → PostgreSQL',
+      status: result.failedTables > 0 ? 'warning' : 'completed',
+      sourceDb: sourceConfig.database,
+      targetDb: targetConfig.database,
+      tablesCount: result.completedTables,
+      rowsMigrated: result.migratedRows,
+      duration: `${Math.round(result.duration / 1000)}s`,
+      reportSummary: `${result.migratedRows} rows migrated, ${result.skippedRows} skipped, ${result.failedTables} failed tables`
+    };
+
+    // Fetch existing history and prepend the new entry
+    const existingResponse = await new Promise<{ success: boolean; data?: MigrationHistoryItem[] }>((resolve) => {
+      ipcMain.emit('store:get-migration-history', {}, (resp: { success: boolean; data?: MigrationHistoryItem[] }) => resolve(resp));
+    }).catch(() => ({ success: false, data: [] }));
+
+    const history: MigrationHistoryItem[] = [
+      historyItem,
+      ...(Array.isArray(existingResponse?.data) ? existingResponse.data : [])].slice(0, 50); // Keep last 50
+
+    // Write back to store
+    const Store = (await import('electron-store')).default;
+    const store = new Store<{ migrationHistory: MigrationHistoryItem[] }>();
+    store.set('migrationHistory', history);
+
+  } catch {
+    // Non-critical: history save failure does not break migration
+  }
 }
 
 /**

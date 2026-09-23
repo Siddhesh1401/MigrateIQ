@@ -39,10 +39,12 @@ export interface MigrationOptions {
   targetConfig: ConnectionConfig;
   mappings: CollectionMapping[];
   tableOrder: string[]; // From topological sort
+  deferredConstraintSqls?: string[]; // SQL stmts for deferred FK constraints
   batchSize?: number;
   onProgress?: (progress: MigrationProgressEvent) => void;
   onLog?: (log: MigrationLogEntry) => void;
   checkCancellation?: () => boolean;
+  onRollbackScriptReady?: (script: string) => Promise<void>; // Called before first INSERT
 }
 
 interface TableStats {
@@ -68,7 +70,8 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     batchSize = 500,
     onProgress,
     onLog,
-    checkCancellation
+    checkCancellation,
+    onRollbackScriptReady
   } = options;
 
   let mongoClient: MongoClient | null = null;
@@ -76,10 +79,9 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
 
   const startTime = new Date().toISOString();
   const tableStats: TableStats[] = [];
-  const rollbackStatements: string[] = [];
 
   try {
-    // Step 1: Connect to MongoDB
+    // ── Step 1: Connect to MongoDB ───────────────────────────────────────
     emitLog(onLog, 'info', `🔌 Connecting to MongoDB...`);
     mongoClient = new MongoClient(
       sourceConfig.connectionString || buildMongoConnectionString(sourceConfig),
@@ -91,7 +93,7 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
       : mongoClient.db();
     emitLog(onLog, 'info', `✅ Connected to MongoDB database: ${mongoDB.databaseName}`);
 
-    // Step 2: Connect to PostgreSQL
+    // ── Step 2: Connect to PostgreSQL ────────────────────────────────────
     emitLog(onLog, 'info', `🔌 Connecting to PostgreSQL...`);
     pgClient = new PgClient({
       connectionString: targetConfig.connectionString,
@@ -107,13 +109,21 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     await pgClient.query(`SET search_path TO "${targetSchema}"`);
     emitLog(onLog, 'info', `✅ Connected to PostgreSQL schema: ${targetSchema}`);
 
-    // Step 3: Create tables in dependency order
+    // ── Step 3: Pre-generate DROP TABLE rollback script BEFORE any data changes ──
+    // CRITICAL: Must be on disk before first CREATE TABLE so crash recovery works.
+    const rollbackScript = generateRollbackScript(tableOrder, startTime);
+    if (onRollbackScriptReady) {
+      await onRollbackScriptReady(rollbackScript);
+      emitLog(onLog, 'info', `💾 Rollback script saved to disk (crash recovery ready)`);
+    }
+
+    // ── Step 4: Create tables in dependency order ─────────────────────────
     emitLog(onLog, 'info', `📐 Creating tables in safe order...`);
     for (const tableName of tableOrder) {
-      const mapping = findMapping(mappings, tableName);
+      const mapping = findMappingForTable(mappings, tableName);
       if (!mapping) continue;
 
-      const isChildTable = mapping.collectionName !== tableName;
+      const isChildTable = isChildTableName(mappings, tableName);
       const { sql } = generateCreateTableDdl(
         tableName,
         mapping.fields,
@@ -124,7 +134,7 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
       emitLog(onLog, 'info', `✅ Created table: ${tableName}`);
     }
 
-    // Step 4: Migrate data table-by-table
+    // ── Step 5: Migrate data table-by-table ───────────────────────────────
     emitLog(onLog, 'info', `📦 Starting data migration...`);
     emitProgress(onProgress, {
       type: 'start',
@@ -141,19 +151,22 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
       }
 
       const tableName = tableOrder[i];
-      const mapping = findMapping(mappings, tableName);
+      const mapping = findMappingForTable(mappings, tableName);
       if (!mapping) {
         emitLog(onLog, 'warn', `⚠️ No mapping found for table: ${tableName}. Skipping.`);
         continue;
       }
 
-      const isChildTable = mapping.collectionName !== tableName;
-      const collectionName = isChildTable
-        ? mapping.collectionName
-        : tableName;
+      const isChildTable = isChildTableName(mappings, tableName);
+      // For child tables, query the parent collection (child data is embedded in parent docs)
+      const parentMapping = findParentMappingForChild(mappings, tableName);
+      const collectionName = isChildTable && parentMapping
+        ? (parentMapping.targetTableName || parentMapping.collectionName)
+        : (mapping.targetTableName || mapping.collectionName);
 
       const collection = mongoDB.collection(collectionName);
-      const totalRows = await collection.countDocuments();
+      // Use estimatedDocumentCount (O(1)) for progress display; avoids full collection scan
+      const totalRows = await collection.estimatedDocumentCount();
 
       const tableStatEntry: TableStats = {
         tableName,
@@ -176,8 +189,8 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
         currentTableProgress: 0
       });
 
-      // Step 5: Stream documents in batches
-      const cursor = collection.find({}).batchSize(batchSize);
+      // Stream documents in batches with noCursorTimeout to prevent timeout on large collections
+      const cursor = collection.find({}).batchSize(batchSize).addCursorFlag('noCursorTimeout', true);
       let batch: unknown[] = [];
       let rowsCompleted = 0;
       let batchNumber = 0;
@@ -206,7 +219,8 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
             mapping,
             batch,
             batchNumber,
-            isChildTable
+            isChildTable,
+            batchStartRowIndex: rowsCompleted
           });
 
           rowsCompleted += batchResult.rowsProcessed;
@@ -256,13 +270,24 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
         currentTableProgress: 100
       });
 
-      // Generate rollback statement for this table
-      rollbackStatements.push(
-        `-- Rollback for table: ${tableName}\nDELETE FROM "${tableName}" WHERE migrated_at >= '${startTime}';`
-      );
+      // (Rollback script was already generated as DROP TABLE before data load)
     }
 
-    // Step 6: Generate final result
+    // ── Step 6: Apply deferred FK constraints (for circular FK deps) ─────
+    if (options.deferredConstraintSqls && options.deferredConstraintSqls.length > 0) {
+      emitLog(onLog, 'info', `🔗 Applying ${options.deferredConstraintSqls.length} deferred FK constraint(s)...`);
+      for (const constraintSql of options.deferredConstraintSqls) {
+        try {
+          await pgClient.query(constraintSql);
+        } catch (fkErr) {
+          const fkMsg = fkErr instanceof Error ? fkErr.message : String(fkErr);
+          emitLog(onLog, 'warn', `⚠️ Deferred FK constraint failed (non-blocking): ${fkMsg}`);
+        }
+      }
+      emitLog(onLog, 'info', `✅ FK constraints applied`);
+    }
+
+    // ── Step 7: Build final result ────────────────────────────────────────
     const endTime = new Date().toISOString();
     const duration = new Date(endTime).getTime() - new Date(startTime).getTime();
 
@@ -271,13 +296,6 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     const totalRows = tableStats.reduce((sum, t) => sum + t.totalRows, 0);
     const migratedRows = tableStats.reduce((sum, t) => sum + t.rowsCompleted, 0);
     const skippedRows = tableStats.reduce((sum, t) => sum + t.skippedRows.length, 0);
-
-    const rollbackScript = generateRollbackScript(
-      rollbackStatements,
-      tableOrder,
-      migratedRows,
-      startTime
-    );
 
     emitLog(onLog, 'info', `✅ Migration completed: ${migratedRows}/${totalRows} rows migrated, ${skippedRows} skipped`);
     emitProgress(onProgress, {
@@ -300,7 +318,7 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
       startTime,
       endTime,
       tableResults: tableStats.map(toTableMigrationProgress),
-      rollbackScript
+      rollbackScript // Already generated and saved; return it for UI display too
     };
 
   } catch (error) {
@@ -308,7 +326,7 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     const duration = new Date(endTime).getTime() - new Date(startTime).getTime();
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    emitLog(onLog, 'error', `❌ Migration failed: ${errorMessage}`);
+    emitLog(onLog, 'error', `❌ Migration failed: ${maskSensitiveFields(errorMessage)}`);
     emitProgress(onProgress, {
       type: 'error',
       error: maskSensitiveFields(errorMessage),
@@ -348,17 +366,18 @@ interface ProcessBatchOptions {
   batch: unknown[];
   batchNumber: number;
   isChildTable: boolean;
+  batchStartRowIndex: number; // Used to compute sort_order for child table rows
 }
 
 async function processBatch(options: ProcessBatchOptions): Promise<ETLBatchResult> {
-  const { pgClient, tableName, mapping, batch, batchNumber, isChildTable } = options;
+  const { pgClient, tableName, mapping, batch, batchNumber, isChildTable, batchStartRowIndex } = options;
   
   const skippedRows: SkippedRow[] = [];
   let rowsProcessed = 0;
 
   try {
     // Attempt batch insert
-    const insertSql = buildBatchInsertSql(tableName, mapping, batch, isChildTable);
+    const insertSql = buildBatchInsertSql(tableName, mapping, batch, isChildTable, batchStartRowIndex);
     
     if (insertSql) {
       await pgClient.query(insertSql.sql, insertSql.values);
@@ -366,11 +385,11 @@ async function processBatch(options: ProcessBatchOptions): Promise<ETLBatchResul
     }
 
   } catch (batchError) {
-    // Batch insert failed - retry row-by-row
+    // Batch insert failed - retry row-by-row (chunk-level error isolation)
     for (let i = 0; i < batch.length; i++) {
       try {
         const doc = batch[i] as Record<string, unknown>;
-        const insertSql = buildSingleInsertSql(tableName, mapping, doc, isChildTable);
+        const insertSql = buildSingleInsertSql(tableName, mapping, doc, isChildTable, batchStartRowIndex + i);
         
         if (insertSql) {
           await pgClient.query(insertSql.sql, insertSql.values);
@@ -385,7 +404,7 @@ async function processBatch(options: ProcessBatchOptions): Promise<ETLBatchResul
         skippedRows.push({
           documentId: docId,
           reason: maskSensitiveFields(errorMessage),
-          sourceDocument: JSON.stringify(doc).slice(0, 500) // Truncate large docs
+          sourceDocument: JSON.stringify(doc).slice(0, 500)
         });
       }
     }
@@ -407,26 +426,37 @@ function buildBatchInsertSql(
   tableName: string,
   mapping: CollectionMapping,
   batch: unknown[],
-  isChildTable: boolean
+  isChildTable: boolean,
+  batchStartRowIndex: number
 ): { sql: string; values: unknown[] } | null {
   if (batch.length === 0) return null;
 
   const activeFields = mapping.fields.filter(f => f.include);
   if (activeFields.length === 0) return null;
 
-  const columnNames = activeFields.map(f => `"${sanitizeIdentifier(f.targetField)}"`).join(', ');
+  // Determine if we need to inject sort_order (for child tables)
+  const needsSortOrder = isChildTable && !activeFields.some(f => f.targetColumn === 'sort_order');
+
+  const fieldCols = activeFields.map(f => `"${sanitizeIdentifier(f.targetColumn)}"`).join(', ');
+  const columnNames = needsSortOrder ? `${fieldCols}, "sort_order"` : fieldCols;
+
   const values: unknown[] = [];
   const valuePlaceholders: string[] = [];
 
   let paramIndex = 1;
 
-  for (const doc of batch) {
+  for (let rowIdx = 0; rowIdx < batch.length; rowIdx++) {
+    const doc = batch[rowIdx] as Record<string, unknown>;
     const rowValues: unknown[] = [];
     
     for (const field of activeFields) {
-      const rawValue = extractFieldValue(doc as Record<string, unknown>, field.sourceField, field.targetField);
+      const rawValue = extractFieldValue(doc, field.sourceField);
       const transformedValue = transformValueForSql(rawValue, field.targetType);
       rowValues.push(transformedValue);
+    }
+
+    if (needsSortOrder) {
+      rowValues.push(batchStartRowIndex + rowIdx);
     }
 
     const placeholders = rowValues.map(() => `$${paramIndex++}`).join(', ');
@@ -443,18 +473,27 @@ function buildSingleInsertSql(
   tableName: string,
   mapping: CollectionMapping,
   doc: Record<string, unknown>,
-  isChildTable: boolean
+  isChildTable: boolean,
+  rowIndex: number
 ): { sql: string; values: unknown[] } | null {
   const activeFields = mapping.fields.filter(f => f.include);
   if (activeFields.length === 0) return null;
 
-  const columnNames = activeFields.map(f => `"${sanitizeIdentifier(f.targetField)}"`).join(', ');
+  const needsSortOrder = isChildTable && !activeFields.some(f => f.targetColumn === 'sort_order');
+
+  const fieldCols = activeFields.map(f => `"${sanitizeIdentifier(f.targetColumn)}"`).join(', ');
+  const columnNames = needsSortOrder ? `${fieldCols}, "sort_order"` : fieldCols;
+
   const values: unknown[] = [];
 
   for (const field of activeFields) {
-    const rawValue = extractFieldValue(doc, field.sourceField, field.targetField);
+    const rawValue = extractFieldValue(doc, field.sourceField);
     const transformedValue = transformValueForSql(rawValue, field.targetType);
     values.push(transformedValue);
+  }
+
+  if (needsSortOrder) {
+    values.push(rowIndex);
   }
 
   const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
@@ -475,7 +514,7 @@ function generateCreateTableDdl(
   let hasPk = false;
 
   for (const field of activeFields) {
-    const colName = sanitizeIdentifier(field.targetField);
+    const colName = sanitizeIdentifier(field.targetColumn);
     const colType = (field.targetType || 'TEXT').toUpperCase().replace(/[^A-Z0-9_(),\s\[\]]/g, '').trim() || 'TEXT';
     const isNullable = field.isNullable ? '' : ' NOT NULL';
     const isPk = (colName === 'id' || colName === '_id') && !hasPk;
@@ -488,8 +527,9 @@ function generateCreateTableDdl(
     }
   }
 
-  // Array→Child Table Rule: Add sort_order for child tables
-  if (isChildTable && !activeFields.some(f => f.targetField === 'sort_order')) {
+  // Array→Child Table Rule (AGENTS.md): auto-add sort_order for child tables,
+  // value is the 0-based array element index — populated during INSERT.
+  if (isChildTable && !activeFields.some(f => f.targetColumn === 'sort_order')) {
     columnDefs.push(`  "sort_order" INTEGER NOT NULL DEFAULT 0`);
   }
 
@@ -503,8 +543,7 @@ function generateCreateTableDdl(
 
 function extractFieldValue(
   doc: Record<string, unknown>,
-  sourceField: string,
-  targetColumn?: string
+  sourceField: string
 ): unknown {
   if (!doc || typeof doc !== 'object') return undefined;
 
@@ -513,7 +552,7 @@ function extractFieldValue(
     return doc[sourceField];
   }
 
-  // Dot-notation navigation
+  // Dot-notation navigation (e.g. "address.city")
   if (sourceField.includes('.')) {
     const parts = sourceField.split('.');
     let current: unknown = doc;
@@ -527,7 +566,7 @@ function extractFieldValue(
     if (current !== undefined) return current;
   }
 
-  // Normalized case-insensitive match
+  // Normalized case-insensitive match (handles minor name variations)
   const normalizedSource = sourceField.toLowerCase().replace(/[^a-z0-9]/g, '');
   for (const [key, val] of Object.entries(doc)) {
     if (val === undefined) continue;
@@ -607,10 +646,43 @@ function transformValueForSql(value: unknown, targetType: string): unknown {
   return String(value);
 }
 
-function findMapping(mappings: CollectionMapping[], tableName: string): CollectionMapping | undefined {
-  return mappings.find(m => 
-    (m.targetTableName || m.collectionName) === tableName ||
-    m.childTables?.some(c => (c.targetTableName || c.collectionName) === tableName)
+/**
+ * Returns the CollectionMapping for the given table name.
+ * For child tables, returns the CHILD mapping (not the parent).
+ */
+function findMappingForTable(mappings: CollectionMapping[], tableName: string): CollectionMapping | undefined {
+  // Check direct match (parent tables)
+  const direct = mappings.find(m => (m.targetTableName || m.collectionName) === tableName);
+  if (direct) return direct;
+
+  // Check child tables — return the child mapping, NOT the parent
+  for (const m of mappings) {
+    if (m.childTables) {
+      const child = m.childTables.find(c => (c.targetTableName || c.collectionName) === tableName);
+      if (child) return child;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Returns true if the given table name refers to a child table.
+ */
+function isChildTableName(mappings: CollectionMapping[], tableName: string): boolean {
+  for (const m of mappings) {
+    if ((m.targetTableName || m.collectionName) === tableName) return false;
+    if (m.childTables?.some(c => (c.targetTableName || c.collectionName) === tableName)) return true;
+  }
+  return false;
+}
+
+/**
+ * For a child table, returns the parent CollectionMapping (whose MongoDB collection to stream from).
+ */
+function findParentMappingForChild(mappings: CollectionMapping[], childTableName: string): CollectionMapping | undefined {
+  return mappings.find(m =>
+    m.childTables?.some(c => (c.targetTableName || c.collectionName) === childTableName)
   );
 }
 
@@ -628,25 +700,33 @@ function toTableMigrationProgress(stats: TableStats): TableMigrationProgress {
   };
 }
 
+/**
+ * Generates a DROP TABLE rollback script.
+ * Uses CASCADE to handle FK dependencies.
+ * Generated BEFORE any data is inserted so crash recovery always has a valid script.
+ */
 function generateRollbackScript(
-  statements: string[],
   tableOrder: string[],
-  rowCount: number,
   timestamp: string
 ): string {
-  const header = [
-    `-- MigrateIQ Rollback Script`,
+  // Drop in REVERSE order (child tables first, then parents)
+  const reversedTables = [...tableOrder].reverse();
+  const dropStatements = reversedTables.map(
+    t => `DROP TABLE IF EXISTS "${sanitizeIdentifier(t)}" CASCADE;`
+  );
+
+  return [
+    `-- MigrateIQ Rollback Script (DROP TABLE strategy)`,
     `-- METADATA:TABLES:${tableOrder.join(',')}`,
-    `-- METADATA:ROW_COUNT:${rowCount}`,
+    `-- METADATA:ROW_COUNT:0`,
     `-- METADATA:CREATED_AT:${timestamp}`,
     ``,
     `BEGIN;`,
-    ``
+    ``,
+    ...dropStatements,
+    ``,
+    `COMMIT;`
   ].join('\n');
-
-  const footer = `\nCOMMIT;`;
-
-  return header + statements.join('\n') + footer;
 }
 
 function buildMongoConnectionString(config: ConnectionConfig): string {
