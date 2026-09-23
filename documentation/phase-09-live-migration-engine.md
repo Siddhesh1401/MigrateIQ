@@ -71,9 +71,18 @@ Phase 9 implements the **core live migration engine** that actually moves data f
 
 ---
 
-### 🔲 Part 5: Progress UI (PENDING)
-- **File to Create:** `apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx`
-- **Features:** Live progress bars, ETA calculation, log viewer
+### ✅ Part 5: Progress UI (COMPLETED)
+- **File Created:** `apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx`
+- **File Created:** `apps/desktop/renderer/src/styles/migration-progress.css`
+- **Lines:** ~570 lines (React) + ~450 lines (CSS)
+- **Features:** Live progress bars, log viewer, ETA display, cancel button
+- **Key Components:**
+  - Idle State: Start button with summary stats
+  - Running State: Overall + per-table progress bars with ETA
+  - Completed State: Success summary with rollback option
+  - Error/Cancelled State: Error message with retry button
+  - Log Viewer: Scrollable, color-coded by level, auto-scroll toggle
+  - Rollback UI: View script, execute rollback with confirmation
 
 ---
 
@@ -94,7 +103,8 @@ Phase 9 implements the **core live migration engine** that actually moves data f
 2. ~~**apps/desktop/main/engine/topologicalSort.ts** (~180 lines)~~ ✅ DONE
 3. ~~**apps/desktop/main/handlers/migration.ts** (~200 lines)~~ ✅ DONE
 4. ~~**apps/desktop/main/engine/etlEngine.ts** (~650 lines)~~ ✅ DONE
-5. **apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx** (~450 lines)
+5. ~~**apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx** (~450 lines)~~ ✅ DONE
+6. ~~**apps/desktop/renderer/src/styles/migration-progress.css** (~450 lines)~~ ✅ DONE
 4. **apps/desktop/main/handlers/migration.ts** (~200 lines)
 5. **apps/desktop/renderer/src/screens/MigrationProgressScreen.tsx** (~450 lines)
 
