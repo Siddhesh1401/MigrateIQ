@@ -33,6 +33,7 @@ import type {
   ETLBatchResult
 } from '@migrateiq/shared';
 import { maskSensitiveFields, sanitizeIdentifier } from '../utils';
+import { transformValueForSql } from './dryRun';
 
 export interface MigrationOptions {
   sourceConfig: ConnectionConfig;
@@ -134,6 +135,15 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
       emitLog(onLog, 'info', `✅ Created table: ${tableName}`);
     }
 
+    // Clean any existing data in the target tables (in reverse order for FK safety) to allow seamless re-runs
+    for (const tableName of [...tableOrder].reverse()) {
+      try {
+        await pgClient.query(`TRUNCATE TABLE "${sanitizeIdentifier(tableName)}" CASCADE;`);
+      } catch {
+        // Table might not exist or empty, safely ignore
+      }
+    }
+
     // ── Step 5: Migrate data table-by-table ───────────────────────────────
     emitLog(onLog, 'info', `📦 Starting data migration...`);
     emitProgress(onProgress, {
@@ -161,12 +171,29 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
       // For child tables, query the parent collection (child data is embedded in parent docs)
       const parentMapping = findParentMappingForChild(mappings, tableName);
       const collectionName = isChildTable && parentMapping
-        ? (parentMapping.targetTableName || parentMapping.collectionName)
-        : (mapping.targetTableName || mapping.collectionName);
+        ? parentMapping.collectionName
+        : mapping.collectionName;
 
       const collection = mongoDB.collection(collectionName);
-      // Use estimatedDocumentCount (O(1)) for progress display; avoids full collection scan
-      const totalRows = await collection.estimatedDocumentCount();
+      let totalRows = 0;
+      let childArrayField: string | undefined;
+
+      if (isChildTable) {
+        childArrayField = resolveChildArrayField(tableName, parentMapping);
+        if (parentMapping && childArrayField) {
+          try {
+            const agg = await mongoDB.collection(parentMapping.collectionName).aggregate([
+              { $project: { count: { $cond: { if: { $isArray: `$${childArrayField}` }, then: { $size: `$${childArrayField}` }, else: 0 } } } },
+              { $group: { _id: null, total: { $sum: '$count' } } }
+            ]).toArray();
+            totalRows = (agg[0] as { total?: number } | undefined)?.total ?? 0;
+          } catch {
+            totalRows = 0;
+          }
+        }
+      } else {
+        totalRows = await collection.estimatedDocumentCount();
+      }
 
       const tableStatEntry: TableStats = {
         tableName,
@@ -207,10 +234,16 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
         const doc = await cursor.next();
         if (!doc) continue;
 
-        batch.push(doc);
+        if (isChildTable) {
+          const childItems = getChildItemsFromParentDoc(doc as Record<string, unknown>, tableName, parentMapping, childArrayField);
+          batch.push(...childItems);
+        } else {
+          batch.push(doc);
+        }
 
         // When batch is full or cursor exhausted, process batch
         if (batch.length >= batchSize || !(await cursor.hasNext())) {
+          if (batch.length === 0) continue;
           batchNumber++;
 
           const batchResult = await processBatch({
@@ -220,7 +253,8 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
             batch,
             batchNumber,
             isChildTable,
-            batchStartRowIndex: rowsCompleted
+            batchStartRowIndex: rowsCompleted,
+            onLog
           });
 
           rowsCompleted += batchResult.rowsProcessed;
@@ -240,7 +274,7 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
             currentTable: tableName,
             currentTableRows: totalRows,
             currentTableRowsCompleted: rowsCompleted,
-            currentTableProgress: Math.round((rowsCompleted / totalRows) * 100),
+            currentTableProgress: totalRows > 0 ? Math.min(100, Math.round((rowsCompleted / totalRows) * 100)) : 100,
             currentBatch: batchNumber,
             rowsPerSecond: Math.round(rowsPerSec),
             estimatedTimeRemainingMs: isFinite(estimatedTimeRemainingMs) ? Math.round(estimatedTimeRemainingMs) : undefined
@@ -250,6 +284,9 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
         }
       }
 
+      if (isChildTable) {
+        tableStatEntry.totalRows = rowsCompleted;
+      }
       tableStatEntry.endTime = new Date().toISOString();
       tableStatEntry.status = 'completed';
 
@@ -302,6 +339,9 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
       type: 'complete',
       totalTables: tableOrder.length,
       completedTables,
+      totalRows,
+      migratedRows,
+      duration,
       startTime,
       endTime
     });
@@ -367,10 +407,11 @@ interface ProcessBatchOptions {
   batchNumber: number;
   isChildTable: boolean;
   batchStartRowIndex: number; // Used to compute sort_order for child table rows
+  onLog?: MigrationOptions['onLog']; // For emitting skip reasons to UI
 }
 
 async function processBatch(options: ProcessBatchOptions): Promise<ETLBatchResult> {
-  const { pgClient, tableName, mapping, batch, batchNumber, isChildTable, batchStartRowIndex } = options;
+  const { pgClient, tableName, mapping, batch, batchNumber, isChildTable, batchStartRowIndex, onLog } = options;
   
   const skippedRows: SkippedRow[] = [];
   let rowsProcessed = 0;
@@ -382,10 +423,34 @@ async function processBatch(options: ProcessBatchOptions): Promise<ETLBatchResul
     if (insertSql) {
       await pgClient.query(insertSql.sql, insertSql.values);
       rowsProcessed = batch.length;
+    } else {
+      // buildBatchInsertSql returned null — no active fields or empty batch
+      // Emit a warning so this is visible rather than silently lost
+      emitLog(onLog, 'warn',
+        `⚠️ [${tableName}] Batch ${batchNumber}: no insertable fields found (${batch.length} rows skipped). Check mapping config.`,
+        tableName
+      );
+      for (let i = 0; i < batch.length; i++) {
+        const doc = batch[i] as Record<string, unknown>;
+        const docId = doc._id ? String(doc._id) : `batch-${batchNumber}-row-${i}`;
+        skippedRows.push({
+          documentId: docId,
+          reason: 'No insertable fields — mapping produced null SQL (check field includes and types)',
+          sourceDocument: JSON.stringify(doc).slice(0, 500)
+        });
+      }
     }
 
   } catch (batchError) {
+    // Batch insert failed — emit the error reason immediately so it's visible in the migration log
+    const batchErrMsg = batchError instanceof Error ? batchError.message : String(batchError);
+    emitLog(onLog, 'warn',
+      `⚠️ [${tableName}] Batch ${batchNumber} failed (${batch.length} rows). Retrying row-by-row. Error: ${maskSensitiveFields(batchErrMsg)}`,
+      tableName
+    );
+
     // Batch insert failed - retry row-by-row (chunk-level error isolation)
+    let firstRowError: string | null = null;
     for (let i = 0; i < batch.length; i++) {
       try {
         const doc = batch[i] as Record<string, unknown>;
@@ -394,19 +459,42 @@ async function processBatch(options: ProcessBatchOptions): Promise<ETLBatchResul
         if (insertSql) {
           await pgClient.query(insertSql.sql, insertSql.values);
           rowsProcessed++;
+        } else {
+          // Single row SQL also returned null
+          const doc2 = batch[i] as Record<string, unknown>;
+          const docId = doc2._id ? String(doc2._id) : `batch-${batchNumber}-row-${i}`;
+          skippedRows.push({
+            documentId: docId,
+            reason: 'No insertable fields — single-row mapping produced null SQL',
+            sourceDocument: JSON.stringify(doc2).slice(0, 500)
+          });
         }
 
       } catch (rowError) {
         const doc = batch[i] as Record<string, unknown>;
         const docId = doc._id ? String(doc._id) : `batch-${batchNumber}-row-${i}`;
         const errorMessage = rowError instanceof Error ? rowError.message : String(rowError);
+        const maskedError = maskSensitiveFields(errorMessage);
+
+        // Capture first row error to emit a summary once (avoid log spam for mass failures)
+        if (firstRowError === null) {
+          firstRowError = maskedError;
+        }
 
         skippedRows.push({
           documentId: docId,
-          reason: maskSensitiveFields(errorMessage),
+          reason: maskedError,
           sourceDocument: JSON.stringify(doc).slice(0, 500)
         });
       }
+    }
+
+    // If all rows in batch were skipped, emit the first error reason as a visible warning
+    if (skippedRows.length === batch.length && firstRowError !== null) {
+      emitLog(onLog, 'warn',
+        `❌ [${tableName}] All ${batch.length} rows in batch ${batchNumber} skipped. First error: ${firstRowError}`,
+        tableName
+      );
     }
   }
 
@@ -431,13 +519,37 @@ function buildBatchInsertSql(
 ): { sql: string; values: unknown[] } | null {
   if (batch.length === 0) return null;
 
-  const activeFields = mapping.fields.filter(f => f.include);
+  const activeFields = mapping.fields.filter(
+    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
+  );
   if (activeFields.length === 0) return null;
 
-  // Determine if we need to inject sort_order (for child tables)
-  const needsSortOrder = isChildTable && !activeFields.some(f => f.targetColumn === 'sort_order');
+  // Filter out SERIAL id column if the documents in the batch have no explicit id
+  const insertableFields = activeFields.filter(f => {
+    const isSerialPk = (f.targetColumn === 'id' || f.targetColumn === '_id') && f.targetType?.toUpperCase().includes('SERIAL');
+    if (isSerialPk) {
+      const hasExplicitId = batch.some(d => {
+        const row = d as Record<string, unknown>;
+        return row._id !== undefined || row.id !== undefined;
+      });
+      return hasExplicitId;
+    }
+    return true;
+  });
 
-  const fieldCols = activeFields.map(f => `"${sanitizeIdentifier(f.targetColumn)}"`).join(', ');
+  // Deduplicate columns by lowercase targetColumn name to prevent multiple assignments to the same column
+  const seenInsertCols = new Set<string>();
+  const uniqueFields = insertableFields.filter(f => {
+    const colLower = f.targetColumn.toLowerCase();
+    if (seenInsertCols.has(colLower)) return false;
+    seenInsertCols.add(colLower);
+    return true;
+  });
+
+  // Determine if we need to inject sort_order (for child tables)
+  const needsSortOrder = isChildTable && !seenInsertCols.has('sort_order');
+
+  const fieldCols = uniqueFields.map(f => `"${sanitizeIdentifier(f.targetColumn)}"`).join(', ');
   const columnNames = needsSortOrder ? `${fieldCols}, "sort_order"` : fieldCols;
 
   const values: unknown[] = [];
@@ -449,14 +561,22 @@ function buildBatchInsertSql(
     const doc = batch[rowIdx] as Record<string, unknown>;
     const rowValues: unknown[] = [];
     
-    for (const field of activeFields) {
-      const rawValue = extractFieldValue(doc, field.sourceField);
+    for (const field of uniqueFields) {
+      let rawValue = extractFieldValue(doc, field.sourceField);
+      // For child tables: if foreign key column to parent is missing in child doc, use doc._parentId
+      if (rawValue === undefined && doc._parentId && (field.targetColumn.toLowerCase().includes('id') || field.foreignKeyToParent)) {
+        rawValue = doc._parentId;
+      }
+      // For sort_order column
+      if (rawValue === undefined && field.targetColumn === 'sort_order' && doc._sortOrder !== undefined) {
+        rawValue = doc._sortOrder;
+      }
       const transformedValue = transformValueForSql(rawValue, field.targetType);
       rowValues.push(transformedValue);
     }
 
     if (needsSortOrder) {
-      rowValues.push(batchStartRowIndex + rowIdx);
+      rowValues.push(doc._sortOrder !== undefined ? doc._sortOrder : (batchStartRowIndex + rowIdx));
     }
 
     const placeholders = rowValues.map(() => `$${paramIndex++}`).join(', ');
@@ -476,24 +596,48 @@ function buildSingleInsertSql(
   isChildTable: boolean,
   rowIndex: number
 ): { sql: string; values: unknown[] } | null {
-  const activeFields = mapping.fields.filter(f => f.include);
+  const activeFields = mapping.fields.filter(
+    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
+  );
   if (activeFields.length === 0) return null;
 
-  const needsSortOrder = isChildTable && !activeFields.some(f => f.targetColumn === 'sort_order');
+  const insertableFields = activeFields.filter(f => {
+    const isSerialPk = (f.targetColumn === 'id' || f.targetColumn === '_id') && f.targetType?.toUpperCase().includes('SERIAL');
+    if (isSerialPk) {
+      return doc._id !== undefined || doc.id !== undefined;
+    }
+    return true;
+  });
 
-  const fieldCols = activeFields.map(f => `"${sanitizeIdentifier(f.targetColumn)}"`).join(', ');
+  const seenInsertCols = new Set<string>();
+  const uniqueFields = insertableFields.filter(f => {
+    const colLower = f.targetColumn.toLowerCase();
+    if (seenInsertCols.has(colLower)) return false;
+    seenInsertCols.add(colLower);
+    return true;
+  });
+
+  const needsSortOrder = isChildTable && !seenInsertCols.has('sort_order');
+
+  const fieldCols = uniqueFields.map(f => `"${sanitizeIdentifier(f.targetColumn)}"`).join(', ');
   const columnNames = needsSortOrder ? `${fieldCols}, "sort_order"` : fieldCols;
 
   const values: unknown[] = [];
 
-  for (const field of activeFields) {
-    const rawValue = extractFieldValue(doc, field.sourceField);
+  for (const field of uniqueFields) {
+    let rawValue = extractFieldValue(doc, field.sourceField);
+    if (rawValue === undefined && doc._parentId && (field.targetColumn.toLowerCase().includes('id') || field.foreignKeyToParent)) {
+      rawValue = doc._parentId;
+    }
+    if (rawValue === undefined && field.targetColumn === 'sort_order' && doc._sortOrder !== undefined) {
+      rawValue = doc._sortOrder;
+    }
     const transformedValue = transformValueForSql(rawValue, field.targetType);
     values.push(transformedValue);
   }
 
   if (needsSortOrder) {
-    values.push(rowIndex);
+    values.push(doc._sortOrder !== undefined ? doc._sortOrder : rowIndex);
   }
 
   const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
@@ -508,16 +652,25 @@ function generateCreateTableDdl(
   isChildTable: boolean
 ): { sql: string } {
   const safeTableName = sanitizeIdentifier(tableName);
-  const activeFields = fields.filter(f => f.include);
+  const activeFields = fields.filter(
+    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
+  );
 
   const columnDefs: string[] = [];
+  const seenColumns = new Set<string>();
   let hasPk = false;
 
   for (const field of activeFields) {
     const colName = sanitizeIdentifier(field.targetColumn);
-    const colType = (field.targetType || 'TEXT').toUpperCase().replace(/[^A-Z0-9_(),\s\[\]]/g, '').trim() || 'TEXT';
+    const colLower = colName.toLowerCase();
+    if (seenColumns.has(colLower)) continue;
+    seenColumns.add(colLower);
+
+    const rawType = (field.targetType || 'TEXT').toUpperCase().replace(/[^A-Z0-9_(),\s\[\]]/g, '').trim();
+    // Strip any redundant embedded PRIMARY KEY from targetType to prevent "SERIAL PRIMARY KEY PRIMARY KEY"
+    const colType = rawType.replace(/\bPRIMARY\s+KEY\b/gi, '').trim() || 'TEXT';
     const isNullable = field.isNullable ? '' : ' NOT NULL';
-    const isPk = (colName === 'id' || colName === '_id') && !hasPk;
+    const isPk = (colLower === 'id' || colLower === '_id') && !hasPk;
 
     if (isPk) {
       hasPk = true;
@@ -527,10 +680,18 @@ function generateCreateTableDdl(
     }
   }
 
+  // Ensure child table has an explicit primary key if none was mapped
+  if (isChildTable && !hasPk && !seenColumns.has('id')) {
+    columnDefs.unshift(`  "id" SERIAL PRIMARY KEY`);
+    seenColumns.add('id');
+    hasPk = true;
+  }
+
   // Array→Child Table Rule (AGENTS.md): auto-add sort_order for child tables,
   // value is the 0-based array element index — populated during INSERT.
-  if (isChildTable && !activeFields.some(f => f.targetColumn === 'sort_order')) {
+  if (isChildTable && !seenColumns.has('sort_order')) {
     columnDefs.push(`  "sort_order" INTEGER NOT NULL DEFAULT 0`);
+    seenColumns.add('sort_order');
   }
 
   const sql = `CREATE TABLE IF NOT EXISTS "${safeTableName}" (\n${columnDefs.join(',\n')}\n);`;
@@ -579,71 +740,28 @@ function extractFieldValue(
   return undefined;
 }
 
-function transformValueForSql(value: unknown, targetType: string): unknown {
-  if (value === null || value === undefined) {
-    return null;
+/**
+ * Returns the CollectionMapping for the given table name.
+ * For child tables, returns the CHILD mapping (not the parent).
+ */
+/**
+ * Tests whether a given candidate child table name corresponds to a specific
+ * array field on a parent collection, handling camelCase, snake_case, and prefixes.
+ */
+function matchesChildTableName(
+  parentTable: string,
+  sourceField: string,
+  candidateChildTableName: string,
+  explicitChildTableName?: string
+): boolean {
+  if (explicitChildTableName && explicitChildTableName.toLowerCase() === candidateChildTableName.toLowerCase()) {
+    return true;
   }
-
-  // Handle BSON types
-  if (value && typeof value === 'object') {
-    const bson = value as Record<string, unknown>;
-    if (bson._bsontype === 'ObjectId' || value instanceof ObjectId) {
-      return (value as ObjectId).toHexString();
-    }
-    if (bson._bsontype === 'Decimal128' || bson._bsontype === 'Long') {
-      return bson.toString();
-    }
-  }
-
-  const upperType = targetType.toUpperCase();
-
-  // Date/Timestamp
-  if (upperType.includes('TIMESTAMP') || upperType.includes('DATE')) {
-    if (value instanceof Date) {
-      return value.toISOString();
-    }
-    if (typeof value === 'number') {
-      const ms = Math.abs(value) < 10000000000 ? value * 1000 : value;
-      return new Date(ms).toISOString();
-    }
-  }
-
-  // UUID
-  if (upperType === 'UUID') {
-    if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-      return value.toLowerCase();
-    }
-  }
-
-  // Integer
-  if (upperType.includes('INT') || upperType === 'BIGINT' || upperType === 'SMALLINT') {
-    if (typeof value === 'number') {
-      return Math.floor(value);
-    }
-    if (typeof value === 'string' && /^-?\d+$/.test(value)) {
-      return parseInt(value, 10);
-    }
-  }
-
-  // Boolean
-  if (upperType.includes('BOOL')) {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') {
-      const s = value.trim().toLowerCase();
-      if (s === 'true' || s === '1') return true;
-      if (s === 'false' || s === '0') return false;
-    }
-  }
-
-  // JSON/JSONB
-  if (upperType.includes('JSON')) {
-    if (typeof value === 'object') {
-      return JSON.stringify(value);
-    }
-  }
-
-  // Default: string
-  return String(value);
+  const normCandidate = candidateChildTableName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normSrc = sourceField.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normParent = parentTable.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normFull = normParent + normSrc;
+  return normCandidate === normFull || normCandidate.endsWith(normSrc) || normCandidate === normSrc;
 }
 
 /**
@@ -655,11 +773,73 @@ function findMappingForTable(mappings: CollectionMapping[], tableName: string): 
   const direct = mappings.find(m => (m.targetTableName || m.collectionName) === tableName);
   if (direct) return direct;
 
-  // Check child tables — return the child mapping, NOT the parent
+  // Check child tables in m.childTables — return the child mapping, NOT the parent
   for (const m of mappings) {
     if (m.childTables) {
-      const child = m.childTables.find(c => (c.targetTableName || c.collectionName) === tableName);
+      const parentTable = m.targetTableName || m.collectionName;
+      const child = m.childTables.find(c => {
+        const cName = c.targetTableName || c.collectionName;
+        return cName === tableName || matchesChildTableName(parentTable, c.collectionName, tableName, c.targetTableName);
+      });
       if (child) return child;
+    }
+  }
+
+  // Check child tables defined directly on fields (where field.isChildTable === true)
+  for (const m of mappings) {
+    const parentTable = m.targetTableName || m.collectionName;
+    const childField = m.fields.find(f =>
+      f.isChildTable && matchesChildTableName(parentTable, f.sourceField, tableName, f.childTableName)
+    );
+    if (childField) {
+      const fkName = childField.foreignKeyToParent && !childField.foreignKeyToParent.includes('.')
+        ? childField.foreignKeyToParent
+        : `${parentTable}_id`;
+
+      return {
+        collectionName: m.collectionName,
+        targetTableName: tableName,
+        fields: [
+          {
+            id: `synthetic_${tableName}_id`,
+            sourceField: '_id',
+            sourceType: 'auto',
+            targetColumn: 'id',
+            targetType: 'SERIAL PRIMARY KEY',
+            isNullable: false,
+            include: true
+          },
+          {
+            id: `synthetic_${tableName}_fk`,
+            sourceField: '_parentId',
+            sourceType: 'string',
+            targetColumn: fkName,
+            targetType: 'VARCHAR(24)',
+            isNullable: false,
+            include: true,
+            foreignKeyToParent: `${parentTable}.id`
+          },
+          {
+            id: `synthetic_${tableName}_sort`,
+            sourceField: 'sort_order',
+            sourceType: 'auto',
+            targetColumn: 'sort_order',
+            targetType: 'INTEGER',
+            isNullable: false,
+            include: true
+          },
+          {
+            id: `synthetic_${tableName}_data`,
+            sourceField: 'data',
+            sourceType: 'object',
+            targetColumn: 'data',
+            targetType: 'JSONB',
+            isNullable: false,
+            include: true
+          }
+        ],
+        indexes: []
+      };
     }
   }
 
@@ -672,7 +852,12 @@ function findMappingForTable(mappings: CollectionMapping[], tableName: string): 
 function isChildTableName(mappings: CollectionMapping[], tableName: string): boolean {
   for (const m of mappings) {
     if ((m.targetTableName || m.collectionName) === tableName) return false;
-    if (m.childTables?.some(c => (c.targetTableName || c.collectionName) === tableName)) return true;
+    const parentTable = m.targetTableName || m.collectionName;
+    if (m.childTables?.some(c => {
+      const cName = c.targetTableName || c.collectionName;
+      return cName === tableName || matchesChildTableName(parentTable, c.collectionName, tableName, c.targetTableName);
+    })) return true;
+    if (m.fields.some(f => f.isChildTable && matchesChildTableName(parentTable, f.sourceField, tableName, f.childTableName))) return true;
   }
   return false;
 }
@@ -681,9 +866,98 @@ function isChildTableName(mappings: CollectionMapping[], tableName: string): boo
  * For a child table, returns the parent CollectionMapping (whose MongoDB collection to stream from).
  */
 function findParentMappingForChild(mappings: CollectionMapping[], childTableName: string): CollectionMapping | undefined {
-  return mappings.find(m =>
-    m.childTables?.some(c => (c.targetTableName || c.collectionName) === childTableName)
+  return mappings.find(m => {
+    const parentTable = m.targetTableName || m.collectionName;
+    if (m.childTables?.some(c => {
+      const cName = c.targetTableName || c.collectionName;
+      return cName === childTableName || matchesChildTableName(parentTable, c.collectionName, childTableName, c.targetTableName);
+    })) return true;
+    if (m.fields.some(f => f.isChildTable && matchesChildTableName(parentTable, f.sourceField, childTableName, f.childTableName))) return true;
+    if (childTableName.toLowerCase().startsWith(`${parentTable.toLowerCase()}_`)) return true;
+    return false;
+  });
+}
+
+/**
+ * Resolves the source MongoDB array field name on the parent collection for a given child table.
+ */
+function resolveChildArrayField(
+  childTableName: string,
+  parentMapping?: CollectionMapping
+): string | undefined {
+  if (!parentMapping) return undefined;
+  const parentTable = parentMapping.targetTableName || parentMapping.collectionName;
+
+  // 1. Check explicit childTables in parent mapping
+  const ct = parentMapping.childTables?.find(c => {
+    const cName = c.targetTableName || c.collectionName;
+    return cName === childTableName || matchesChildTableName(parentTable, c.collectionName, childTableName, c.targetTableName);
+  });
+  if (ct) return ct.collectionName;
+
+  // 2. Check fields with isChildTable
+  const f = parentMapping.fields.find(fld =>
+    fld.isChildTable &&
+    matchesChildTableName(parentTable, fld.sourceField, childTableName, fld.childTableName)
   );
+  if (f) return f.sourceField;
+
+  // 3. Fallback: match any field whose normalized name matches the child table name
+  const normChild = childTableName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normParent = parentTable.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const fld of parentMapping.fields) {
+    const normFld = fld.sourceField.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normChild === normParent + normFld || normChild.endsWith(normFld) || normChild === normFld) {
+      return fld.sourceField;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Unpacks child table items from a parent MongoDB document.
+ * Injects parent foreign key (_parentId) and array index (_sortOrder)
+ * per the Array → Child Table Rule (AGENTS.md).
+ * Strict: only extracts items from the dedicated arrayField. If the field
+ * is null/undefined in the parent document, returns [] with 0 items.
+ */
+function getChildItemsFromParentDoc(
+  pDoc: Record<string, unknown>,
+  childTableName: string,
+  parentMapping?: CollectionMapping,
+  knownArrayField?: string
+): Record<string, unknown>[] {
+  const parentId = pDoc._id instanceof ObjectId ? pDoc._id.toHexString() : String(pDoc._id ?? '');
+  const arrayField = knownArrayField || resolveChildArrayField(childTableName, parentMapping);
+
+  if (!arrayField) {
+    return [];
+  }
+
+  const rawArr = pDoc[arrayField];
+  const items: Record<string, unknown>[] = [];
+
+  if (Array.isArray(rawArr)) {
+    for (let idx = 0; idx < rawArr.length; idx++) {
+      const item = rawArr[idx];
+      if (item && typeof item === 'object') {
+        const itemObj = item as Record<string, unknown>;
+        items.push({
+          ...itemObj,
+          _parentId: parentId,
+          _sortOrder: idx,
+          order_id: itemObj.order_id ?? parentId,
+          orders_id: itemObj.orders_id ?? parentId,
+          parent_id: itemObj.parent_id ?? parentId,
+          sort_order: itemObj.sort_order ?? idx,
+          data: JSON.stringify(itemObj)
+        });
+      }
+    }
+  }
+
+  return items;
 }
 
 function toTableMigrationProgress(stats: TableStats): TableMigrationProgress {

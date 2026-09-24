@@ -67,21 +67,23 @@ export function setupStoreHandlers(): void {
           connType = 'postgresql';
         }
 
+        const connName = (payload.name || '').trim() || `Connection_${Date.now()}`;
+
         const newConn: SavedConnection = {
           id: `conn_${Date.now()}`,
-          name: payload.name.trim(),
+          name: connName,
           type: connType,
           config: {
             ...payload.config,
             type: connType,
-            name: payload.name.trim(),
+            name: connName,
           },
           savedAt: new Date().toISOString(),
         };
 
         // Replace if a connection with the same name already exists
         const filtered = existing.filter(
-          (c) => c.name.toLowerCase() !== newConn.name.toLowerCase()
+          (c) => c && typeof c.name === 'string' && c.name.toLowerCase() !== newConn.name.toLowerCase()
         );
         store.set('savedConnections', [...filtered, newConn]);
 

@@ -101,13 +101,17 @@ export function setupMongoDBHandler(): void {
                 }
               }
               if (existing.bsonType !== bsonType && !isNullable) {
-                // Numeric widening: int + double conflict → widen to double, not mixed.
-                // e.g. price: 28.00 (int) and price: 249.99 (double) → DOUBLE PRECISION, not JSONB.
-                const numericTypes = new Set(['int', 'double']);
-                if (numericTypes.has(existing.bsonType) && numericTypes.has(bsonType)) {
-                  existing.bsonType = 'double';
+                if (existing.bsonType === 'null') {
+                  existing.bsonType = bsonType;
                 } else {
-                  existing.bsonType = 'mixed'; // Truly incompatible types (e.g. string + object)
+                  // Numeric widening: int + double conflict → widen to double, not mixed.
+                  // e.g. price: 28.00 (int) and price: 249.99 (double) → DOUBLE PRECISION, not JSONB.
+                  const numericTypes = new Set(['int', 'double']);
+                  if (numericTypes.has(existing.bsonType) && numericTypes.has(bsonType)) {
+                    existing.bsonType = 'double';
+                  } else {
+                    existing.bsonType = 'mixed'; // Truly incompatible types (e.g. string + object)
+                  }
                 }
               }
             } else {
@@ -285,6 +289,7 @@ export function setupPostgresqlHandler(): void {
       if (config.connectionString && config.connectionString.trim().length > 0) {
         client = new PgClient({
           connectionString: config.connectionString.trim(),
+          database: config.database && config.database.trim().length > 0 ? config.database.trim() : undefined,
           connectionTimeoutMillis: 5000,
           statement_timeout: 10000,
         });

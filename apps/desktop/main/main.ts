@@ -8,6 +8,7 @@ import { setupRiskHandlers } from './handlers/risk';
 import { setupDryRunHandlers } from './handlers/dryRun';
 import { setupSchemaUpdateHandlers } from './handlers/schemaUpdate';
 import { setupMigrationHandlers } from './handlers/migration';
+import { setupDiagnosticsHandlers } from './handlers/diagnostics';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -89,6 +90,9 @@ app.whenReady().then(() => {
 
   // Setup IPC handlers for schema update assistant (Phase 11)
   setupSchemaUpdateHandlers();
+
+  // Setup IPC handlers for diagnostics & PDF audit reporting
+  setupDiagnosticsHandlers();
 
   createWindow();
 

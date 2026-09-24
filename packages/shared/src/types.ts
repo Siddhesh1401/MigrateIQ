@@ -723,7 +723,10 @@ export interface MigrationProgressEvent {
   error?: string;
   skippedRows?: SkippedRow[];
   
-  // Timestamps
+  // Timestamps & summary metrics
+  totalRows?: number;
+  migratedRows?: number;
+  duration?: number;
   startTime?: string;
   endTime?: string;
 }

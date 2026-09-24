@@ -137,7 +137,9 @@ export function generateCreateTableDdl(
   isChildTable = false
 ): { sql: string; activeColumns: FieldMapping[] } {
   const safeTableName = sanitizeIdentifier(tableName);
-  const activeFields = fields.filter((f) => f.include);
+  const activeFields = fields.filter(
+    (f) => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
+  );
 
   const columnDefs: string[] = [];
   const usedColNames = new Set<string>();
@@ -157,7 +159,7 @@ export function generateCreateTableDdl(
 
     // Sanitize targetType to prevent SQL injection via malicious type strings
     const rawType = (f.targetType || 'TEXT').toUpperCase().replace(/[^A-Z0-9_(),\s\[\]]/g, '').trim();
-    const colType = rawType || 'TEXT';
+    const colType = rawType.replace(/\bPRIMARY\s+KEY\b/gi, '').trim() || 'TEXT';
     const isNullable = f.isNullable ? '' : ' NOT NULL';
     const isPk = (colName === 'id' || colName === '_id') && !hasPk;
     const defaultClause = formatSqlDefaultClause(f.defaultValue);
@@ -284,7 +286,7 @@ export function transformValueForSql(value: unknown, targetType: string): unknow
   }
 
   if (value instanceof ObjectId) {
-    return value.toHexString();
+    value = value.toHexString();
   }
 
   const upperType = targetType.toUpperCase();
@@ -977,8 +979,13 @@ async function simulateChildTables(
 
     emitProgress('schema', `📐 Checking child table: "${childTableName}" (from ${parentMapping.collectionName}.${childField.sourceField})...`, 'info', childTableName);
 
-    // Create child table with auto-added sort_order INTEGER NOT NULL (Rule 4)
-    const childDdl = `CREATE TABLE IF NOT EXISTS "${childTableName}" (
+    // Create child table using actual mapping if available, or fallback schema
+    const childMapping = parentMapping.childTables?.find(
+      c => (c.targetTableName || c.collectionName) === childTableName
+    );
+    const childDdl = (childMapping && childMapping.fields && childMapping.fields.length > 0)
+      ? generateCreateTableDdl(childTableName, childMapping.fields, true).sql
+      : `CREATE TABLE IF NOT EXISTS "${childTableName}" (
   "id" VARCHAR(24) PRIMARY KEY,
   "${parentTable}_id" VARCHAR(24),
   "sort_order" INTEGER NOT NULL DEFAULT 0,

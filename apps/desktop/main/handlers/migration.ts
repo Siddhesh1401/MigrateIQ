@@ -408,18 +408,15 @@ async function saveMigrationHistory(
       reportSummary: `${result.migratedRows} rows migrated, ${result.skippedRows} skipped, ${result.failedTables} failed tables`
     };
 
-    // Fetch existing history and prepend the new entry
-    const existingResponse = await new Promise<{ success: boolean; data?: MigrationHistoryItem[] }>((resolve) => {
-      ipcMain.emit('store:get-migration-history', {}, (resp: { success: boolean; data?: MigrationHistoryItem[] }) => resolve(resp));
-    }).catch(() => ({ success: false, data: [] }));
-
-    const history: MigrationHistoryItem[] = [
-      historyItem,
-      ...(Array.isArray(existingResponse?.data) ? existingResponse.data : [])].slice(0, 50); // Keep last 50
-
-    // Write back to store
+    // Fetch existing history and prepend the new entry directly from electron-store
     const Store = (await import('electron-store')).default;
     const store = new Store<{ migrationHistory: MigrationHistoryItem[] }>();
+    const existing = store.get('migrationHistory', []);
+    const history: MigrationHistoryItem[] = [
+      historyItem,
+      ...(Array.isArray(existing) ? existing : [])
+    ].slice(0, 50); // Keep last 50
+
     store.set('migrationHistory', history);
 
   } catch {

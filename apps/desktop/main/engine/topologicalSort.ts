@@ -100,6 +100,23 @@ export function topologicalSort(mappings: CollectionMapping[]): TopologicalSortR
 function buildDependencyGraph(mappings: CollectionMapping[]): Map<string, TableNode> {
   const graph = new Map<string, TableNode>();
   
+  // Collect all legitimate target and child table names
+  const knownTables = new Set<string>();
+  for (const c of mappings) {
+    const parentTable = c.targetTableName || c.collectionName;
+    knownTables.add(parentTable);
+    if (c.childTables) {
+      for (const child of c.childTables) {
+        knownTables.add(child.targetTableName || child.collectionName);
+      }
+    }
+    for (const f of c.fields) {
+      if (f.isChildTable && f.childTableName) {
+        knownTables.add(f.childTableName);
+      }
+    }
+  }
+
   // Initialize all tables as nodes
   for (const collection of mappings) {
     const tableName = collection.targetTableName || collection.collectionName;
@@ -111,7 +128,7 @@ function buildDependencyGraph(mappings: CollectionMapping[]): Map<string, TableN
       });
     }
     
-    // Process child tables
+    // Process child tables from collection.childTables
     if (collection.childTables) {
       for (const child of collection.childTables) {
         const childTableName = child.targetTableName || child.collectionName;
@@ -128,6 +145,24 @@ function buildDependencyGraph(mappings: CollectionMapping[]): Map<string, TableN
         graph.get(tableName)!.dependents.add(childTableName);
       }
     }
+
+    // Process child tables declared on collection.fields
+    for (const field of collection.fields) {
+      if (field.isChildTable && field.childTableName) {
+        const childTableName = field.childTableName;
+        if (!graph.has(childTableName)) {
+          graph.set(childTableName, {
+            tableName: childTableName,
+            dependencies: new Set(),
+            dependents: new Set()
+          });
+        }
+
+        // Child table depends on parent table
+        graph.get(childTableName)!.dependencies.add(tableName);
+        graph.get(tableName)!.dependents.add(childTableName);
+      }
+    }
   }
   
   // Add foreign key dependencies
@@ -135,21 +170,15 @@ function buildDependencyGraph(mappings: CollectionMapping[]): Map<string, TableN
     const tableName = collection.targetTableName || collection.collectionName;
     
     for (const field of collection.fields) {
+      // Child table markers on parent collections should NOT create parent dependencies
+      if (field.isChildTable) continue;
+
       if (field.foreignKeyToParent) {
         // Extract referenced table name (format: "table_name.column_name" or just "table_name")
         const referencedTable = field.foreignKeyToParent.split('.')[0];
         
-        if (referencedTable && referencedTable !== tableName) {
-          // Ensure referenced table exists in graph
-          if (!graph.has(referencedTable)) {
-            graph.set(referencedTable, {
-              tableName: referencedTable,
-              dependencies: new Set(),
-              dependents: new Set()
-            });
-          }
-          
-          // This table depends on the referenced table
+        // Only register dependency if referencedTable is a known destination table and not self
+        if (referencedTable && referencedTable !== tableName && knownTables.has(referencedTable)) {
           graph.get(tableName)!.dependencies.add(referencedTable);
           graph.get(referencedTable)!.dependents.add(tableName);
         }
@@ -165,15 +194,7 @@ function buildDependencyGraph(mappings: CollectionMapping[]): Map<string, TableN
           if (field.foreignKeyToParent) {
             const referencedTable = field.foreignKeyToParent.split('.')[0];
             
-            if (referencedTable && referencedTable !== childTableName) {
-              if (!graph.has(referencedTable)) {
-                graph.set(referencedTable, {
-                  tableName: referencedTable,
-                  dependencies: new Set(),
-                  dependents: new Set()
-                });
-              }
-              
+            if (referencedTable && referencedTable !== childTableName && knownTables.has(referencedTable)) {
               graph.get(childTableName)!.dependencies.add(referencedTable);
               graph.get(referencedTable)!.dependents.add(childTableName);
             }
