@@ -1002,11 +1002,11 @@ Build `SettingsScreen.tsx`:
 ---
 ---
 
-# PHASE 15 — Partial Migration Feature
+# PHASE 15 — Partial Migration & Multi-Worker Concurrency
 
-**Goal:** Add the optional Partial Migration selector to Step 2 — allowing users to choose specific collections and/or a date range, instead of migrating the entire database.
+**Goal:** Add advanced migration execution controls: (1) Partial Migration selector (choose specific collections and/or date range), and (2) Parallel Table Worker Pool using Kahn's DAG Tier scheduling for accelerated multi-tasking migration.
 
-**Reference:** Product Blueprint — Part 2 → Step 2 → "🔍 Partial Migration Selector"
+**Reference:** Product Blueprint — Part 2 → Step 2 → "🔍 Partial Migration Selector", Advanced Scaling Roadmap
 
 ---
 
@@ -1025,11 +1025,20 @@ Build `SettingsScreen.tsx`:
    - Add a `createdAt: { $gte: fromDate, $lte: toDate }` filter to the query for date-filtered collections
 2. The rest of the ETL engine runs identically
 
+## 15.3 — Parallel Table Worker Pool (DAG Tier Scheduling)
+1. **DAG Level Partitioning:** Update `topologicalSort.ts` to compute dependency tiers (Level 0, Level 1, Level 2).
+   - Level 0: Independent root tables (e.g. `users`, `categories`, `tags`)
+   - Level 1+: Dependent child tables (e.g. `products` -> `orders` -> `order_items`)
+2. **Worker Pool Execution:** Within each tier, dispatch tables concurrently using `Promise.all()` with configurable concurrency (e.g., 2–4 workers).
+3. **Foreign Key Integrity:** Only advance to Level N+1 when all tables in Level N have finished inserting and validating.
+4. **UI Toggle:** Add a "Worker Concurrency: 1x (Sequential) | 2x (Parallel)" selector in the Advanced Migration options.
+
 ---
 
 **✅ Phase 15 is DONE when:**
 - Unchecking "inventory_logs" and running migration skips that collection in the ETL log
 - Adding a date filter reduces the document count shown in the preview
+- Parallel worker tier scheduling successfully migrates independent Level 0 tables simultaneously without FK deadlock
 - The migration runs correctly with partial settings active
 
 ---
@@ -1153,6 +1162,418 @@ Test and fix:
 ---
 ---
 
+---
+---
+
+# PHASE 18 — Code Migration Studio (Application Code Assistant)
+
+**Goal:** After the database migration is complete, help the developer update their existing **application backend code** — which still uses Mongoose/MongoDB queries — to work with the new PostgreSQL database via Prisma. The tool scans uploaded code files using an AST parser (not regex), detects all Mongoose patterns, generates schema-aware Prisma equivalents, and shows a side-by-side diff UI for human review.
+
+> **Full companion spec:** `PHASE-18-CODE-MIGRATION-STUDIO.md` (workspace root) — read before coding.
+> Contains: complete transformation table, all 18 edge cases with code examples, TypeScript interfaces, confidence scoring algorithm, and export logic detail.
+
+> **Unique advantage:** No other tool knows your schema. We use the schema mapping from Phase 5 so `.populate('items')` becomes `include: { order_items: true }` — the exact correct table name, not a guess.
+
+---
+
+## 18.0 — Technology Decisions (Final, Researched)
+
+**Scanner:** `@babel/parser` + `@babel/traverse` (AST — NOT regex)
+- Regex produces false positives: array `.find()` and lodash `.findOne()` are indistinguishable from Mongoose calls using text search
+- AST understands code structure — zero false positives
+- `errorRecovery: true` — files with syntax errors are partially scanned, never crash
+- Supports both JS and TypeScript: `plugins: ['typescript']`
+
+**Engine:** Hybrid — Algorithm 80% + Gemini 10% + Flagged 10%
+- Algorithm handles 25 known patterns: instant, free, deterministic, schema-map-aware
+- Gemini (existing `ai.ts`) handles aggregation pipelines only
+- Anything else: flagged NEEDS REVIEW — app never crashes
+
+**Diff UI:** `react-diff-viewer-continued` (15KB vs Monaco's 5MB, zero Electron config)
+
+**npm installs (in `apps/desktop`):**
+```bash
+npm install @babel/parser @babel/traverse @babel/types react-diff-viewer-continued prism-react-renderer
+npm install --save-dev @types/babel__traverse @types/babel__types
+```
+
+---
+
+## 18.1 — Files to Create
+
+```
+apps/desktop/main/engine/codeScanner.ts          ← AST parser + Mongoose detector
+apps/desktop/main/engine/codeTransformer.ts      ← Mongoose → Prisma engine
+apps/desktop/main/handlers/codeAssistant.ts      ← IPC entry point (scan + transform)
+apps/desktop/main/handlers/codeExport.ts         ← File writing, dialog, export
+apps/desktop/renderer/src/screens/CodeAssistantScreen.tsx
+apps/desktop/renderer/src/components/CodeUploadZone.tsx
+apps/desktop/renderer/src/components/CodeDiffCard.tsx
+apps/desktop/renderer/src/components/CodeDiffViewer.tsx
+apps/desktop/renderer/src/components/CodeExportPanel.tsx
+apps/desktop/renderer/src/styles/code-assistant.css
+```
+
+---
+
+## 18.2 — Sidebar Item
+
+- Label: `Code Assistant` | Icon: `</>` | Position: After History, before Settings
+- Accessible at all times — no active migration required
+
+---
+
+## 18.3 — IPC Channels
+
+| Channel | Input | Output |
+|---|---|---|
+| `code-assistant:scan` | `{ files: UploadedFile[] }` | `{ success, data: DetectedQuery[] }` |
+| `code-assistant:transform` | `{ queries: DetectedQuery[] }` | `{ success, data: TransformResult[] }` |
+| `code-assistant:get-schema-map` | `{}` | `{ success, data: SchemaMapping or null }` |
+| `code-export:refactored-files` | `{ results, originalFiles }` | `{ success, savedPath }` |
+| `code-export:checklist` | `{ results }` | `{ success, savedPath }` |
+| `code-export:prisma-schema` | `{}` | `{ success, savedPath }` |
+
+---
+
+## 18.4 — Scanner Engine (`codeScanner.ts`)
+
+```typescript
+const ast = parser.parse(fileContent, {
+  sourceType: 'module',
+  plugins: ['typescript', 'jsx'],
+  errorRecovery: true,
+});
+```
+
+Detected patterns (25 total — see Section 18.5):
+`find`, `findOne`, `findById`, `findByIdAndUpdate`, `findOneAndUpdate`, `findByIdAndDelete`,
+`findOneAndDelete`, `create`, `new Model().save()`, `updateOne`, `updateMany`, `deleteOne`,
+`deleteMany`, `countDocuments`, `exists`, `aggregate`, `.populate()`, `.sort()`, `.limit()`,
+`.skip()`, `.select()`, `.lean()`, `.exec()`, `schema.pre/post`, `mongoose.connection.db`
+
+**Multi-line chain handling:** AST reads entire method chain as nested `MemberExpression` nodes.
+`.find().sort().limit().populate().lean()` is detected and output as ONE combined Prisma query.
+
+---
+
+## 18.5 — Complete Transformation Table (25 Patterns)
+
+| Mongoose | Prisma Output | Confidence |
+|---|---|---|
+| `Model.find({})` | `prisma.model.findMany({})` | HIGH |
+| `Model.find({ field: val })` | `prisma.model.findMany({ where: { field: val } })` | HIGH |
+| `Model.findOne({ field })` | `prisma.model.findFirst({ where: { field } })` | HIGH — ALWAYS `findFirst` not `findUnique` |
+| `Model.findById(id)` | `prisma.model.findUnique({ where: { id } })` | HIGH |
+| `.populate('rel')` | `include: { [mappedTable]: true }` | HIGH (schema) / MEDIUM (inferred) |
+| `.populate({ path, select: 'a b' })` | `include: { [mappedTable]: { select: { a: true, b: true } } }` | MEDIUM |
+| `.populate({ path, populate: nested })` | Nested `include: {}` | MEDIUM |
+| `Model.create({ data })` | `prisma.model.create({ data })` | HIGH |
+| `new Model({ data }).save()` | `prisma.model.create({ data })` | HIGH |
+| `Model.findByIdAndUpdate(id, $set)` | `prisma.model.update({ where: { id }, data })` | HIGH |
+| `Model.findOneAndUpdate({ q }, $set)` | `prisma.model.update({ where: { q }, data })` | HIGH |
+| `Model.updateOne({ _id }, $set)` | `prisma.model.update({ where: { id }, data })` | HIGH |
+| `Model.updateMany({ field }, $set)` | `prisma.model.updateMany({ where, data })` | HIGH |
+| `Model.findByIdAndDelete(id)` | `prisma.model.delete({ where: { id } })` | HIGH |
+| `Model.deleteOne({ _id })` | `prisma.model.delete({ where: { id } })` | HIGH |
+| `Model.deleteMany({ field })` | `prisma.model.deleteMany({ where })` | HIGH |
+| `Model.countDocuments({ filter })` | `prisma.model.count({ where })` | HIGH |
+| `Model.exists({ field })` | `prisma.model.count({ where }).then(c => c > 0)` | MEDIUM |
+| `.sort({ field: -1 })` | `orderBy: { field: 'desc' }` | HIGH |
+| `.limit(n)` | `take: n` | HIGH |
+| `.skip(n)` | `skip: n` | HIGH |
+| `.select('f1 f2')` | `select: { f1: true, f2: true }` | MEDIUM |
+| `.lean()` | *(removed — Prisma always returns plain objects)* | HIGH |
+| `.exec()` | *(removed — not needed in Prisma)* | HIGH |
+| `Model.aggregate([...])` | Gemini AI / NEEDS REVIEW | LOW |
+
+**MongoDB operator translations:** `_id`→`id` | `$or`→`OR` | `$and`→`AND` | `$in`→`in:[]`
+`$nin`→`notIn:[]` | `$gt`→`gt` | `$gte`→`gte` | `$lt`→`lt` | `$lte`→`lte` | `$ne`→`not`
+`$exists:true`→`not:null` | `$regex`→`contains` | `$set` contents extracted into `data:{}`
+`$inc:{f:n}`→`data:{f:{increment:n}}` | `$push`/`$pull`→NEEDS REVIEW
+
+---
+
+## 18.6 — All 18 Edge Cases
+
+| EC | Case | Handling |
+|---|---|---|
+| EC-01 | `findOne` → `findFirst` not `findUnique` | `findUnique` requires @unique field — `findFirst` is always safe |
+| EC-02 | Multi-line chained queries | AST reads full chain — one combined output |
+| EC-03 | `_id` everywhere | Auto-rewritten to `id` in all suggestions |
+| EC-04 | `$set`, `$inc`, `$push` operators | `$set` extracted; `$inc` → atomic; `$push`/`$pull` → NEEDS REVIEW |
+| EC-05 | Dynamic/variable model name | NEEDS REVIEW — cannot resolve at parse time |
+| EC-06 | `schema.pre` / `schema.post` middleware | NEEDS REVIEW with `prisma.$use()` guidance |
+| EC-07 | `.exec()` calls | Auto-stripped — not needed in Prisma |
+| EC-08 | All `.populate()` forms | Simple, object with select, nested — all handled |
+| EC-09 | `$or`, `$and`, `$in` filter operators | Direct symbol translation |
+| EC-10 | `Model.aggregate([...])` | Sent to Gemini; fallback NEEDS REVIEW + `// TODO` comment |
+| EC-11 | `require`/`import` model statements | Detected; suggest replace with Prisma client import |
+| EC-12 | `new Model()` mutated before `.save()` | MEDIUM confidence — note to review data passed to `create()` |
+| EC-13 | TypeScript type annotation vs model name | Babel TS plugin distinguishes `TSUnionType` from `CallExpression` |
+| EC-14 | `.then()` vs async/await style | Both detected; suggestions preserve original style |
+| EC-15 | Mongoose transactions (`session`) | NEEDS REVIEW with `prisma.$transaction([])` guidance |
+| EC-16 | `findByIdAndUpdate` with `{ new: true }` | Option dropped; note: "Prisma update() always returns updated record" |
+| EC-17 | Nested `.populate()` | Generates nested `include: {}` using schema map |
+| EC-18 | Raw `mongoose.connection.db` driver | NEEDS REVIEW — suggest `prisma.$queryRaw` |
+
+---
+
+## 18.7 — Export Logic
+
+**Bottom-up replacement** (critical): Walk results sorted by `lineNumber` descending.
+Replacing from bottom avoids shifting line numbers for results below.
+
+- `accepted` → replace with `suggestedCode` (or `editedCode`)
+- `skipped` → leave unchanged
+- `needs_review` → inject above original:
+  `// ⚠️ TODO: Manual rewrite — [reviewNote]`
+  `// Original: [originalCode]`
+
+Output filenames: `orderController.ts` → `orderController-migrated.ts`
+
+**Three downloads:**
+1. Refactored files (accepted changes applied, TODOs injected)
+2. Migration Checklist (Markdown — stats + file breakdown + manual items table)
+3. `schema.prisma` — from `electron-store` schema map (reuse Phase 10 generator)
+
+---
+
+## 18.8 — Standalone / Generic Mode
+
+No schema map in `electron-store`:
+- `.populate()` uses camelCase→snake_case best-guess — confidence: MEDIUM
+- Info banner: *"Generic Mode — No schema mapping found. Complete a migration first for exact suggestions."*
+- All other 24 patterns still work normally
+
+---
+
+## 18.9 — TypeScript Interfaces (add to `packages/shared/src/types.ts`)
+
+```typescript
+export type MongoosePattern = 'find' | 'findOne' | 'findById' | 'findByIdAndUpdate'
+  | 'findOneAndUpdate' | 'findByIdAndDelete' | 'findOneAndDelete' | 'create' | 'save'
+  | 'updateOne' | 'updateMany' | 'deleteOne' | 'deleteMany' | 'countDocuments'
+  | 'exists' | 'aggregate' | 'populate' | 'sort' | 'limit' | 'skip' | 'select'
+  | 'lean' | 'exec' | 'pre_hook' | 'post_hook' | 'raw_driver' | 'transaction' | 'dynamic_model';
+
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+export type ReviewStatus = 'pending' | 'accepted' | 'edited' | 'skipped';
+
+export interface UploadedFile { id: string; name: string; content: string; sizeBytes: number; }
+
+export interface DetectedQuery {
+  id: string; fileId: string; fileName: string; lineNumber: number; columnNumber: number;
+  originalCode: string; patterns: MongoosePattern[]; modelName: string | null;
+  isComplex: boolean; chainedMethods: string[];
+}
+
+export interface TransformResult extends DetectedQuery {
+  suggestedCode: string; confidence: ConfidenceLevel; schemaMapUsed: boolean;
+  aiGenerated: boolean; needsManualReview: boolean; reviewNote: string | null;
+  status: ReviewStatus; editedCode: string | null;
+}
+```
+
+---
+
+**✅ Phase 18 is DONE when:**
+- `Code Assistant` tab in sidebar (between History and Settings)
+- Upload multiple `.js`/`.ts` files via drag-drop AND paste textarea toggle
+- Scanner detects all 25 patterns (not 10 — old list was incomplete)
+- Multi-line chained queries detected as single suggestion
+- Schema map consulted for `.populate()` — correct mapped table name used
+- `_id` auto-rewritten to `id` in all suggestions
+- `$or`, `$and`, `$in`, `$gt`, `$set`, `$inc` operators translated correctly
+- Aggregation sent to Gemini; fallback NEEDS REVIEW if AI fails
+- Confidence badge (HIGH / MEDIUM / NEEDS REVIEW) shown on each card
+- Accept / Edit / Skip work and state persists during session
+- Filter tabs (All / Pending / Accepted / Edited / Skipped / Needs Review) work
+- Bottom-up line replacement used in export
+- All 3 exports download (refactored files, checklist, schema.prisma)
+- `// ⚠️ TODO` comments injected for NEEDS REVIEW in exported file
+- Generic mode banner shown when no schema map
+- No crash on files with syntax errors (`errorRecovery: true`)
+- TypeScript type annotations not confused with model names
+
+---
+---
+
+---
+
+## 18.1 — New Screen: Code Assistant
+
+Add a new top-level screen to the Electron app sidebar:
+- **Sidebar label:** `Code Assistant`
+- **Sidebar icon:** `</>` (code brackets icon)
+- **Route/screen name:** `CodeAssistantScreen`
+- **Location in nav:** After `History`, before `Settings`
+
+File: `apps/desktop/renderer/src/screens/CodeAssistantScreen.tsx`
+
+---
+
+## 18.2 — File Ingestion Panel (Step 1 of Code Assistant)
+
+Build a two-zone upload area:
+1. **Drag-and-drop zone** for `.js` and `.ts` files
+2. **Manual text paste area** (for pasting a single file's contents directly)
+3. A file list shows all uploaded files with name, size, and a remove button
+4. A `Scan Code →` button becomes active once at least one file is uploaded
+
+State stored in: `electron-store` under key `codeAssistant.uploadedFiles`
+
+---
+
+## 18.3 — Scanner Engine (Main Process)
+
+File: `apps/desktop/main/engine/codeScanner.ts`
+
+The scanner reads each uploaded file and detects the following Mongoose patterns using regex:
+
+| Pattern | Example to detect |
+|---|---|
+| `Model.find()` | `User.find({ active: true })` |
+| `Model.findOne()` | `User.findOne({ email })` |
+| `Model.findById()` | `Order.findById(id)` |
+| `.populate()` | `.populate('items')` or `.populate({ path: 'user' })` |
+| `Model.create()` | `Product.create({ name, price })` |
+| `new Model().save()` | `new Order({...}).save()` |
+| `Model.updateOne()` / `updateMany()` | `User.updateOne({ _id }, { $set: {...} })` |
+| `Model.deleteOne()` / `deleteMany()` | `Order.deleteMany({ status: 'cancelled' })` |
+| `Model.aggregate()` | `Order.aggregate([{ $match: {...} }])` |
+| `Model.countDocuments()` | `User.countDocuments({ active: true })` |
+
+Each detected match returns:
+```typescript
+interface DetectedQuery {
+  fileId: string;
+  fileName: string;
+  lineNumber: number;
+  originalCode: string;      // exact matched code snippet
+  pattern: MongoosePattern;  // enum of detected pattern type
+  modelName: string;         // extracted model name (e.g. "User", "Order")
+  isComplex: boolean;        // true if aggregation pipeline or nested populate
+}
+```
+
+IPC handler: `ipcMain.handle('code-scanner:scan', ...)` → returns `{ success: boolean, data: DetectedQuery[], error?: string }`
+
+---
+
+## 18.4 — Schema-Aware Transformer
+
+File: `apps/desktop/main/engine/codeTransformer.ts`
+
+For each `DetectedQuery`, generate a Prisma equivalent using the schema mapping already stored in `electron-store` from Phase 5 (`schemaMapping.mappings`).
+
+**Transformation rules:**
+
+| Mongoose | Prisma Equivalent |
+|---|---|
+| `Model.findOne({ field })` | `prisma.model.findFirst({ where: { field } })` |
+| `Model.findById(id)` | `prisma.model.findUnique({ where: { id } })` |
+| `Model.find({ field })` | `prisma.model.findMany({ where: { field } })` |
+| `.populate('relation')` | `include: { [mappedTableName]: true }` ← uses schema map |
+| `Model.create({...})` | `prisma.model.create({ data: {...} })` |
+| `new Model({...}).save()` | `prisma.model.create({ data: {...} })` |
+| `Model.updateOne({ _id }, { $set })` | `prisma.model.update({ where: { id }, data: {...} })` |
+| `Model.deleteOne({ _id })` | `prisma.model.delete({ where: { id } })` |
+| `Model.countDocuments()` | `prisma.model.count({ where: {...} })` |
+| `Model.aggregate([...])` | Mark as `⚠️ Needs Manual Review` (complex) |
+
+**Schema-aware populate resolution:**
+- When `.populate('items')` is found, look up the schema map to find what `items` was mapped to (e.g., `order_items` child table)
+- Use the correct mapped table name in the `include:` clause
+- If no mapping found, use a best-guess camelCase→snake_case conversion and flag as `[⚠️ Verify]`
+
+Each transformer output:
+```typescript
+interface TransformResult extends DetectedQuery {
+  suggestedCode: string;      // Prisma equivalent code
+  confidence: 'high' | 'medium' | 'low'; // high = schema-mapped, medium = inferred, low = complex
+  needsManualReview: boolean;
+  reviewNote?: string;        // e.g. "Aggregation pipeline — manual rewrite required"
+}
+```
+
+IPC handler: `ipcMain.handle('code-transformer:transform', ...)` → returns `{ success: boolean, data: TransformResult[], error?: string }`
+
+---
+
+## 18.5 — Side-by-Side Diff UI (Step 2 of Code Assistant)
+
+File: `apps/desktop/renderer/src/components/CodeDiffViewer.tsx`
+
+For each `TransformResult`, render a diff card:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  📄 userController.ts  —  Line 42  │  🟢 HIGH CONFIDENCE               │
+├──────────────────────────────────┬─────────────────────────────────────┤
+│  ORIGINAL (Mongoose)             │  SUGGESTED (Prisma)                  │
+├──────────────────────────────────┼─────────────────────────────────────┤
+│  const u = await                 │  const u = await                     │
+│    User.findOne({ email });      │    prisma.user.findFirst({           │
+│                                  │      where: { email }                │
+│                                  │    });                               │
+├──────────────────────────────────┴─────────────────────────────────────┤
+│  [✅ Accept]  [✏️ Edit]  [⏭️ Skip]                                       │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Accept:** Marks the suggestion as accepted; the suggested code will replace the original in the exported file
+- **Edit:** Opens an inline code editor (plain `<textarea>`) pre-filled with the suggestion; the user saves their edit
+- **Skip:** Marks as skipped; original code is preserved in the export
+- A **progress bar** at the top shows `Reviewed 12 / 47 suggestions`
+- A **filter bar** allows: `Show All` | `Pending` | `Accepted` | `Skipped` | `Needs Review`
+
+Styling: `apps/desktop/renderer/src/styles/code-assistant.css`
+
+---
+
+## 18.6 — Export & Download (Step 3 of Code Assistant)
+
+File: `apps/desktop/main/handlers/codeExport.ts`
+
+After the developer has reviewed all suggestions:
+
+1. **Download Refactored Files** — generates updated `.js`/`.ts` files with all accepted suggestions applied. Skipped queries remain unchanged. Complex queries have a `// TODO: Manual rewrite needed — [original code]` comment injected above them.
+
+2. **Download Migration Checklist** — a Markdown report:
+   - Total patterns found: `47`
+   - Accepted: `38`, Skipped: `6`, Needs manual review: `3`
+   - List of all skipped/complex items with file name + line number
+
+3. **Download `schema.prisma`** — generated from the schema map (same data used in Phase 10's Refactoring Kit, now surfaced here in context).
+
+IPC handler: `ipcMain.handle('code-export:generate', ...)` → returns file buffers sent to `dialog.showSaveDialog`
+
+---
+
+## 18.7 — No Active Migration Required
+
+The Code Assistant screen must work independently:
+- It does **not** require an active migration session to be open
+- If `electron-store` has a schema mapping from a previous migration, it uses it for schema-aware suggestions
+- If no schema mapping exists, it falls back to **generic suggestions** (regex-only, no schema context) and shows an info banner:
+  > *"ℹ️ No schema mapping found. Suggestions are based on common patterns. For schema-aware suggestions, complete a migration first."*
+
+---
+
+**✅ Phase 18 is DONE when:**
+- The `Code Assistant` tab appears in the sidebar and is clickable
+- A developer can upload 2+ `.ts`/`.js` files containing Mongoose queries
+- The scanner detects all 10 supported Mongoose patterns correctly
+- The diff UI shows Original vs. Suggested side-by-side for each detected query
+- Accept / Edit / Skip all work and persist during the session
+- All three exports (refactored files, checklist, schema.prisma) download successfully
+- When no schema map exists, the generic-mode banner appears correctly
+- When a schema map exists, `.populate()` suggestions use the correct mapped table name
+
+---
+---
+
 # Summary — All Phases at a Glance
 
 | Phase | What You Build | Testable After? |
@@ -1175,7 +1596,8 @@ Test and fix:
 | **15** | Partial Migration (collection + date filter) | ✅ Partial run skips collections |
 | **16** | Testbed apps + seed scripts + verification suite | ✅ All 5 verify tests pass |
 | **17** | Integration testing, final build, deploy | ✅ .exe works on clean Windows |
+| **18** | Code Migration Studio — scan app code, suggest Prisma equivalents, side-by-side diff | ✅ Scan + diff + export all work |
 
 ---
 
-*Total estimated phases: 17 | Build order: sequential (each phase depends on the previous)*
+*Total estimated phases: 18 | Build order: sequential (each phase depends on the previous)*

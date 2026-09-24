@@ -1,0 +1,707 @@
+{
+  "promptLengthChars": 10267,
+  "models": {
+    "groqQwen": {
+      "success": false,
+      "model": "qwen/qwen3.8-27b",
+      "latencyMs": 133,
+      "error": "HTTP 429: {\"error\":{\"message\":\"Request too large for model `qwen/qwen3.8-27b` in organization `org_01m382xxvvexwvnmzhrvnxzjsc` service tier `on_demand` on outpu"
+    },
+    "groq120b": {
+      "success": true,
+      "model": "openai/gpt-oss-120b",
+      "latencyMs": 6356,
+      "data": [
+        {
+          "collectionName": "categories",
+          "targetTableName": "categories",
+          "fields": [
+            {
+              "id": "f1",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f2",
+              "sourceField": "name",
+              "sourceType": "string",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f3",
+              "sourceField": "slug",
+              "sourceType": "string",
+              "targetColumn": "slug",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f4",
+              "sourceField": "description",
+              "sourceType": "string",
+              "targetColumn": "description",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f5",
+              "sourceField": "displayOrder",
+              "sourceType": "int",
+              "targetColumn": "display_order",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f6",
+              "sourceField": "createdAt",
+              "sourceType": "date",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        },
+        {
+          "collectionName": "users",
+          "targetTableName": "users",
+          "fields": [
+            {
+              "id": "f7",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f8",
+              "sourceField": "name",
+              "sourceType": "string",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f9",
+              "sourceField": "email",
+              "sourceType": "string",
+              "targetColumn": "email",
+              "targetType": "VARCHAR(255)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f10",
+              "sourceField": "role",
+              "sourceType": "string",
+              "targetColumn": "role",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f11",
+              "sourceField": "age",
+              "sourceType": "int",
+              "targetColumn": "age",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f12",
+              "sourceField": "phone",
+              "sourceType": "string",
+              "targetColumn": "phone",
+              "targetType": "VARCHAR(20)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f13",
+              "sourceField": "address",
+              "sourceType": "object",
+              "targetColumn": "address",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f14",
+              "sourceField": "tags",
+              "sourceType": "array",
+              "targetColumn": "tags",
+              "targetType": "TEXT[]",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f15",
+              "sourceField": "isActive",
+              "sourceType": "bool",
+              "targetColumn": "is_active",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f16",
+              "sourceField": "createdAt",
+              "sourceType": "date",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        },
+        {
+          "collectionName": "products",
+          "targetTableName": "products",
+          "fields": [
+            {
+              "id": "f17",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f18",
+              "sourceField": "name",
+              "sourceType": "string",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f19",
+              "sourceField": "sku",
+              "sourceType": "string",
+              "targetColumn": "sku",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f20",
+              "sourceField": "category",
+              "sourceType": "string",
+              "targetColumn": "category",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f21",
+              "sourceField": "price",
+              "sourceType": "double",
+              "targetColumn": "price",
+              "targetType": "DOUBLE PRECISION",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f22",
+              "sourceField": "inStock",
+              "sourceType": "bool",
+              "targetColumn": "in_stock",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f23",
+              "sourceField": "stockQuantity",
+              "sourceType": "int",
+              "targetColumn": "stock_quantity",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f24",
+              "sourceField": "specs",
+              "sourceType": "object",
+              "targetColumn": "specs",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f25",
+              "sourceField": "createdAt",
+              "sourceType": "date",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        },
+        {
+          "collectionName": "orders",
+          "targetTableName": "orders",
+          "fields": [
+            {
+              "id": "f26",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f27",
+              "sourceField": "orderNumber",
+              "sourceType": "string",
+              "targetColumn": "order_number",
+              "targetType": "VARCHAR(20)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f28",
+              "sourceField": "customerEmail",
+              "sourceType": "string",
+              "targetColumn": "customer_email",
+              "targetType": "VARCHAR(255)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f29",
+              "sourceField": "status",
+              "sourceType": "string",
+              "targetColumn": "status",
+              "targetType": "VARCHAR(20)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f30",
+              "sourceField": "totalAmount",
+              "sourceType": "double",
+              "targetColumn": "total_amount",
+              "targetType": "DOUBLE PRECISION",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f31",
+              "sourceField": "itemCount",
+              "sourceType": "int",
+              "targetColumn": "item_count",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f32",
+              "sourceField": "items",
+              "sourceType": "arrayOfObjects",
+              "targetColumn": "items",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": true,
+              "childTableName": "orders_items",
+              "foreignKeyToParent": "orders.id"
+            },
+            {
+              "id": "f33",
+              "sourceField": "notes",
+              "sourceType": "null",
+              "targetColumn": "notes",
+              "targetType": "TEXT",
+              "isNullable": true,
+              "include": true
+            },
+            {
+              "id": "f34",
+              "sourceField": "orderDate",
+              "sourceType": "date",
+              "targetColumn": "order_date",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        }
+      ]
+    },
+    "gemini35": {
+      "success": true,
+      "model": "gemini-3.5-flash-lite",
+      "latencyMs": 6709,
+      "data": [
+        {
+          "collectionName": "categories",
+          "targetTableName": "categories",
+          "fields": [
+            {
+              "id": "f1",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f2",
+              "sourceField": "name",
+              "sourceType": "string",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f3",
+              "sourceField": "slug",
+              "sourceType": "string",
+              "targetColumn": "slug",
+              "targetType": "VARCHAR(50)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f4",
+              "sourceField": "description",
+              "sourceType": "string",
+              "targetColumn": "description",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f5",
+              "sourceField": "displayOrder",
+              "sourceType": "int",
+              "targetColumn": "display_order",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f6",
+              "sourceField": "createdAt",
+              "sourceType": "date",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        },
+        {
+          "collectionName": "users",
+          "targetTableName": "users",
+          "fields": [
+            {
+              "id": "f7",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f8",
+              "sourceField": "name",
+              "sourceType": "string",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f9",
+              "sourceField": "email",
+              "sourceType": "string",
+              "targetColumn": "email",
+              "targetType": "VARCHAR(255)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f10",
+              "sourceField": "role",
+              "sourceType": "string",
+              "targetColumn": "role",
+              "targetType": "VARCHAR(50)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f11",
+              "sourceField": "age",
+              "sourceType": "int",
+              "targetColumn": "age",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f12",
+              "sourceField": "phone",
+              "sourceType": "string",
+              "targetColumn": "phone",
+              "targetType": "VARCHAR(20)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f13",
+              "sourceField": "address",
+              "sourceType": "object",
+              "targetColumn": "address",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f14",
+              "sourceField": "tags",
+              "sourceType": "array",
+              "targetColumn": "tags",
+              "targetType": "TEXT[]",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f15",
+              "sourceField": "isActive",
+              "sourceType": "bool",
+              "targetColumn": "is_active",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f16",
+              "sourceField": "createdAt",
+              "sourceType": "date",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        },
+        {
+          "collectionName": "products",
+          "targetTableName": "products",
+          "fields": [
+            {
+              "id": "f17",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f18",
+              "sourceField": "name",
+              "sourceType": "string",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f19",
+              "sourceField": "sku",
+              "sourceType": "string",
+              "targetColumn": "sku",
+              "targetType": "VARCHAR(50)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f20",
+              "sourceField": "category",
+              "sourceType": "string",
+              "targetColumn": "category",
+              "targetType": "VARCHAR(50)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f21",
+              "sourceField": "price",
+              "sourceType": "double",
+              "targetColumn": "price",
+              "targetType": "NUMERIC(18,4)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f22",
+              "sourceField": "inStock",
+              "sourceType": "bool",
+              "targetColumn": "in_stock",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f23",
+              "sourceField": "stockQuantity",
+              "sourceType": "int",
+              "targetColumn": "stock_quantity",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f24",
+              "sourceField": "specs",
+              "sourceType": "object",
+              "targetColumn": "specs",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f25",
+              "sourceField": "createdAt",
+              "sourceType": "date",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        },
+        {
+          "collectionName": "orders",
+          "targetTableName": "orders",
+          "fields": [
+            {
+              "id": "f26",
+              "sourceField": "_id",
+              "sourceType": "ObjectId",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f27",
+              "sourceField": "orderNumber",
+              "sourceType": "string",
+              "targetColumn": "order_number",
+              "targetType": "VARCHAR(50)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f28",
+              "sourceField": "customerEmail",
+              "sourceType": "string",
+              "targetColumn": "customer_email",
+              "targetType": "VARCHAR(255)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f29",
+              "sourceField": "status",
+              "sourceType": "string",
+              "targetColumn": "status",
+              "targetType": "VARCHAR(20)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f30",
+              "sourceField": "totalAmount",
+              "sourceType": "double",
+              "targetColumn": "total_amount",
+              "targetType": "NUMERIC(18,4)",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f31",
+              "sourceField": "itemCount",
+              "sourceType": "int",
+              "targetColumn": "item_count",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true
+            },
+            {
+              "id": "f32",
+              "sourceField": "items",
+              "sourceType": "arrayOfObjects",
+              "targetColumn": "items",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": true,
+              "childTableName": "orders_items",
+              "foreignKeyToParent": "orders_id"
+            },
+            {
+              "id": "f33",
+              "sourceField": "notes",
+              "sourceType": "null",
+              "targetColumn": "notes",
+              "targetType": "TEXT",
+              "isNullable": true,
+              "include": true
+            },
+            {
+              "id": "f34",
+              "sourceField": "orderDate",
+              "sourceType": "date",
+              "targetColumn": "order_date",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true
+            }
+          ],
+          "indexes": [],
+          "childTables": []
+        }
+      ]
+    }
+  }
+}

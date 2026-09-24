@@ -1,0 +1,1239 @@
+{
+  "timestamp": "2026-09-23T21:52:41.638Z",
+  "schemas": [
+    {
+      "collectionName": "categories",
+      "documentCount": 10,
+      "fields": [
+        {
+          "name": "_id",
+          "bsonType": "ObjectId",
+          "sampleValues": [
+            "6ab44700b55ab8ea4fd581e3"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "name",
+          "bsonType": "string",
+          "sampleValues": [
+            "Electronics"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "slug",
+          "bsonType": "string",
+          "sampleValues": [
+            "electronics"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "description",
+          "bsonType": "string",
+          "sampleValues": [
+            "High-quality Electronics products for every lifest"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "displayOrder",
+          "bsonType": "int",
+          "sampleValues": [
+            "1"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "createdAt",
+          "bsonType": "date",
+          "sampleValues": [
+            "Thu Sep 24 2026 03:09:12 GMT+0530 (India Standard "
+          ],
+          "isNullable": false
+        }
+      ]
+    },
+    {
+      "collectionName": "users",
+      "documentCount": 50,
+      "fields": [
+        {
+          "name": "_id",
+          "bsonType": "ObjectId",
+          "sampleValues": [
+            "6ab44700b55ab8ea4fd581ed"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "name",
+          "bsonType": "string",
+          "sampleValues": [
+            "User 1 Example"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "email",
+          "bsonType": "string",
+          "sampleValues": [
+            "user1@migrateiq.test"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "role",
+          "bsonType": "string",
+          "sampleValues": [
+            "manager"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "age",
+          "bsonType": "int",
+          "sampleValues": [
+            "21"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "phone",
+          "bsonType": "string",
+          "sampleValues": [
+            "+1-555-1001"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "address",
+          "bsonType": "object",
+          "sampleValues": [
+            "[object Object]"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "tags",
+          "bsonType": "array",
+          "sampleValues": [
+            "verified,standard,tier-2"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "isActive",
+          "bsonType": "bool",
+          "sampleValues": [
+            "true"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "createdAt",
+          "bsonType": "date",
+          "sampleValues": [
+            "Mon Sep 21 2026 03:09:12 GMT+0530 (India Standard "
+          ],
+          "isNullable": false
+        }
+      ]
+    },
+    {
+      "collectionName": "products",
+      "documentCount": 50,
+      "fields": [
+        {
+          "name": "_id",
+          "bsonType": "ObjectId",
+          "sampleValues": [
+            "6ab44700b55ab8ea4fd5821f"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "name",
+          "bsonType": "string",
+          "sampleValues": [
+            "Product 1 Premium Edition"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "sku",
+          "bsonType": "string",
+          "sampleValues": [
+            "SKU-FUR-0001"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "category",
+          "bsonType": "string",
+          "sampleValues": [
+            "Furniture"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "price",
+          "bsonType": "double",
+          "sampleValues": [
+            "20.74"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "inStock",
+          "bsonType": "bool",
+          "sampleValues": [
+            "true"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "stockQuantity",
+          "bsonType": "int",
+          "sampleValues": [
+            "13"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "specs",
+          "bsonType": "object",
+          "sampleValues": [
+            "[object Object]"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "createdAt",
+          "bsonType": "date",
+          "sampleValues": [
+            "Tue Sep 22 2026 03:09:12 GMT+0530 (India Standard "
+          ],
+          "isNullable": false
+        }
+      ]
+    },
+    {
+      "collectionName": "orders",
+      "documentCount": 100,
+      "fields": [
+        {
+          "name": "_id",
+          "bsonType": "ObjectId",
+          "sampleValues": [
+            "6ab44700b55ab8ea4fd58251"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "orderNumber",
+          "bsonType": "string",
+          "sampleValues": [
+            "ORD-2026-00001"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "customerEmail",
+          "bsonType": "string",
+          "sampleValues": [
+            "user2@migrateiq.test"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "status",
+          "bsonType": "string",
+          "sampleValues": [
+            "processing"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "totalAmount",
+          "bsonType": "double",
+          "sampleValues": [
+            "79.97"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "itemCount",
+          "bsonType": "int",
+          "sampleValues": [
+            "2"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "items",
+          "bsonType": "arrayOfObjects",
+          "sampleValues": [
+            "[object Object],[object Object]"
+          ],
+          "isNullable": false
+        },
+        {
+          "name": "notes",
+          "bsonType": "null",
+          "sampleValues": [
+            "null"
+          ],
+          "isNullable": true
+        },
+        {
+          "name": "orderDate",
+          "bsonType": "date",
+          "sampleValues": [
+            "Wed Sep 23 2026 15:09:12 GMT+0530 (India Standard "
+          ],
+          "isNullable": false
+        }
+      ]
+    }
+  ],
+  "results": {
+    "gemini38": {
+      "success": false,
+      "model": "gemini-3.8-flash",
+      "latencyMs": 934,
+      "error": "HTTP 503: {\n  \"error\": {\n    \"code\": 503,\n    \"message\": \"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\n    \"status\": \"UNAVAILABLE\"\n  }\n}\n"
+    },
+    "gemini25": {
+      "success": false,
+      "model": "gemini-2.5-flash",
+      "latencyMs": 374,
+      "error": "HTTP 404: {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.6-flash for the latest features a"
+    },
+    "groqQwen": {
+      "success": true,
+      "model": "qwen/qwen3.8-27b",
+      "latencyMs": 4172,
+      "data": [
+        {
+          "collectionName": "categories",
+          "targetTableName": "categories",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "slug",
+              "targetColumn": "slug",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "description",
+              "targetColumn": "description",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "displayOrder",
+              "targetColumn": "display_order",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "users",
+          "targetTableName": "users",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "email",
+              "targetColumn": "email",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "role",
+              "targetColumn": "role",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "age",
+              "targetColumn": "age",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "phone",
+              "targetColumn": "phone",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "address",
+              "targetColumn": "address",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "tags",
+              "targetColumn": "tags",
+              "targetType": "TEXT[]",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "isActive",
+              "targetColumn": "is_active",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "products",
+          "targetTableName": "products",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "sku",
+              "targetColumn": "sku",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "category",
+              "targetColumn": "category",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "price",
+              "targetColumn": "price",
+              "targetType": "NUMERIC(10,2)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "inStock",
+              "targetColumn": "in_stock",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "stockQuantity",
+              "targetColumn": "stock_quantity",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "specs",
+              "targetColumn": "specs",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMPTZ",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "orders",
+          "targetTableName": "orders",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "orderNumber",
+              "targetColumn": "order_number",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "customerEmail",
+              "targetColumn": "customer_email",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "status",
+              "targetColumn": "status",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "totalAmount",
+              "targetColumn": "total_amount",
+              "targetType": "NUMERIC(10,2)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "itemCount",
+              "targetColumn": "item_count",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "items",
+              "targetColumn": "items",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "notes",
+              "targetColumn": "notes",
+              "targetType": "TEXT",
+              "isNullable": true,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "queue_time": 0.046740643,
+        "prompt_tokens": 2230,
+        "prompt_time": 0.155181645,
+        "completion_tokens": 2048,
+        "completion_time": 3.90797464,
+        "total_tokens": 4278,
+        "total_time": 4.063156285
+      }
+    },
+    "groq120b": {
+      "success": true,
+      "model": "openai/gpt-oss-120b",
+      "latencyMs": 5233,
+      "data": [
+        {
+          "collectionName": "categories",
+          "targetTableName": "categories",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "slug",
+              "targetColumn": "slug",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "description",
+              "targetColumn": "description",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "displayOrder",
+              "targetColumn": "display_order",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "users",
+          "targetTableName": "users",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "email",
+              "targetColumn": "email",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "role",
+              "targetColumn": "role",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "age",
+              "targetColumn": "age",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "phone",
+              "targetColumn": "phone",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "address",
+              "targetColumn": "address",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "tags",
+              "targetColumn": "tags",
+              "targetType": "TEXT[]",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "isActive",
+              "targetColumn": "is_active",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "products",
+          "targetTableName": "products",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "sku",
+              "targetColumn": "sku",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "category",
+              "targetColumn": "category",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "price",
+              "targetColumn": "price",
+              "targetType": "DOUBLE PRECISION",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "inStock",
+              "targetColumn": "in_stock",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "stockQuantity",
+              "targetColumn": "stock_quantity",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "specs",
+              "targetColumn": "specs",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "orders",
+          "targetTableName": "orders",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "orderNumber",
+              "targetColumn": "order_number",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "customerEmail",
+              "targetColumn": "customer_email",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "status",
+              "targetColumn": "status",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "totalAmount",
+              "targetColumn": "total_amount",
+              "targetType": "DOUBLE PRECISION",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "itemCount",
+              "targetColumn": "item_count",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "items",
+              "targetColumn": "items",
+              "targetType": null,
+              "isNullable": false,
+              "include": false,
+              "isChildTable": true
+            },
+            {
+              "sourceField": "notes",
+              "targetColumn": "notes",
+              "targetType": "TEXT",
+              "isNullable": true,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "orderDate",
+              "targetColumn": "order_date",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "queue_time": 0.049145117,
+        "prompt_tokens": 2001,
+        "prompt_time": 0.087398431,
+        "completion_tokens": 2435,
+        "completion_time": 5.072210159,
+        "total_tokens": 4436,
+        "total_time": 5.15960859,
+        "completion_tokens_details": {
+          "reasoning_tokens": 602
+        }
+      }
+    },
+    "gemini-3.5-flash-lite": {
+      "success": true,
+      "model": "gemini-3.5-flash-lite",
+      "latencyMs": 5341,
+      "data": [
+        {
+          "collectionName": "categories",
+          "targetTableName": "categories",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "slug",
+              "targetColumn": "slug",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "description",
+              "targetColumn": "description",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "displayOrder",
+              "targetColumn": "display_order",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "users",
+          "targetTableName": "users",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "email",
+              "targetColumn": "email",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "role",
+              "targetColumn": "role",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "age",
+              "targetColumn": "age",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "phone",
+              "targetColumn": "phone",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "address",
+              "targetColumn": "address",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "tags",
+              "targetColumn": "tags",
+              "targetType": "TEXT[]",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "isActive",
+              "targetColumn": "is_active",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "products",
+          "targetTableName": "products",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "name",
+              "targetColumn": "name",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "sku",
+              "targetColumn": "sku",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "category",
+              "targetColumn": "category",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "price",
+              "targetColumn": "price",
+              "targetType": "NUMERIC(10,2)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "inStock",
+              "targetColumn": "in_stock",
+              "targetType": "BOOLEAN",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "stockQuantity",
+              "targetColumn": "stock_quantity",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "specs",
+              "targetColumn": "specs",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "createdAt",
+              "targetColumn": "created_at",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        },
+        {
+          "collectionName": "orders",
+          "targetTableName": "orders",
+          "fields": [
+            {
+              "sourceField": "_id",
+              "targetColumn": "id",
+              "targetType": "VARCHAR(24)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "orderNumber",
+              "targetColumn": "order_number",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "customerEmail",
+              "targetColumn": "customer_email",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "status",
+              "targetColumn": "status",
+              "targetType": "TEXT",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "totalAmount",
+              "targetColumn": "total_amount",
+              "targetType": "NUMERIC(10,2)",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "itemCount",
+              "targetColumn": "item_count",
+              "targetType": "INTEGER",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "items",
+              "targetColumn": "orders_items",
+              "targetType": "JSONB",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": true,
+              "childTableName": "orders_items",
+              "foreignKeyToParent": "orders_id"
+            },
+            {
+              "sourceField": "notes",
+              "targetColumn": "notes",
+              "targetType": "TEXT",
+              "isNullable": true,
+              "include": true,
+              "isChildTable": false
+            },
+            {
+              "sourceField": "orderDate",
+              "targetColumn": "order_date",
+              "targetType": "TIMESTAMP",
+              "isNullable": false,
+              "include": true,
+              "isChildTable": false
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -100,8 +100,8 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
 | **Phase 6** | **AI Rule Refinement** | Gemini prompt optimization, token guardrails, JSON Schema export | ✅ **Completed** |
 | **Phase 7** | **Risk Analysis Report** | 12 risk rules, 30-hazard matrix, DFS cycle detection, 1-Click Auto-Fix | ✅ **Completed** |
 | **Phase 8** | **Dry Run Simulation** | Transactional shadow run (`ROLLBACK`), 21 safeguards, 79/79 test assertions, telemetry bar | ✅ **Completed** |
-| **Phase 9** | **Live Migration Engine** | Topological sort DAG, cursor streaming, backpressure, batch savepoints | ⏳ **Next Up** |
-| **Phase 10** | **Completion & Downloads** | Interactive Mermaid ERD, PDF/Markdown audit reports, ORM models | ⏳ Pending |
+| **Phase 9** | **Live Migration Engine** | Topological sort DAG, cursor streaming, batch savepoints, 1M record 31-table ultra stress test with 100% parity | ✅ **Completed** |
+| **Phase 10** | **Completion & Downloads** | Interactive Mermaid ERD, PDF/Markdown audit reports, ORM models | ⏳ **Next Up** |
 | **Phase 11** | **Schema Evolution Workbench** | Workflow C: 7-stage Database Schema Evolution Workbench, 100% PG + Mongo parity, in-database SHA-256 ledger, Expand & Contract advisor, production shield | ✅ **Completed** |
 | **Phase 12** | **PG to Mongo Workflow** | Workflow B: Introspection, 1:N denormalization, Mongoose export | ⏳ Pending |
 | **Phase 13** | **In-Memory Demo Mode** | Zero-network bundled e-commerce testbed with simulated ETL | ⏳ Pending |
@@ -109,6 +109,7 @@ In MigrateIQ, every phase is specified by **two complementary documents** that d
 | **Phase 15** | **Partial Migration** | Granular collection filter, timestamp range slicer, CDC preparation | ⏳ Pending |
 | **Phase 16** | **Testbed Applications** | ShopBridge e-commerce testbed with intentional messy seed data | ⏳ Pending |
 | **Phase 17** | **Final Polish & Build** | Electron-builder Windows `.exe` installer, performance hardening | ⏳ Pending |
+| **Phase 18** | **Code Migration Studio** | Scan Mongoose queries, suggest Prisma/Drizzle equivalents, side-by-side diff viewer, code export | ⏳ Pending |
 
 ---
 

@@ -1887,4 +1887,171 @@ Developers often worry that because MongoDB cannot run PostgreSQL stored procedu
 
 ---
 
-*End of Product Blueprint v1.6*
+---
+
+# PHASE 18 — Code Migration Studio (Application Code Assistant)
+
+> **Technical spec:** `PHASE-18-CODE-MIGRATION-STUDIO.md` (workspace root)
+> **Phase Plan section:** `phase_plan-v2.md` → Sections 18.0 – 18.9
+
+## What Is This Screen?
+
+After the database migration is complete, the developer's application code (controllers, services, routes) still uses **Mongoose** to talk to MongoDB. Every query needs to be rewritten to use **Prisma** and talk to PostgreSQL instead.
+
+The **Code Assistant** is a brand-new screen inside MigrateIQ that does this for them — intelligently, using the schema mapping that was already built during the migration. It uses **AST parsing** (not regex) for accuracy, and the developer reviews every suggestion before anything is applied.
+
+---
+
+## Where Does It Live?
+
+- A new item appears in the **left sidebar** of the desktop app
+- Label: **`Code Assistant`**
+- Icon: `</>` (code/brackets icon)
+- Position: **After History, before Settings**
+- It is always accessible — even when no active migration is open
+
+---
+
+## The 3-Step User Flow
+
+---
+
+### Step 1 — Upload Files
+
+The screen opens to a clean upload page with two options:
+
+**Option A — Drag & Drop Zone**
+> A large dashed rectangle in the center of the screen:
+> *"Drag & drop your .js or .ts backend files here"*
+> Accepts multiple files at once.
+
+**Option B — Paste Code**
+> A toggle below the drag zone: *"Or paste code directly →"*
+> Opens a `<textarea>` where the developer can paste the contents of a single file.
+
+**After uploading:**
+- A file list appears below, showing:
+  - 📄 File name
+  - File size (e.g., `4.2 KB`)
+  - A `✕` button to remove the file
+- A blue `Scan Code →` button becomes active at the bottom
+
+---
+
+### Step 2 — Review Suggestions (Side-by-Side Diff)
+
+After scanning, the screen transitions to the **diff review panel**.
+
+**Top bar:**
+```
+[  Progress: Reviewed 12 of 47 suggestions  ████████░░░░  26%  ]
+[ Filter: All | Pending | Accepted | Skipped | ⚠️ Needs Review ]
+```
+
+**Each query is shown as a "Diff Card":**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  📄 orderController.ts — Line 58        🟢 HIGH CONFIDENCE       │
+│  Pattern: findById + populate                                    │
+├───────────────────────────┬─────────────────────────────────────┤
+│  ORIGINAL (Mongoose)      │  SUGGESTED (Prisma)                  │
+├───────────────────────────┼─────────────────────────────────────┤
+│  const order = await      │  const order = await                 │
+│    Order                  │    prisma.order.findUnique({         │
+│    .findById(id)          │      where: { id },                  │
+│    .populate('items');    │      include: { order_items: true }  │
+│                           │    });                               │
+├───────────────────────────┴─────────────────────────────────────┤
+│          [✅ Accept]       [✏️ Edit]       [⏭️ Skip]              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Confidence Badges (top-right of each card):**
+| Badge | Meaning |
+|---|---|
+| 🟢 **HIGH CONFIDENCE** | Exact match found in schema map (e.g., `.populate('items')` → `order_items` confirmed) |
+| 🟡 **MEDIUM** | Pattern recognised, table name inferred (camelCase → snake_case guess) |
+| 🔴 **NEEDS REVIEW** | Complex query (e.g., `$lookup`, `$group` aggregation) — cannot auto-suggest |
+
+**The three action buttons:**
+- **✅ Accept** — locks in the suggestion; card turns green
+- **✏️ Edit** — opens the RIGHT panel as an editable textarea; user types their own version and clicks `Save`
+- **⏭️ Skip** — marks the query as skipped; original code is kept; card turns grey
+
+---
+
+### Step 3 — Export
+
+Once the developer has reviewed all (or enough) suggestions, a **Download Panel** slides in at the bottom:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ✅ 38 Accepted   ⏭️ 6 Skipped   ⚠️ 3 Need Manual Review         │
+│                                                                 │
+│  [⬇️ Download Refactored Files]                                  │
+│  [⬇️ Download Migration Checklist (.md)]                         │
+│  [⬇️ Download schema.prisma]                                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Download 1 — Refactored Files**
+The original file(s), modified:
+- Accepted suggestions → code replaced with Prisma version
+- Skipped queries → original code left untouched
+- Complex/unhandled queries → a `// TODO` comment injected:
+  ```js
+  // TODO: Manual rewrite needed (aggregation pipeline)
+  // Original: Order.aggregate([{ $match: { status: 'active' } }])
+  ```
+
+**Download 2 — Migration Checklist**
+A readable Markdown file summarising:
+- Total queries found, reviewed, accepted, skipped
+- File-by-file breakdown
+- List of all `⚠️ Needs Manual Review` items with file name + line number
+
+**Download 3 — `schema.prisma`**
+The complete Prisma schema file generated from the MigrateIQ schema map.
+The developer can drop this directly into their project and run `npx prisma generate`.
+
+---
+
+## Empty State (No Schema Map)
+
+If the developer opens Code Assistant **before** completing a migration, a banner appears at the top:
+
+> **ℹ️ Generic Mode Active**
+> *No schema mapping found. Suggestions are based on common Mongoose patterns.
+> For schema-aware suggestions (e.g., correct table names for `.populate()`), complete a migration first.*
+
+The tool still works — it just can't use the schema map, so `.populate()` suggestions will use a camelCase→snake_case best-guess instead of the confirmed table name.
+
+---
+
+## Visual Design
+
+- **Background:** `#F8FAFC` (same as all other screens)
+- **Diff card left panel (original):** light red tint `#FFF5F5` with red line on the left border
+- **Diff card right panel (suggested):** light green tint `#F0FFF4` with green line on the left border
+- **Accepted card:** full green border, checkmark icon
+- **Skipped card:** grey border, muted text
+- **Needs Review card:** amber border, `⚠️` icon, right panel shows: *"This pattern requires manual rewriting. See the checklist for guidance."*
+- Smooth 200ms transition when cards change state
+
+---
+
+## Summary
+
+| What the user does | What MigrateIQ does |
+|---|---|
+| Uploads backend `.js`/`.ts` files | Scans for all Mongoose query patterns |
+| Reviews suggestions | Shows side-by-side Original vs. Prisma diff |
+| Accepts / Edits / Skips each one | Tracks review state in memory |
+| Clicks Download | Exports refactored files, checklist, and schema.prisma |
+
+This screen completes the MigrateIQ workflow — from raw MongoDB data all the way to a **ready-to-use PostgreSQL-backed codebase**.
+
+---
+
+*End of Product Blueprint v1.7*
