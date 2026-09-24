@@ -22,6 +22,7 @@ import type {
   MigrationResult
 } from '@migrateiq/shared';
 import { useWizardStore } from '../store/wizardStore';
+import { generate1To1Markdown, generateExecutiveHtml } from '../utils/reportGenerator';
 import '../styles/migration-progress.css';
 
 interface MigrationProgressScreenProps {
@@ -33,15 +34,75 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
   onBack,
   onComplete
 }) => {
-  const { sourceConfig, targetConfig, schemaMapping } = useWizardStore();
+  const wizardStore = useWizardStore();
+  const { 
+    sourceConfig, 
+    targetConfig, 
+    schemaMapping, 
+    migrationResult,
+    migrationLogs,
+    setMigrationResult, 
+    setMigrationLogs, 
+    appendMigrationLog 
+  } = wizardStore;
 
-  const [status, setStatus] = useState<'idle' | 'confirming' | 'running' | 'completed' | 'error' | 'cancelled'>('idle');
+  const [status, setStatus] = useState<'idle' | 'confirming' | 'running' | 'completed' | 'error' | 'cancelled'>(
+    migrationResult ? 'completed' : 'idle'
+  );
   const [progress, setProgress] = useState<MigrationProgressEvent | null>(null);
-  const [logs, setLogs] = useState<MigrationLogEntry[]>([]);
-  const [result, setResult] = useState<MigrationResult | null>(null);
+  const [logs, setLogs] = useState<MigrationLogEntry[]>(migrationLogs || []);
+  const [result, setResult] = useState<MigrationResult | null>(migrationResult);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showRollback, setShowRollback] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [localToast, setLocalToast] = useState<string | null>(null);
+
+  const showLocalToast = (msg: string) => {
+    setLocalToast(msg);
+    setTimeout(() => setLocalToast(null), 3800);
+  };
+
+  const handleCopyReport = async () => {
+    try {
+      const stateSnapshot = wizardStore.getState();
+      const md = generate1To1Markdown(stateSnapshot);
+      await navigator.clipboard.writeText(md);
+      if (window.electronAPI) {
+        window.electronAPI.invoke('diagnostics:save-snapshot', {
+          markdown: md,
+          json: stateSnapshot,
+          step: 7,
+        }).catch(() => {});
+      }
+      showLocalToast('✅ Copied 1:1 Report to Clipboard!');
+    } catch (err) {
+      showLocalToast('❌ Copy error: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleDownloadPdfReport = async () => {
+    if (isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    showLocalToast('⏳ Generating Executive PDF Audit Report...');
+    try {
+      const stateSnapshot = wizardStore.getState();
+      const html = generateExecutiveHtml(stateSnapshot);
+      const res = await window.electronAPI.invoke<{ filePath: string }>('diagnostics:export-pdf', {
+        html,
+        defaultFilename: `MigrateIQ-Audit-Report-${wizardStore.direction || 'migration'}-${Date.now()}.pdf`,
+      });
+      if (res.success && res.data?.filePath) {
+        showLocalToast('📄 PDF Audit Report saved successfully!');
+      } else if (res.error && res.error !== 'Save cancelled by user') {
+        showLocalToast('❌ PDF Export failed: ' + res.error);
+      }
+    } catch (err) {
+      showLocalToast('❌ PDF Export error: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -69,6 +130,7 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
     const unsubLog = window.electronAPI.on('migration:log', (_event: unknown, ...args: unknown[]) => {
       const logPayload = args[0] as MigrationLogEntry;
       setLogs(prev => [...prev, logPayload]);
+      appendMigrationLog(logPayload);
     });
 
     return () => {
@@ -98,8 +160,15 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
     setStatus('running');
     setProgress(null);
     setLogs([]);
+    setMigrationLogs([]);
     setErrorMessage(null);
     setResult(null);
+    setMigrationResult(null);
+
+    const wizardContent = document.querySelector('.wizard-content');
+    if (wizardContent) {
+      wizardContent.scrollTo({ top: 0, behavior: 'instant' });
+    }
 
     try {
       const response = await window.electronAPI.invoke<MigrationResult>('migration:start', {
@@ -111,6 +180,7 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
 
       if (response.success && response.data) {
         setResult(response.data);
+        setMigrationResult(response.data);
         setStatus('completed');
       } else {
         setErrorMessage(response.error || 'Migration failed');
@@ -399,6 +469,11 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
   if (status === 'completed') {
     return (
       <div className="migration-progress-container">
+        {localToast && (
+          <div className="wizard-toast-banner">
+            {localToast}
+          </div>
+        )}
         <div className="migration-header-area">
           <div className="migration-header-title-group">
             <h1>✅ Migration Complete</h1>
@@ -413,26 +488,26 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
           <div className="migration-summary-content">
             <h2>Migration Successful!</h2>
             <p>
-              {result?.migratedRows.toLocaleString() || 0} rows migrated across {result?.completedTables || 0} tables
-              in {result?.duration ? Math.round(result.duration / 1000) : 0} seconds.
+              {(result?.migratedRows ?? progress?.migratedRows ?? 0).toLocaleString()} rows migrated across {result?.completedTables ?? progress?.completedTables ?? 0} tables
+              in {result?.duration ? Math.round(result.duration / 1000) : (progress?.duration ? Math.round(progress.duration / 1000) : 0)} seconds.
             </p>
             <div className="migration-summary-stats">
               <div className="migration-summary-stat">
                 <span className="migration-summary-stat-label">Tables</span>
-                <span className="migration-summary-stat-value">{result?.completedTables || 0}</span>
+                <span className="migration-summary-stat-value">{result?.completedTables ?? progress?.completedTables ?? 0}</span>
               </div>
               <div className="migration-summary-stat">
                 <span className="migration-summary-stat-label">Rows Migrated</span>
-                <span className="migration-summary-stat-value">{result?.migratedRows.toLocaleString() || 0}</span>
+                <span className="migration-summary-stat-value">{(result?.migratedRows ?? progress?.migratedRows ?? 0).toLocaleString()}</span>
               </div>
               <div className="migration-summary-stat">
                 <span className="migration-summary-stat-label">Skipped</span>
-                <span className="migration-summary-stat-value">{result?.skippedRows || 0}</span>
+                <span className="migration-summary-stat-value">{result?.skippedRows ?? 0}</span>
               </div>
               <div className="migration-summary-stat">
                 <span className="migration-summary-stat-label">Duration</span>
                 <span className="migration-summary-stat-value">
-                  {result?.duration ? Math.round(result.duration / 1000) : 0}s
+                  {result?.duration ? Math.round(result.duration / 1000) : (progress?.duration ? Math.round(progress.duration / 1000) : 0)}s
                 </span>
               </div>
             </div>
@@ -472,10 +547,40 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
         )}
 
         {/* Actions */}
-        <div className="migration-actions">
-          <button className="btn-secondary" onClick={onBack}>
-            ← Back to Wizard
-          </button>
+        <div className="migration-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button className="btn-secondary" onClick={onBack}>
+              ← Back to Wizard
+            </button>
+            <button 
+              className="btn-secondary" 
+              onClick={() => setStatus('confirming')}
+              title="Re-run the live migration again"
+            >
+              🔄 Re-run Migration
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', fontSize: '0.8125rem' }}
+              onClick={handleCopyReport}
+            >
+              📋 Copy 1:1 Report
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: '#2563EB', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', fontSize: '0.8125rem' }}
+              onClick={handleDownloadPdfReport}
+              disabled={isGeneratingPdf}
+            >
+              {isGeneratingPdf ? '⏳ Generating...' : '📄 Download Executive PDF'}
+            </button>
+          </div>
+
           <button className="btn-primary" onClick={onComplete}>
             Continue →
           </button>

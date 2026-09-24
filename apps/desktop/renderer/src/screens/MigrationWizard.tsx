@@ -16,6 +16,7 @@ import { SchemaMapper } from './SchemaMapper';
 import { RiskReport } from './RiskReport';
 import { DryRunScreen } from './DryRunScreen';
 import MigrationProgressScreen from './MigrationProgressScreen';
+import { generate1To1Markdown, generateExecutiveHtml } from '../utils/reportGenerator';
 import '../styles/wizard.css';
 
 export interface MigrationWizardProps {}
@@ -420,6 +421,15 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
       setResumeNotice(navState.resumeNotice);
     }
   }, [location.state, wizardStore]);
+
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll wizard content container to top whenever wizardStep changes
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [wizardStore.wizardStep]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceConnectedSuccessfully, setSourceConnectedSuccessfully] = useState<boolean>(
@@ -797,8 +807,83 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
     : sourceConnectedSuccessfully || !!sourcePgPreview || (wizardStore.direction === 'postgres-to-mongo' && !!wizardStore.sourceConfig);
   const isTargetConnected = !!targetSuccessMessage || !!wizardStore.targetConfig;
 
+  // ── 1:1 Diagnostic Snapshot & Executive PDF Handlers ─────────────────────
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3800);
+  };
+
+  const handleCopy1To1Data = async () => {
+    try {
+      const stateSnapshot = wizardStore.getState();
+      const md = generate1To1Markdown(stateSnapshot);
+      await navigator.clipboard.writeText(md);
+      if (window.electronAPI) {
+        window.electronAPI.invoke('diagnostics:save-snapshot', {
+          markdown: md,
+          json: stateSnapshot,
+          step: wizardStore.wizardStep,
+        }).catch(() => {});
+      }
+      showToast('✅ Copied 1:1 Migration Data to Clipboard!');
+    } catch (err) {
+      showToast('❌ Copy error: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    showToast('⏳ Generating Executive PDF Audit Report...');
+    try {
+      const stateSnapshot = wizardStore.getState();
+      const html = generateExecutiveHtml(stateSnapshot);
+      const res = await window.electronAPI.invoke<{ filePath: string }>('diagnostics:export-pdf', {
+        html,
+        defaultFilename: `MigrateIQ-Audit-Report-${wizardStore.direction || 'migration'}-${Date.now()}.pdf`,
+      });
+      if (res.success && res.data?.filePath) {
+        showToast('📄 PDF Audit Report saved successfully!');
+      } else if (res.error && res.error !== 'Save cancelled by user') {
+        showToast('❌ PDF Export failed: ' + res.error);
+      }
+    } catch (err) {
+      showToast('❌ PDF Export error: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const handleDownloadMarkdown = () => {
+    try {
+      const md = generate1To1Markdown(wizardStore.getState());
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `MigrateIQ-Manifest-Step${wizardStore.wizardStep}-${Date.now()}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('💾 Downloaded Markdown Manifest!');
+    } catch (err) {
+      showToast('❌ Download error: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
   return (
     <div className="wizard-container">
+      {/* ── Toast Notification Banner ── */}
+      {toastMessage && (
+        <div className="wizard-toast-banner">
+          {toastMessage}
+        </div>
+      )}
+
       {/* ── Active Migration Status Bar ── */}
       {wizardStore.wizardStep > 1 && (
         <div className="wizard-status-bar">
@@ -812,12 +897,44 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             </span>
           </div>
 
-          <button
-            className="wizard-fresh-btn"
-            onClick={() => setShowConfirmResetModal(true)}
-          >
-            🔄 Start Fresh
-          </button>
+          <div className="wizard-status-right">
+            {wizardStore.wizardStep >= 4 && (
+              <>
+                <button
+                  type="button"
+                  className="wizard-diag-btn"
+                  title="Copy complete 1:1 unedited manifest of all steps to clipboard"
+                  onClick={handleCopy1To1Data}
+                >
+                  📋 Copy 1:1 Data
+                </button>
+                <button
+                  type="button"
+                  className="wizard-diag-btn primary"
+                  title="Download executive PDF audit report"
+                  onClick={handleDownloadPdf}
+                  disabled={isExportingPdf}
+                >
+                  {isExportingPdf ? '⏳ Generating...' : '📄 Download PDF'}
+                </button>
+                <button
+                  type="button"
+                  className="wizard-diag-btn"
+                  title="Download raw Markdown manifest file"
+                  onClick={handleDownloadMarkdown}
+                >
+                  💾 .md
+                </button>
+              </>
+            )}
+
+            <button
+              className="wizard-fresh-btn"
+              onClick={() => setShowConfirmResetModal(true)}
+            >
+              🔄 Start Fresh
+            </button>
+          </div>
         </div>
       )}
 
@@ -967,9 +1084,13 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         </div>
       )}
 
-      <StepProgressBar currentStep={wizardStore.wizardStep} totalSteps={8} />
+      <StepProgressBar
+        currentStep={wizardStore.wizardStep}
+        totalSteps={8}
+        onStepClick={(step) => wizardStore.setWizardStep(step)}
+      />
 
-      <div className="wizard-content">
+      <div className="wizard-content" ref={contentRef}>
         {/* ── Resume Notice Banner ── */}
         {resumeNotice && (
           <div style={{
@@ -1102,8 +1223,14 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
               onSave={(name, config) => {
                 wizardStore.setSourceConfig({ ...config, name });
               }}
-              onChange={() => {
+              onChange={(updatedConfig) => {
                 setError(null);
+                setSourceConnectedSuccessfully(false);
+                setSourceMongoPreview(null);
+                setSourcePgPreview(null);
+                if (updatedConfig) {
+                  wizardStore.setSourceConfig(updatedConfig);
+                }
               }}
             />
 
@@ -1240,8 +1367,15 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
               onSave={(name, config) => {
                 wizardStore.setTargetConfig({ ...config, name });
               }}
-              onChange={() => {
+              onChange={(updatedConfig) => {
                 setError(null);
+                setTargetSuccessMessage(null);
+                setTargetTableCount(null);
+                setTargetPgPreview(null);
+                setTargetMongoPreview(null);
+                if (updatedConfig) {
+                  wizardStore.setTargetConfig(updatedConfig);
+                }
               }}
             />
 
@@ -1629,8 +1763,6 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
           <MigrationProgressScreen
             onBack={() => wizardStore.setWizardStep(6)}
             onComplete={() => {
-              // Clear in-progress wizard state since migration succeeded
-              window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
               wizardStore.setWizardStep(8);
             }}
           />
@@ -1639,15 +1771,30 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         {/* ── Step 8+ (Placeholder for Phase 10: Migration Complete) ── */}
         {wizardStore.wizardStep > 7 && (
           <div className="wizard-step">
-            <h2 className="step-heading">Step {wizardStore.wizardStep} of 8</h2>
-            <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>
-              Migration is complete! The detailed audit report and performance benchmarks will be built in Phase 10.
+            <h2 className="step-heading">Step {wizardStore.wizardStep} of 8: Migration Complete</h2>
+            <p style={{ color: 'var(--text-muted)', marginTop: '1rem', marginBottom: '1.5rem' }}>
+              Migration has executed successfully! The detailed audit report, checksum validations, and performance benchmarks will be built in Phase 10.
             </p>
-            <div className="wizard-buttons">
-              <button className="btn-primary" onClick={() => {
-                wizardStore.reset();
-                window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
-              }}>
+            <div className="wizard-buttons" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', flexWrap: 'wrap' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => wizardStore.setWizardStep(7)}
+              >
+                ← Back to Migration (Step 7)
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => wizardStore.setWizardStep(6)}
+              >
+                ← Back to Dry Run (Step 6)
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  wizardStore.reset();
+                  window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
+                }}
+              >
                 Start New Migration
               </button>
             </div>

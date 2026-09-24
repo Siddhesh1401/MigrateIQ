@@ -18,7 +18,7 @@ export interface ConnectionFormProps {
   buttonText?: string;
   onConnect: (config: ConnectionConfig) => Promise<boolean | void>;
   onSave?: (name: string, config: ConnectionConfig) => void;
-  onChange?: () => void;
+  onChange?: (config?: ConnectionConfig) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -162,87 +162,6 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     loadSavedConnections();
   }, [loadSavedConnections]);
 
-  const handleFieldChange = (setter: (val: string) => void, val: string) => {
-    setter(val);
-    if (selectedSavedId) setSelectedSavedId('');
-    setSaveMessage(null);
-    onChange?.();
-  };
-
-  const handleConnectionStringChange = (val: string) => {
-    setConnectionString(val);
-    if (selectedSavedId) setSelectedSavedId('');
-    setSaveMessage(null);
-    const extracted = extractDatabaseFromConnectionString(val);
-    if (extracted) {
-      setDatabase(extracted);
-    }
-    onChange?.();
-  };
-
-  const handleLoadSavedConnection = (connId: string) => {
-    setSelectedSavedId(connId);
-    setSaveMessage(null);
-
-    // If user selected the blank option: clear form cleanly
-    if (!connId) {
-      setConnectionString('');
-      setHost('localhost');
-      setPort(dbType === 'mongodb' ? '27017' : '5432');
-      setUsername('');
-      setPassword('');
-      setDatabase('');
-      setPgSchema('public');
-      setConnectionName('');
-      onChange?.();
-      return;
-    }
-
-    const conn = savedConnections.find((c) => c.id === connId);
-    if (!conn) return;
-
-    const cfg = conn.config;
-    if (cfg.connectionString) {
-      setTab('string');
-      setConnectionString(cfg.connectionString);
-      const extracted = extractDatabaseFromConnectionString(cfg.connectionString);
-      setDatabase(cfg.database || extracted || '');
-    } else {
-      setTab('fields');
-      setHost(cfg.host || 'localhost');
-      setPort(cfg.port ? String(cfg.port) : (dbType === 'mongodb' ? '27017' : '5432'));
-      setUsername(cfg.user || '');
-      setPassword(cfg.password || '');
-      setDatabase(cfg.database || '');
-    }
-    setPgSchema(cfg.schema || 'public');
-    setConnectionName(conn.name);
-    onChange?.();
-  };
-
-  const handleDeleteSavedConnection = async () => {
-    if (!selectedSavedId) return;
-    const connToDelete = savedConnections.find((c) => c.id === selectedSavedId);
-    if (!connToDelete) return;
-
-    const confirmed = window.confirm(`Are you sure you want to delete saved connection "${connToDelete.name}"?`);
-    if (!confirmed) return;
-
-    try {
-      const res = await window.electronAPI.invoke('store:delete-connection', selectedSavedId);
-      if (res.success) {
-        setSavedConnections((prev) => prev.filter((c) => c.id !== selectedSavedId));
-        setSelectedSavedId('');
-        setSaveMessage({ type: 'success', text: `Connection "${connToDelete.name}" deleted.` });
-        setTimeout(() => setSaveMessage(null), 3000);
-      } else {
-        setSaveMessage({ type: 'error', text: res.error || 'Failed to delete connection' });
-      }
-    } catch {
-      setSaveMessage({ type: 'error', text: 'Failed to delete connection' });
-    }
-  };
-
   const getAutoConnectionName = (): string => {
     const trimmedStr = connectionString.trim();
     const extractedDb = extractDatabaseFromConnectionString(trimmedStr);
@@ -252,7 +171,6 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       : `${host || 'localhost'}:${port || (dbType === 'mongodb' ? '27017' : '5432')}`;
     return `${dbType === 'mongodb' ? 'MongoDB' : 'PostgreSQL'} (${dbLabel} @ ${hostLabel})`;
   };
-
 
   const buildConfig = (): ConnectionConfig => {
     if (tab === 'string') {
@@ -279,13 +197,98 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     };
   };
 
+  const handleFieldChange = (setter: (val: string) => void, val: string) => {
+    setter(val);
+    if (selectedSavedId) setSelectedSavedId('');
+    setSaveMessage(null);
+    setTimeout(() => {
+      onChange?.(buildConfig());
+    }, 0);
+  };
+
+  const handleConnectionStringChange = (val: string) => {
+    setConnectionString(val);
+    if (selectedSavedId) setSelectedSavedId('');
+    setSaveMessage(null);
+    const extracted = extractDatabaseFromConnectionString(val);
+    if (extracted) {
+      setDatabase(extracted);
+    }
+    setTimeout(() => {
+      onChange?.(buildConfig());
+    }, 0);
+  };
+
+  const handleLoadSavedConnection = (connId: string) => {
+    setSelectedSavedId(connId);
+    setSaveMessage(null);
+
+    // If user selected the blank option: clear form cleanly
+    if (!connId) {
+      setConnectionString('');
+      setHost('localhost');
+      setPort(dbType === 'mongodb' ? '27017' : '5432');
+      setUsername('');
+      setPassword('');
+      setDatabase('');
+      setPgSchema('public');
+      setConnectionName('');
+      onChange?.(undefined);
+      return;
+    }
+
+    const conn = savedConnections.find((c) => c.id === connId);
+    if (!conn) return;
+
+    const cfg = conn.config;
+    if (cfg.connectionString) {
+      setTab('string');
+      setConnectionString(cfg.connectionString);
+      const extracted = extractDatabaseFromConnectionString(cfg.connectionString);
+      setDatabase(cfg.database || extracted || '');
+    } else {
+      setTab('fields');
+      setHost(cfg.host || 'localhost');
+      setPort(cfg.port ? String(cfg.port) : (dbType === 'mongodb' ? '27017' : '5432'));
+      setUsername(cfg.user || '');
+      setPassword(cfg.password || '');
+      setDatabase(cfg.database || '');
+    }
+    setPgSchema(cfg.schema || 'public');
+    setConnectionName(conn.name);
+
+    // Immediately propagate the loaded configuration to the wizard store
+    if (onSave) onSave(conn.name, cfg);
+    onChange?.(cfg);
+  };
+
+  const handleDeleteSavedConnection = async () => {
+    if (!selectedSavedId) return;
+    const connToDelete = savedConnections.find((c) => c.id === selectedSavedId);
+    if (!connToDelete) return;
+
+    const confirmed = window.confirm(`Are you sure you want to delete saved connection "${connToDelete.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      const res = await window.electronAPI.invoke('store:delete-connection', selectedSavedId);
+      if (res.success) {
+        setSavedConnections((prev) => prev.filter((c) => c.id !== selectedSavedId));
+        setSelectedSavedId('');
+        setSaveMessage({ type: 'success', text: `Connection "${connToDelete.name}" deleted.` });
+        setTimeout(() => setSaveMessage(null), 3000);
+      } else {
+        setSaveMessage({ type: 'error', text: res.error || 'Failed to delete connection' });
+      }
+    } catch {
+      setSaveMessage({ type: 'error', text: 'Failed to delete connection' });
+    }
+  };
+
   // Explicit Save Connection Button handler
   const handleSaveConnectionNow = async (overrideName?: string): Promise<boolean> => {
-    const nameToSave = (overrideName || connectionName || getAutoConnectionName()).trim();
-    if (!nameToSave) {
-      setSaveMessage({ type: 'error', text: 'Please enter a name for this connection.' });
-      return false;
-    }
+    const autoGen = getAutoConnectionName();
+    const nameToSave = (overrideName || connectionName || autoGen).trim() || autoGen;
 
     const config = buildConfig();
     setIsSaving(true);
@@ -298,36 +301,44 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       );
 
       if (response.success && response.data) {
+        const savedItem = response.data;
         setSavedConnections((prev) => {
-          const filtered = prev.filter((c) => c.name.toLowerCase() !== nameToSave.toLowerCase());
-          return [...filtered, response.data!];
+          const filtered = prev.filter((c) => (c.name || '').toLowerCase() !== nameToSave.toLowerCase());
+          return [...filtered, savedItem];
         });
-        setSelectedSavedId(response.data.id);
+        setSelectedSavedId(savedItem.id);
         setSaveMessage({ type: 'success', text: `Saved "${nameToSave}" for future use!` });
         setShouldSave(false);
         setConnectionName(nameToSave);
         if (onSave) onSave(nameToSave, config);
+        onChange?.(config);
         return true;
       } else {
         setSaveMessage({ type: 'error', text: response.error || 'Failed to save connection' });
         return false;
       }
-    } catch {
-      setSaveMessage({ type: 'error', text: 'Failed to save connection' });
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: (err as Error).message || 'Failed to save connection' });
       return false;
     } finally {
       setIsSaving(false);
-      setTimeout(() => setSaveMessage(null), 4000);
+      setTimeout(() => setSaveMessage(null), 5000);
     }
   };
 
   const handleConnect = async () => {
     const config = buildConfig();
     
+    // Always persist current config into wizard store
+    if (onSave) {
+      const name = connectionName.trim() || getAutoConnectionName();
+      onSave(name, config);
+    }
+
     // Test connection first
     const connectResult = await onConnect(config);
 
-    // CRITICAL: Only auto-save if connection test actually succeeded!
+    // Auto-save if checkbox is checked
     const isSuccessful = connectResult !== false;
     if (isSuccessful && shouldSave) {
       const nameToSave = connectionName.trim() || getAutoConnectionName();

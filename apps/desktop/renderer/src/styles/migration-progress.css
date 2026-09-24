@@ -27,6 +27,7 @@
   align-items: flex-start;
   gap: 1.5rem;
   flex-wrap: wrap;
+  padding-top: 0.25rem;
 }
 
 .migration-header-title-group h1 {

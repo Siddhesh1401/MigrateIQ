@@ -6,6 +6,8 @@ import type {
   RiskAnalysisResult, 
   AutoFixAction,
   DryRunResult,
+  MigrationResult,
+  MigrationLogEntry,
 } from '@migrateiq/shared';
 
 export interface Layer2Features {
@@ -28,6 +30,8 @@ export interface WizardState {
   layer2Features: Layer2Features | null;
   riskAnalysis: RiskAnalysisResult | null;
   dryRunResult: DryRunResult | null;
+  migrationResult: MigrationResult | null;
+  migrationLogs: MigrationLogEntry[];
   acknowledgedRiskIds: string[];
   acknowledgedLayer2Ids: string[];
   recommendedBatchSize: number;
@@ -45,6 +49,9 @@ export interface WizardState {
   setLayer2Features: (features: Layer2Features) => void;
   setRiskAnalysis: (result: RiskAnalysisResult | null) => void;
   setDryRunResult: (result: DryRunResult | null) => void;
+  setMigrationResult: (result: MigrationResult | null) => void;
+  setMigrationLogs: (logs: MigrationLogEntry[]) => void;
+  appendMigrationLog: (log: MigrationLogEntry) => void;
   setDeferForeignKeys: (defer: boolean) => void;
   setQuarantinePolicyAcknowledged: (acknowledged: boolean) => void;
   toggleAcknowledgeRisk: (riskId: string) => void;
@@ -69,6 +76,8 @@ const initialState = {
   layer2Features: null,
   riskAnalysis: null,
   dryRunResult: null,
+  migrationResult: null,
+  migrationLogs: [],
   acknowledgedRiskIds: [],
   acknowledgedLayer2Ids: [],
   recommendedBatchSize: 500,
@@ -113,21 +122,31 @@ export const useWizardStore = create<WizardState>((set, get) => ({
 
   setSourceConfig: (config: ConnectionConfig | null) => {
     set({ sourceConfig: config });
+    const s = get();
+    persistWizardState({ direction: s.direction, wizardStep: s.wizardStep, sourceConfig: config, targetConfig: s.targetConfig, status: 'in-progress' });
   },
 
   setSourceSchema: (schema) => set({ sourceSchema: schema }),
 
   setTargetConfig: (config: ConnectionConfig | null) => {
     set({ targetConfig: config });
+    const s = get();
+    persistWizardState({ direction: s.direction, wizardStep: s.wizardStep, sourceConfig: s.sourceConfig, targetConfig: config, status: 'in-progress' });
   },
 
-  setSchemaMapping: (mapping) => set({ schemaMapping: mapping, riskAnalysis: null, dryRunResult: null, acknowledgedRiskIds: [] }),
+  setSchemaMapping: (mapping) => set({ schemaMapping: mapping, riskAnalysis: null, dryRunResult: null, migrationResult: null, migrationLogs: [], acknowledgedRiskIds: [] }),
 
   setLayer2Features: (features) => set({ layer2Features: features }),
 
   setRiskAnalysis: (result) => set({ riskAnalysis: result }),
 
   setDryRunResult: (result) => set({ dryRunResult: result }),
+
+  setMigrationResult: (result) => set({ migrationResult: result }),
+
+  setMigrationLogs: (logs) => set({ migrationLogs: logs }),
+
+  appendMigrationLog: (log) => set((s) => ({ migrationLogs: [...s.migrationLogs, log] })),
 
   setDeferForeignKeys: (defer) => set({ deferForeignKeys: defer }),
 
