@@ -387,9 +387,18 @@ Inside the app, there are two completely separate workflows:
 
 ## The App Shell (Always Visible)
 
-When the user launches the app, they see a persistent shell that stays on screen at all times:
+When the user launches the app, they see a persistent shell that stays on screen at all times across all workflows and wizard steps:
 
-**Left Sidebar (Navigation Panel):**
+**1. Persistent Top Header & Titlebar (Visible Across All Steps 1 through 9):**
+Runs across the very top of the window, independent of the active wizard step or sub-screen:
+- **Left:** App Logo + **"MigrateIQ"** brand name + active workflow indicator (e.g., *"Database Migration: MongoDB → PostgreSQL"*).
+- **Center:** Connection Heartbeat & Status Indicators (🟢 MongoDB Connected | 🟢 PostgreSQL Connected | ⚡ Session: `phase9part3`).
+- **Right:**
+  - **`[📖 Docs & Help]`** icon link.
+  - **`[🆘 Emergency & Rescue Center ▼]`** (High-visibility safety button with an amber/red emergency shield badge — **Always Accessible on every step**).
+  - Native Windows controls (Minimize, Maximize, Close).
+
+**2. Left Sidebar (Navigation Panel):**
 - App logo at the top
 - **Home** icon + label → goes to the main dashboard
 - **New Migration** icon + label → starts a new migration wizard
@@ -400,8 +409,68 @@ When the user launches the app, they see a persistent shell that stays on screen
 - **Settings** icon + label → opens settings
 - At the very bottom: App version number (e.g., v1.0.0)
 
-**Main Content Area:**
-- The right side of the window. This is where all screens, forms, and step-by-step wizard pages are displayed.
+**3. Main Content Area:**
+- The primary viewport where screens, forms, and the 9-step wizard are rendered.
+- Encapsulated within a **Global React Error Boundary**: if any component or step encounters an unexpected runtime error, it catches the crash and displays the Emergency Rescue Screen instead of a blank white screen.
+
+---
+
+## The Emergency & Rescue Center (The Ultimate "Never-Get-Stuck" Safety Net)
+
+### Why This Exists & Where It Is Placed
+In mission-critical enterprise database migrations, unexpected edge cases can happen anywhere:
+- Step 2/3: Network timeout, SSL handshake failure, or firewall drop.
+- Step 4/5: Deeply nested polymorphic schema that user cannot map manually.
+- Step 7: OS out of disk space, database crash, or ETL freeze.
+- Step 8: Verification detects discrepancies, or user wants to abort cutover.
+
+**Architectural Verdict & Placement:**
+To guarantee that the user is **NEVER trapped or locked out**, the Emergency Rescue Center is placed in the **Persistent Top Header (Top-Right)**. It is **visible 100% of the time on EVERY SINGLE STEP (Steps 1 through 9)**. Even if an in-step button hangs, or a React view throws an error, the user can click **`[🆘 Emergency & Rescue Center]`** at any second.
+
+### What the User Sees in the Rescue Modal (The 4 Escape Pillars):
+When the user clicks **`[🆘 Emergency & Rescue Center]`**, a high-priority, isolated rescue modal opens:
+
+```
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│ 🆘 MIGRATEIQ RESCUE & EMERGENCY TROUBLESHOOTING CENTER                                     │
+│ Active Session: 'phase9part3'  |  Current Step: Step 8 (Data Verification Studio)          │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│ 🛡️ SOURCE SAFETY GUARANTEE:                                                              │
+│ Your source MongoDB database was connected in strictly READ-ONLY mode.                    │
+│ 0 documents were modified, deleted, or harmed. Your original production database is safe. │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│ IF YOU ARE COMPLETELY STUCK AND NOTHING WORKS, CHOOSE YOUR ESCAPE PATH:                   │
+│                                                                                           │
+│ 1. [🗑️ Clean Slate Target Reset (Rollback)]                                              │
+│    Safely drops target PostgreSQL tables created in this session (DROP TABLE ... CASCADE) │
+│    Leaves your target database completely clean with zero ghost tables or partial data.   │
+│                                                                                           │
+│ 2. [📦 Export Standalone SQL & Data Takeaway Kit (.zip)]                                  │
+│    THE OFFLINE ESCAPE: Generates pure PostgreSQL DDL (.sql) + CSV data dumps +             │
+│    ready-to-run psql terminal scripts. You can complete your migration manually on any   │
+│    server without needing MigrateIQ ever again. Zero vendor lock-in!                     │
+│                                                                                           │
+│ 3. [📁 Export Blackbox Diagnostic Bundle (.zip)]                                          │
+│    Generates a redacted debug bundle on your Desktop (sanitized logs, passwords masked,   │
+│    queries, system specs, error stacks) for instant 1-click GitHub/support reporting.     │
+│                                                                                           │
+│ 4. [🔄 Hard Reset Session & Return to Home Dashboard]                                     │
+│    Terminates background worker threads, releases database locks, clears wizard cache,   │
+│    and safely redirects to the Home Dashboard.                                            │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│ [❌ Close Rescue Center]                                    [📞 Contact Support / GitHub] │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### The 4 Ultimate Fallback Guarantees:
+1. **Zero Source Data Loss (Read-Only):**
+   MigrateIQ never executes write operations on MongoDB. Even in a worst-case power cut or app freeze, source data is 100% intact.
+2. **Zero Ghost State on Target:**
+   `[🗑️ Clean Slate Target Reset]` cleans up PostgreSQL tables so nothing is left half-migrated.
+3. **The Offline Takeaway Guarantee (No Vendor Lock-In):**
+   If the user does not want to use the app anymore or their corporate policy prohibits desktop ETL, they click `[📦 Export Standalone SQL & Data Takeaway Kit]`. They get the complete DDL schema + extracted data + shell scripts to import directly using native `psql`.
+4. **Zero Dead-End UI (Error Boundary Protected):**
+   If an unexpected JavaScript error occurs in any screen, the Global Error Boundary automatically displays this rescue interface so the user is never stuck on a blank screen.
 
 ---
 
@@ -473,7 +542,7 @@ When the user clicks **"Launch Demo →"** on the Home Dashboard, the Migration 
 
 ## WORKFLOW A — MIGRATE MY DATABASE
 
-This is an 8-step wizard. Each step appears in the main content area. At the top of the main area there is always a **Step Progress Bar** showing all 8 steps with the current one highlighted.
+This is a 9-step wizard. Each step appears in the main content area. At the top of the main area there is always a **Step Progress Bar** showing all 9 steps with the current one highlighted.
 
 Users can click **"Back"** to go to a previous step. They cannot skip forward.
 
@@ -482,7 +551,7 @@ Users can click **"Back"** to go to a previous step. They cannot skip forward.
 ### Step 1 — Choose Migration Direction
 
 **What the user sees:**
-- Heading: **"Step 1 of 8 — Choose Direction"**
+- Heading: **"Step 1 of 9 — Choose Direction"**
 - A large prompt: **"What do you want to do?"**
 - Two big clickable cards:
   - **Card A:** "Migrate from MongoDB to PostgreSQL" with a graphic showing a MongoDB leaf icon → arrow → PostgreSQL elephant icon
@@ -501,7 +570,7 @@ Users can click **"Back"** to go to a previous step. They cannot skip forward.
 
 *(If MongoDB → PostgreSQL was chosen, the source is MongoDB. If the reverse, the source is PostgreSQL.)*
 
-**Sub-heading:** "Step 2 of 8 — Connect Source Database (MongoDB)"
+**Sub-heading:** "Step 2 of 9 — Connect Source Database (MongoDB)"
 
 **What the user sees:**
 - A form with the heading: **"Enter your MongoDB connection details"**
@@ -632,7 +701,7 @@ Clicking **"View Details"** expands a full list showing the name of every stored
 
 ### Step 3 — Connect Target Database
 
-**Sub-heading:** "Step 3 of 8 — Connect Target Database (PostgreSQL)"
+**Sub-heading:** "Step 3 of 9 — Connect Target Database (PostgreSQL)"
 
 Identical layout to Step 2 but for PostgreSQL.
 
@@ -677,7 +746,7 @@ The **"Next →"** button is disabled until the permission issue is resolved.
 
 ### Step 4 — AI Schema Mapping
 
-**Sub-heading:** "Step 4 of 8 — AI Generates Schema Mapping"
+**Sub-heading:** "Step 4 of 9 — AI Generates Schema Mapping"
 
 This is an automatic step. The user lands here and sees an animation immediately.
 
@@ -781,7 +850,7 @@ After the column mapping table for each collection, there is a separate **"Index
 
 ### Step 5 — Risk Report
 
-**Sub-heading:** "Step 5 of 8 — Risk Report"
+**Sub-heading:** "Step 5 of 9 — Pre-Migration Risk Analysis"
 
 **What the user sees:**
 - A banner at the top summarizing the report:
@@ -957,7 +1026,7 @@ MongoDB only supports a single _id field as primary key.
 
 ### Step 6 — Dry Run
 
-**Sub-heading:** "Step 6 of 8 — Dry Run Simulation"
+**Sub-heading:** "Step 6 of 9 — Dry Run Simulation"
 
 **Explanation card at top:**
 - *"A Dry Run simulates your migration without making any permanent changes to your database. It tests your schema and a sample of your data to predict exactly what will happen."*
@@ -1001,7 +1070,7 @@ DRY RUN COMPLETE — Nothing was changed in your database
 
 ### Step 7 — Run Migration
 
-**Sub-heading:** "Step 7 of 8 — Migration in Progress"
+**Sub-heading:** "Step 7 of 9 — Migration in Progress"
 
 **Warning confirmation dialog (appears first):**
 - Modal popup with:
@@ -1074,9 +1143,47 @@ This behaviour is reflected in the live log (as shown above) and means a single 
 
 ---
 
-### Step 8 — Migration Complete
+### Step 8 — Data Parity & Verification Studio
 
-**Sub-heading:** "Step 8 of 8 — Migration Complete"
+**Sub-heading:** "Step 8 of 9 — Post-Migration Quality Gate & Parity Verification"
+
+**Primary Specification Reference:** [`PHASE-09B-VERIFICATION-STUDIO.md`](./PHASE-09B-VERIFICATION-STUDIO.md) (Full Architecture & Component Plan)
+
+**Overview:**
+Step 8 provides a dedicated post-migration quality gate between data transfer and final exports. Instead of requiring the user to take migration integrity on faith, this studio delivers mathematical, referential, and visual proof across 4 interactive panels:
+
+1. **Reconciliation Overview:**
+   - 1:1 Row Count Parity table across all 31 tables (source MongoDB docs vs target PostgreSQL rows, delta = 0).
+   - Financial & Numerical Aggregate Reconciliation: Cross-database sum verification (e.g. `SUM(payments.amount)` in MongoDB vs PostgreSQL matching down to 4 decimal places with `0.0000% Drift`).
+   - Referential Integrity & Sequence Scanner: Scans all child tables verifying 0 orphaned foreign keys and sequential `sort_order = 0..N`.
+   - Column-Level Statistical Profiler: Audits null % and distinct value counts per column to detect silent nullification bugs.
+
+2. **Live 1:1 Record & Chunk Hash Inspector:**
+   - Interactive table selector (all 31 tables).
+   - Side-by-side split screen: Source MongoDB Raw JSON vs Target PostgreSQL Mapped Columns.
+   - Field-by-field green checkmarks on matching values (strings, floats, dates, Cyrillic/Chinese UTF-8, nested JSONB).
+   - Chunk-Level Cryptographic Fingerprint Grid: Displays SHA-256 hash status for 1,000-row micro-batches.
+   - Live ID Search: User can paste any 24-character hexadecimal MongoDB `_id` to inspect and diff live across ports 27017 and 5432.
+   - Record navigator: `[⏮️ First]`, `[◀️ Prev]`, `[🎲 Random Record]`, `[Next ▶️]`.
+
+3. **Dual-Database Query Latency Benchmark & Sandbox:**
+   - Real-time performance benchmark executing 100 test queries against both live engines.
+   - Interactive bar chart showing MongoDB latency vs PostgreSQL latency with speedup factor (e.g. *"🚀 PostgreSQL is 6.8x faster"*).
+   - Dual-Query Sandbox: Interactive playground allowing engineers to run MongoDB MQL and PostgreSQL SQL side-by-side to verify identical output.
+
+4. **Cutover Approval Gate & Compliance Export:**
+   - Unified Cutover Readiness Scorecard: 100 / 100 Production-Ready health index.
+   - Button: **"📄 Export Compliance Audit Report (PDF / JSON)"** — generates a tamper-evident audit certificate for SOC-2 / PCI-DSS compliance.
+   - SHA-256 Cryptographic Integrity Seal badge.
+   - Primary Action Button: **"🛡️ Approve Data Integrity & Proceed to Step 9 →"** — locks verification into history and unlocks Step 9.
+   - **Discrepancy Remediation Shield:** If any table has a row delta or financial drift, the approval button is locked and replaced with 1-click self-healing actions: `[🔍 Inspect Failed Records]`, `[⚡ 1-Click Re-Sync Table]`, `[↩️ Rollback & Adjust Schema]`, and `[📥 Download Quarantine Log]`.
+   - **6 Universal Escape Hatches:** The user is guaranteed 100% completion via live in-place schema widening, JSONB safe-haven for irregular records, selective quarantine bypass, table-level independent retries, executive signed override, and write-ahead checkpoint recovery. (See [`PHASE-09B-VERIFICATION-STUDIO.md`](./PHASE-09B-VERIFICATION-STUDIO.md)).
+
+---
+
+### Step 9 — Migration Complete & Export Studio
+
+**Sub-heading:** "Step 9 of 9 — Migration Complete"
 
 **Success banner:**
 🎉 **"Migration Complete!"** (with a confetti or celebration animation)

@@ -686,11 +686,48 @@ Build `MigrationProgressScreen.tsx`:
 ---
 ---
 
-# PHASE 10 — Completion, Downloads & ERD (Step 8)
+# PHASE 9B — Data Parity & Verification Studio (Wizard Step 8 of 9)
+
+**Goal:** Provide an enterprise post-migration quality gate between Live Migration (Step 7) and Completion (Step 9) that mathematically, referentially, and visually proves 100% data parity.
+
+**Full Technical Specification:** See [`PHASE-09B-VERIFICATION-STUDIO.md`](./PHASE-09B-VERIFICATION-STUDIO.md) for full architecture, IPC channels, mathematical proofs, and component specifications.
+
+---
+
+## 9B.1 — Summary of Core Capabilities
+1. **Volumetric & Structural Reconciliation:** Automated cross-examination of row counts, column types, and quarantine isolation across all 31 tables with zero delta.
+2. **Financial & Numeric Aggregation Proofs:** Automated sum reconciliation across numeric fields (e.g., `SUM(payments.amount)` in MongoDB vs PostgreSQL) proving 0.0000% mathematical drift.
+3. **Referential Integrity & Sequence Scanner:** Scans all child tables for 0 orphaned foreign keys and verifies `sort_order` sequence indexing strictly from 0 to N.
+4. **Column-Level Statistical Profiler:** Audits null percentage and distinct cardinality across all mapped columns to prevent silent column nullification.
+5. **Interactive 1:1 Live Record & Chunk Hash Inspector:** Split-screen UI displaying raw source MongoDB JSON next to target PostgreSQL row columns with live ID search and 1,000-row SHA-256 chunk fingerprint grid.
+6. **Dual-Database Query Latency Benchmark & Sandbox:** Runs 100 concurrent test queries comparing P50/P95 latencies and provides an interactive MQL vs SQL query sandbox.
+7. **Unified Cutover Readiness Scorecard:** 0–100 health index grading volumetric, financial, referential, and latency SLAs.
+8. **Compliance Audit Attestation:** Generates a tamper-evident, certified PDF & JSON audit report for enterprise SOC-2 / PCI-DSS compliance.
+9. **Failure Recovery & Remediation Controls:** 1-click table re-sync, automated rollback, and quarantine logs if discrepancies occur.
+10. **Cutover Approval Gate:** Cryptographic SHA-256 seal and "Approve Data Integrity & Proceed to Step 9 →" transition button.
+11. **Global Header Emergency Rescue Center:** Persistent top-header `[🆘 Emergency & Rescue Center ▼]` available 100% of the time across all steps (1 to 9) providing 1-click clean rollback, offline standalone SQL/data takeaway kit, and blackbox diagnostic bundle if anything catastrophic happens.
+
+---
+
+**✅ Phase 9B is DONE when:**
+- Wizard Step 8 renders between Live Migration and Completion.
+- All 31 tables display 100% row count matches, financial sums, and 0 orphan foreign keys.
+- Column profiler confirms matching null % and cardinality.
+- Live Record Inspector enables side-by-side inspection with live ID search and chunk-level SHA-256 fingerprinting.
+- Dual-engine benchmark executes 100 queries and renders live latency comparison.
+- Dual-query sandbox executes MQL and SQL side-by-side.
+- Cutover Readiness Scorecard displays 100/100 Production Ready rating.
+- Failure recovery controls (1-click re-sync, rollback, quarantine log) display properly when discrepancies exist.
+- "Approve Data Integrity" unlocks Step 9 (Completion & Export Studio).
+
+---
+---
+
+# PHASE 10 — Completion & Export Studio (Wizard Step 9 of 9)
 
 **Goal:** Build the migration completion screen, generate all downloadable outputs, and build the ERD diagram viewer.
 
-**Reference:** Product Blueprint — Part 2 → Step 8
+**Reference:** Product Blueprint — Part 2 → Step 9 (Forwarded from Step 8)
 
 ---
 
@@ -1588,7 +1625,8 @@ The Code Assistant screen must work independently:
 | **7** | Risk Report (🔴/🟡/ℹ️ cards + Layer 2 section) | ✅ Risks detected from testbed |
 | **8** | Dry Run engine + UI | ✅ Dry run completes, no DB change |
 | **9** | Live Migration ETL engine + progress UI | ✅ 20K docs migrate successfully |
-| **10** | Completion screen, all 5 downloads, ERD, PDF | ✅ All downloads work |
+| **9B** | Data Parity & Verification Studio (Wizard Step 8 of 9) | ✅ All 31 tables verified 1:1, live diff & benchmark |
+| **10** | Completion screen, all 5 downloads, ERD, PDF (Step 9 of 9) | ✅ All downloads work |
 | **11** | Schema Update Assistant (6 steps + NL2DDL) | ✅ ADD COLUMN works end-to-end |
 | **12** | PostgreSQL → MongoDB reverse direction | ✅ Embedded docs created correctly |
 | **13** | Demo Mode (bundled sample data, in-memory) | ✅ Full demo with no DB needed |
