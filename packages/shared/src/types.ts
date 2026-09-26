@@ -63,6 +63,10 @@ export interface FieldMapping {
   sortOrderColumn?: boolean;
   transformationRule?: string;
   isAiModified?: boolean;
+  sanitizeNullBytes?: boolean;
+  orphanStrategy?: 'set_null' | 'remove_constraint';
+  sparseArrayStrategy?: 'filter_nulls' | 'allow_nulls';
+  isJsonb?: boolean;
 }
 
 export interface CollectionMapping {
@@ -71,6 +75,7 @@ export interface CollectionMapping {
   fields: FieldMapping[];
   indexes?: IndexMapping[];
   childTables?: CollectionMapping[];
+  tableAction?: 'drop' | 'append' | 'rename';
 }
 
 export interface TargetIndexPlan {
@@ -101,7 +106,20 @@ export type AutoFixActionType =
   | 'defer_foreign_keys'
   | 'change_column_type'
   | 'rename_target_column'
-  | 'rename_target_table';
+  | 'rename_target_table'
+  | 'set_table_action'
+  | 'sanitize_null_bytes'
+  | 'resolve_numeric_special'
+  | 'resolve_case_collision'
+  | 'sanitize_identifier'
+  | 'resolve_orphan_fk'
+  | 'resolve_deep_nesting'
+  | 'sanitize_sparse_array'
+  | 'assign_primary_key'
+  | 'create_foreign_key_index'
+  | 'promote_varchar_length'
+  | 'sanitize_reserved_keyword'
+  | 'resolve_schema_drift';
 
 export interface AutoFixAction {
   type: AutoFixActionType;
@@ -109,6 +127,51 @@ export interface AutoFixAction {
   fieldName?: string;
   recommendedValue?: unknown;
   description: string;
+}
+
+export type DecisionTier = 'safe' | 'decision' | 'destructive';
+export type ActionCategory = 'remediation' | 'schema_choice' | 'safety_strategy' | 'destructive';
+
+export interface RiskInteractiveOption {
+  label: string;
+  value: string;
+  description?: string;
+  tradeoff?: string;
+  actionType?: AutoFixActionType;
+}
+
+export interface SampleOffendingValue {
+  docId?: string;
+  value: unknown;
+  label?: string;
+}
+
+export interface TransformationPreview {
+  before: string;
+  after: string;
+  explanation?: string;
+}
+
+export interface ExistingTableColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+}
+
+export interface ExistingTableDetails {
+  rowCount: number;
+  columns: ExistingTableColumnInfo[];
+  matchedColumns?: string[];
+  missingInTarget?: string[];
+  extraInTarget?: string[];
+  sampleExistingRows?: Array<Record<string, unknown>>;
+}
+
+export interface StorageFootprintEstimate {
+  sourceSizeBytes: number;
+  targetEstimatedBytes: number;
+  multiplier: number;
+  explanation: string;
 }
 
 export interface RiskItem {
@@ -124,6 +187,16 @@ export interface RiskItem {
   acknowledged?: boolean;
   fixed?: boolean;
   metadata?: Record<string, unknown>;
+  category?: 'data_integrity' | 'relational' | 'schema' | 'performance';
+  decisionTier?: DecisionTier;
+  actionCategory?: ActionCategory;
+  inputType?: 'text' | 'select' | 'radio' | 'action_group' | 'none';
+  defaultInputValue?: string;
+  inputPlaceholder?: string;
+  options?: RiskInteractiveOption[];
+  sampleOffendingValues?: SampleOffendingValue[];
+  transformationPreview?: TransformationPreview;
+  existingTableDetails?: ExistingTableDetails;
 }
 
 export type Layer2FeatureType = 'procedure' | 'function' | 'trigger' | 'view' | 'enum' | 'composite_pk';
@@ -142,6 +215,17 @@ export interface Layer2FeatureItem {
   acknowledged?: boolean;
 }
 
+export interface CollectionHealthSummary {
+  collectionName: string;
+  targetTableName: string;
+  documentCount: number;
+  avgDocSizeBytes: number;
+  totalRisks: number;
+  criticalCount: number;
+  warningCount: number;
+  isReady: boolean;
+}
+
 export interface RiskAnalysisResult {
   risks: RiskItem[];
   layer2Features: Layer2FeatureItem[];
@@ -151,6 +235,19 @@ export interface RiskAnalysisResult {
     infoCount: number;
     recommendedBatchSize: number;
     hasCircularFk: boolean;
+    safetyScore: number;
+    categoryBreakdown?: {
+      dataIntegrity: number;
+      relational: number;
+      schema: number;
+      performance: number;
+    };
+    storageEstimate?: StorageFootprintEstimate;
+    safeRemediationCount?: number;
+    pendingDecisionCount?: number;
+    destructiveCount?: number;
+    atRiskRowCount?: number;
+    collectionHealth?: CollectionHealthSummary[];
   };
 }
 

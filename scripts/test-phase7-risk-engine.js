@@ -238,6 +238,306 @@ assert(overflowRisk !== undefined, 'Detected integer overflow risk for timestamp
 assert(overflowRisk?.severity === 'critical', 'Integer overflow severity is CRITICAL');
 assert(overflowRisk?.autoFixAction?.type === 'change_column_type', 'Auto-fix action is change_column_type to BIGINT');
 
+// ── Test 8: UTF-8 Raw Null Bytes in Strings (🔴 Critical) ────────────────────
+console.log('\n--- Test 8: UTF-8 Raw Null Bytes Detection ---');
+const result8 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'payloads', documentCount: 10, fields: [] }],
+  mapping: [{
+    collectionName: 'payloads',
+    targetTableName: 'payloads',
+    fields: [{ id: 'p1', sourceField: 'raw_text', sourceType: 'string', targetColumn: 'raw_text', targetType: 'TEXT', isNullable: false, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+  fieldNullBytes: {
+    payloads: ['raw_text'],
+  },
+});
+const nullByteRisk = result8.risks.find((r) => r.id.includes('risk-nullbyte-payloads-raw_text'));
+assert(nullByteRisk !== undefined, 'Detected UTF-8 raw null byte risk in raw_text');
+assert(nullByteRisk?.severity === 'critical', 'Null byte hazard severity is CRITICAL');
+assert(nullByteRisk?.autoFixAction?.type === 'sanitize_null_bytes', 'Auto-fix action is sanitize_null_bytes');
+
+// ── Test 9: NaN / Infinity in Numeric Fields (🔴 Critical) ───────────────────
+console.log('\n--- Test 9: NaN / Infinity in Numeric Fields ---');
+const result9 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'telemetry', documentCount: 50, fields: [] }],
+  mapping: [{
+    collectionName: 'telemetry',
+    targetTableName: 'telemetry',
+    fields: [{ id: 't1', sourceField: 'reading', sourceType: 'number', targetColumn: 'reading', targetType: 'NUMERIC(10,2)', isNullable: false, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+  fieldNumericSpecials: {
+    telemetry: { reading: ['Infinity', 'NaN'] },
+  },
+});
+const infinityRisk = result9.risks.find((r) => r.id.includes('risk-infinity-telemetry-reading'));
+assert(infinityRisk !== undefined, 'Detected Infinity in NUMERIC column');
+assert(infinityRisk?.severity === 'critical', 'Infinity hazard severity is CRITICAL');
+assert(infinityRisk?.autoFixAction?.recommendedValue === 'DOUBLE PRECISION', 'Recommended type upgrade is DOUBLE PRECISION');
+
+// ── Test 10: Case-Folding Identifier Collision (🔴 Critical) ─────────────────
+console.log('\n--- Test 10: Case-Folding Identifier Collision ---');
+const result10 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'accounts', documentCount: 20, fields: [] }],
+  mapping: [{
+    collectionName: 'accounts',
+    targetTableName: 'accounts',
+    fields: [
+      { id: 'a1', sourceField: 'userName', sourceType: 'string', targetColumn: 'userName', targetType: 'TEXT', isNullable: false, include: true },
+      { id: 'a2', sourceField: 'username', sourceType: 'string', targetColumn: 'username', targetType: 'TEXT', isNullable: false, include: true },
+    ],
+  }],
+  direction: 'mongodb-to-postgres',
+  caseFoldingCollisions: {
+    accounts: [{ col1: 'userName', col2: 'username', target: 'username' }],
+  },
+});
+const caseFoldRisk = result10.risks.find((r) => r.id.includes('risk-casefold-accounts-username'));
+assert(caseFoldRisk !== undefined, 'Detected case-folding identifier collision');
+assert(caseFoldRisk?.severity === 'critical', 'Case-folding collision severity is CRITICAL');
+assert(caseFoldRisk?.autoFixAction?.recommendedValue === 'username_alt', 'Proposed unique column name is username_alt');
+
+// ── Test 11: Unorthodox Identifier Names (🟡 Warning) ────────────────────────
+console.log('\n--- Test 11: Unorthodox Identifier Names ---');
+const result11 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'sales', documentCount: 10, fields: [] }],
+  mapping: [{
+    collectionName: 'sales',
+    targetTableName: 'sales',
+    fields: [{ id: 's1', sourceField: 'item-code', sourceType: 'string', targetColumn: 'item-code', targetType: 'TEXT', isNullable: false, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+  unorthodoxIdentifiers: {
+    sales: [{ field: 'item-code', sanitized: 'item_code' }],
+  },
+});
+const unorthodoxRisk = result11.risks.find((r) => r.id.includes('risk-unorthodox-sales-item-code'));
+assert(unorthodoxRisk !== undefined, 'Detected special characters in column name');
+assert(unorthodoxRisk?.autoFixAction?.recommendedValue === 'item_code', 'Sanitized name is snake_case item_code');
+
+// ── Test 12: Orphan Foreign Key References (🔴 Critical) ─────────────────────
+console.log('\n--- Test 12: Orphan Foreign Key References ---');
+const result12 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'order_items', documentCount: 10, fields: [] }],
+  mapping: [{
+    collectionName: 'order_items',
+    targetTableName: 'order_items',
+    fields: [{ id: 'oi1', sourceField: 'order_id', sourceType: 'string', targetColumn: 'order_id', targetType: 'VARCHAR(64)', isNullable: false, include: true, foreignKeyToParent: 'orders.id' }],
+  }],
+  direction: 'mongodb-to-postgres',
+  orphanForeignKeys: {
+    order_items: [{ field: 'order_id', foreignTable: 'orders', missingCount: 4 }],
+  },
+});
+const orphanRisk = result12.risks.find((r) => r.id.includes('risk-orphan-order_items-order_id'));
+assert(orphanRisk !== undefined, 'Detected orphan foreign references');
+assert(orphanRisk?.severity === 'critical', 'Orphan reference severity is CRITICAL');
+
+// ── Test 13: Sparse Arrays with Null Elements (🟡 Warning) ───────────────────
+console.log('\n--- Test 13: Sparse Arrays with Embedded Nulls ---');
+const result13 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'sensors', documentCount: 10, fields: [] }],
+  mapping: [{
+    collectionName: 'sensors',
+    targetTableName: 'sensors',
+    fields: [{ id: 'sn1', sourceField: 'readings', sourceType: 'array', targetColumn: 'readings', targetType: 'INT[]', isNullable: false, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+  sparseArrayFields: {
+    sensors: ['readings'],
+  },
+});
+const sparseRisk = result13.risks.find((r) => r.id.includes('risk-sparse-array-sensors-readings'));
+assert(sparseRisk !== undefined, 'Detected sparse array with embedded nulls');
+assert(sparseRisk?.severity === 'warning', 'Sparse array severity is WARNING');
+
+// ── Test 14: Safety Scorecard Metric Calculation ─────────────────────────────
+console.log('\n--- Test 14: Safety Scorecard Calculation ---');
+assert(typeof result8.metrics.safetyScore === 'number', 'Result includes numerical safetyScore');
+assert(result8.metrics.safetyScore < 100, 'Safety score decreases when critical issues exist');
+const cleanResult = analyzeRisks({
+  sourceSchema: [{ collectionName: 'clean_table', documentCount: 10, fields: [] }],
+  mapping: [{
+    collectionName: 'clean_table',
+    targetTableName: 'clean_table',
+    fields: [{ id: 'c1', sourceField: '_id', sourceType: 'ObjectId', targetColumn: 'id', targetType: 'VARCHAR(64)', isNullable: false, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+});
+assert(cleanResult.metrics.safetyScore === 100, 'Safety score is 100% when schema is completely clean');
+
+// ── Test 15: Decision Tiers, Action Categories & Tradeoff Consequence Matrix ────
+console.log('\n--- Test 15: Decision Tiers, Action Categories & Tradeoffs ---');
+assert(unmappedArrayRisk?.decisionTier === 'decision', 'Unmapped array is tagged with decisionTier="decision"');
+assert(unmappedArrayRisk?.actionCategory === 'schema_choice', 'Unmapped array is tagged with actionCategory="schema_choice"');
+assert(
+  unmappedArrayRisk?.options?.every((opt) => typeof opt.tradeoff === 'string' && opt.tradeoff.length > 0),
+  'Unmapped array interactive options contain trade-off explanations'
+);
+
+assert(notNullRisk?.decisionTier === 'decision', 'NOT NULL conflict is tagged with decisionTier="decision"');
+assert(notNullRisk?.actionCategory === 'schema_choice', 'NOT NULL conflict is tagged with actionCategory="schema_choice"');
+assert(
+  notNullRisk?.options?.every((opt) => typeof opt.tradeoff === 'string' && opt.tradeoff.length > 0),
+  'NOT NULL conflict options contain trade-off explanations'
+);
+
+assert(unorthodoxRisk?.decisionTier === 'safe', 'Identifier sanitization is tagged with decisionTier="safe"');
+assert(unorthodoxRisk?.actionCategory === 'remediation', 'Identifier sanitization is tagged with actionCategory="remediation"');
+
+assert(orphanRisk?.decisionTier === 'decision', 'Orphan FK risk is tagged with decisionTier="decision"');
+assert(orphanRisk?.actionCategory === 'safety_strategy', 'Orphan FK risk is tagged with actionCategory="safety_strategy"');
+
+assert(collisionRisk?.decisionTier === 'destructive', 'Target table collision is tagged with decisionTier="destructive"');
+assert(collisionRisk?.actionCategory === 'destructive', 'Target table collision is tagged with actionCategory="destructive"');
+assert(
+  collisionRisk?.options?.some((o) => o.value === 'drop' && typeof o.tradeoff === 'string'),
+  'Destructive "drop" option includes clear trade-off warning'
+);
+
+// ── Test 16: Target Schema Column Drift (Rule 21) ────────────────────────────
+console.log('\n--- Test 16: Target Schema Column Drift Detection (Rule 21) ---');
+const result16 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'orders', documentCount: 10, fields: [] }],
+  mapping: [{ collectionName: 'orders', targetTableName: 'orders', fields: [{ id: 'f1', sourceField: 'discount', sourceType: 'string', targetColumn: 'discount', targetType: 'TEXT', isNullable: true, include: true }] }],
+  direction: 'mongodb-to-postgres',
+  existingTargetTables: ['orders'],
+  existingTargetTableDetails: {
+    orders: {
+      rowCount: 500,
+      columns: [{ name: 'id', type: 'text', nullable: false }],
+      missingInTarget: ['discount'],
+    },
+  },
+});
+const driftRisk = result16.risks.find((r) => r.id.includes('risk-drift-missing-orders'));
+assert(driftRisk !== undefined, 'Target schema column drift flagged as risk');
+assert(driftRisk?.severity === 'critical', 'Schema drift severity is CRITICAL');
+assert(driftRisk?.autoFixAction?.type === 'resolve_schema_drift', 'Auto-fix action is resolve_schema_drift');
+
+// ── Test 17: Missing Foreign Key Index Detection (Rule 22) ───────────────────
+console.log('\n--- Test 17: Missing Foreign Key Index Detection (Rule 22) ---');
+const result17 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'orders_items', documentCount: 50, fields: [] }],
+  mapping: [{ collectionName: 'orders_items', targetTableName: 'orders_items', fields: [] }],
+  direction: 'mongodb-to-postgres',
+  missingFkIndexes: {
+    orders_items: [{ childTable: 'orders_items', fkColumn: 'order_id', parentTable: 'orders' }],
+  },
+});
+const missingFkRisk = result17.risks.find((r) => r.id.includes('risk-missing-fk-idx-orders_items-order_id'));
+assert(missingFkRisk !== undefined, 'Missing foreign key index flagged as risk');
+assert(missingFkRisk?.decisionTier === 'safe', 'Missing FK index is tagged as safe');
+assert(missingFkRisk?.autoFixAction?.type === 'create_foreign_key_index', 'Auto-fix action is create_foreign_key_index');
+
+// ── Test 18: Varchar Length Exceeded Detection (Rule 23) ─────────────────────
+console.log('\n--- Test 18: Varchar Length Exceeded Detection (Rule 23) ---');
+const result18 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'customers', documentCount: 30, fields: [] }],
+  mapping: [{ collectionName: 'customers', targetTableName: 'customers', fields: [] }],
+  direction: 'mongodb-to-postgres',
+  stringLengthViolations: {
+    customers: [{ field: 'company', maxLen: 78, targetLimit: 50 }],
+  },
+});
+const varcharRisk = result18.risks.find((r) => r.id.includes('risk-varchar-len-customers-company'));
+assert(varcharRisk !== undefined, 'VARCHAR limit violation flagged as risk');
+assert(varcharRisk?.decisionTier === 'safe', 'VARCHAR promotion is tagged as safe');
+assert(varcharRisk?.autoFixAction?.type === 'promote_varchar_length', 'Auto-fix action is promote_varchar_length');
+
+// ── Test 19: Reserved Keyword Hazard Detection (Rule 24) ────────────────────
+console.log('\n--- Test 19: PostgreSQL Reserved Keyword Hazard (Rule 24) ---');
+const result19 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'orders', documentCount: 10, fields: [] }],
+  mapping: [{ collectionName: 'orders', targetTableName: 'orders', fields: [] }],
+  direction: 'mongodb-to-postgres',
+  reservedWordWarnings: {
+    orders: [{ field: 'order', word: 'order', category: 'column' }],
+  },
+});
+const keywordRisk = result19.risks.find((r) => r.id.includes('risk-reserved-word-orders-order'));
+assert(keywordRisk !== undefined, 'Reserved keyword hazard flagged as risk');
+assert(keywordRisk?.decisionTier === 'safe', 'Reserved keyword aliasing is tagged as safe');
+assert(keywordRisk?.autoFixAction?.type === 'sanitize_reserved_keyword', 'Auto-fix action is sanitize_reserved_keyword');
+
+// ── Test 20: Enterprise Metrics & Capacity Planner Telemetry ────────────────
+console.log('\n--- Test 20: Enterprise Metrics & Capacity Planner Telemetry ---');
+const result20 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'customers', documentCount: 30, fields: [] }],
+  mapping: [{ collectionName: 'customers', targetTableName: 'customers', fields: [] }],
+  direction: 'mongodb-to-postgres',
+  storageStats: { sourceSizeBytes: 1048576, targetEstimatedBytes: 1447034, multiplier: 1.38 },
+  stringLengthViolations: {
+    customers: [{ field: 'company', maxLen: 78, targetLimit: 50 }],
+  },
+  existingTargetTables: ['customers'],
+});
+assert(result20.metrics.storageEstimate !== undefined, 'Result includes storage footprint estimate');
+assert(result20.metrics.storageEstimate?.multiplier === 1.38, 'Storage multiplier matches calculation');
+assert(typeof result20.metrics.safeRemediationCount === 'number', 'Result includes safeRemediationCount');
+assert(typeof result20.metrics.pendingDecisionCount === 'number', 'Result includes pendingDecisionCount');
+assert(typeof result20.metrics.destructiveCount === 'number', 'Result includes destructiveCount');
+
+// ── Test 21: Multi-Dimensional Nested Array Detection (Rule 25) ─────────────
+console.log('\n--- Test 21: Multi-Dimensional Nested Array Detection (Rule 25) ---');
+const result21 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'sensors', documentCount: 100, fields: [] }],
+  mapping: [{
+    collectionName: 'sensors',
+    targetTableName: 'sensors',
+    fields: [{ id: 'f1', sourceField: 'matrix', sourceType: 'array', targetColumn: 'matrix', targetType: 'TEXT[]', isNullable: true, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+  nestedArrayOfArrays: {
+    sensors: ['matrix'],
+  },
+});
+const matrixRisk = result21.risks.find((r) => r.id.includes('risk-nested-array-sensors-matrix'));
+assert(matrixRisk !== undefined, 'Detected multi-dimensional nested array as risk');
+assert(matrixRisk?.severity === 'warning', 'Multi-dimensional array severity is WARNING');
+assert(matrixRisk?.autoFixAction?.type === 'change_column_type', 'Auto-fix action is change_column_type');
+assert(matrixRisk?.autoFixAction?.recommendedValue === 'JSONB', 'Recommended type is JSONB');
+
+// ── Test 22: Timezone & UTC Consistency Hazard (Rule 26) ─────────────────────
+console.log('\n--- Test 22: Timezone & UTC Consistency Hazard (Rule 26) ---');
+const result22 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'audit_logs', documentCount: 50, fields: [] }],
+  mapping: [{
+    collectionName: 'audit_logs',
+    targetTableName: 'audit_logs',
+    fields: [{ id: 'f1', sourceField: 'created_at', sourceType: 'Date', targetColumn: 'created_at', targetType: 'TIMESTAMP', isNullable: false, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+});
+const tzRisk = result22.risks.find((r) => r.id.includes('risk-timezone-hazard-audit_logs-created_at'));
+assert(tzRisk !== undefined, 'Detected timezone offset hazard on TIMESTAMP');
+assert(tzRisk?.severity === 'warning', 'Timezone hazard severity is WARNING');
+assert(tzRisk?.autoFixAction?.recommendedValue === 'TIMESTAMPTZ', 'Recommended type is TIMESTAMPTZ');
+
+// ── Test 23: PostgreSQL JSON vs JSONB Performance Advisor (Rule 27) ──────────
+console.log('\n--- Test 23: PostgreSQL JSON vs JSONB Performance Advisor (Rule 27) ---');
+const result23 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'catalog', documentCount: 200, fields: [] }],
+  mapping: [{
+    collectionName: 'catalog',
+    targetTableName: 'catalog',
+    fields: [{ id: 'f1', sourceField: 'specs', sourceType: 'object', targetColumn: 'specs', targetType: 'JSON', isNullable: true, include: true }],
+  }],
+  direction: 'mongodb-to-postgres',
+});
+const jsonbRisk = result23.risks.find((r) => r.id.includes('risk-json-advisor-catalog-specs'));
+assert(jsonbRisk !== undefined, 'Detected plain JSON column for indexing advice');
+assert(jsonbRisk?.severity === 'info', 'JSON advisor severity is INFO');
+assert(jsonbRisk?.autoFixAction?.recommendedValue === 'JSONB', 'Recommended type is JSONB');
+
+// ── Test 24: Collection Health Matrix & Zero Data Loss Metrics ───────────────
+console.log('\n--- Test 24: Collection Health Matrix & Zero Data Loss Metrics ---');
+assert(Array.isArray(result20.metrics.collectionHealth), 'Result includes collectionHealth array');
+assert(result20.metrics.collectionHealth.length > 0, 'Collection health array is populated');
+assert(result20.metrics.collectionHealth[0].collectionName === 'customers', 'Collection health tracks customers');
+assert(typeof result20.metrics.atRiskRowCount === 'number', 'Result includes atRiskRowCount calculation');
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log('\n====================================================');
 console.log(`📊 Test Results: ${passedTests} of ${totalTests} assertions passed (${Math.round((passedTests / totalTests) * 100)}%)`);
@@ -248,3 +548,4 @@ if (passedTests === totalTests) {
 } else {
   process.exit(1);
 }
+

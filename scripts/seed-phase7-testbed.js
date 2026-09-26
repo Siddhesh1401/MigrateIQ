@@ -169,6 +169,32 @@ async function seedMongoDB() {
     ]);
     console.log('   ✓ Seeded "catalog": 3 docs with polymorphic JSONB specs (triggers ℹ️ GIN Index Info)');
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // 6. "analytics" Collection (Safe Auto-Remediation Showcase):
+    //    - Int64 overflow timestamp > 2.14B (Rule 12: BigInt upgrade)
+    //    - UTF-8 Null Byte "\0" in string (Rule 13: C-string null byte strip)
+    //    - Unorthodox identifier "event-code" (Rule 16: snake_case sanitize)
+    // ──────────────────────────────────────────────────────────────────────────
+    const analyticsCol = db.collection('analytics');
+    await analyticsCol.deleteMany({});
+    await analyticsCol.insertMany([
+      {
+        eventId: 'EVT-1001',
+        'event-code': 'PAGE_VIEW',
+        timestamp_ms: 1716301234567, // > 2,147,483,647 (triggers 🔴 BigInt Overflow Safe Fix)
+        raw_log: 'User session started\x00with token verification', // contains \0 byte (triggers 🔴 Null Byte Safe Fix)
+        createdAt: new Date(),
+      },
+      {
+        eventId: 'EVT-1002',
+        'event-code': 'CHECKOUT_CLICK',
+        timestamp_ms: 1716301289123,
+        raw_log: 'Cart transaction approved',
+        createdAt: new Date(),
+      },
+    ]);
+    console.log('   ✓ Seeded "analytics": 2 docs with BigInt (>2.14B), UTF-8 \\0 null bytes, and "event-code" (triggers 🟢 Safe Remediations)');
+
     console.log(`\n✅ MongoDB "${MONGO_DB_NAME}" seeding complete!`);
   } catch (err) {
     console.error('❌ MongoDB Seeding Error:', err.message);

@@ -60,6 +60,9 @@ export interface WizardState {
   applyDefaultValue: (tableName: string, fieldName: string, defaultValue: string) => void;
   applyBatchDefaultValues: (fixes: Array<{ tableName: string; fieldName: string; defaultValue: string }>) => void;
   applyAllAutoFixes: () => void;
+  applyAllSafeRemediations: () => void;
+  acknowledgeAllCritical: () => void;
+  resolveAndAcknowledgeAll: () => void;
   acknowledgeAllOfType: (autoFixType: string) => void;
   setWizardStep: (step: number) => void;
   setIsDemoMode: (isDemoMode: boolean) => void;
@@ -260,6 +263,188 @@ export const useWizardStore = create<WizardState>((set, get) => ({
           targetTableName: newName,
         };
       });
+    } else if (action.type === 'set_table_action') {
+      const act = (typeof action.recommendedValue === 'string' ? action.recommendedValue : 'append') as 'drop' | 'append' | 'rename';
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          tableAction: act,
+        };
+      });
+    } else if (action.type === 'sanitize_null_bytes' && action.fieldName) {
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, sanitizeNullBytes: true, transformationRule: 'strip_null_bytes' }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'resolve_numeric_special' && action.fieldName) {
+      const strat = typeof action.recommendedValue === 'string' ? action.recommendedValue : 'DOUBLE PRECISION';
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) => {
+            if (f.sourceField === action.fieldName || f.targetColumn === action.fieldName) {
+              if (strat === 'nullify') {
+                return { ...f, transformationRule: 'nullify_infinity' };
+              } else {
+                return { ...f, targetType: 'DOUBLE PRECISION' };
+              }
+            }
+            return f;
+          }),
+        };
+      });
+    } else if (action.type === 'resolve_case_collision' && action.fieldName) {
+      const newCol = typeof action.recommendedValue === 'string' ? action.recommendedValue : `${action.fieldName}_alt`;
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, targetColumn: newCol }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'sanitize_identifier' && action.fieldName) {
+      const clean = typeof action.recommendedValue === 'string' ? action.recommendedValue : action.fieldName.replace(/[^a-zA-Z0-9_]/g, '_');
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, targetColumn: clean }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'resolve_orphan_fk' && action.fieldName) {
+      const strat = (typeof action.recommendedValue === 'string' ? action.recommendedValue : 'set_null') as 'set_null' | 'remove_constraint';
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) => {
+            if (f.sourceField === action.fieldName || f.targetColumn === action.fieldName) {
+              if (strat === 'remove_constraint') {
+                return { ...f, foreignKeyToParent: undefined, orphanStrategy: 'remove_constraint' };
+              } else {
+                return { ...f, orphanStrategy: 'set_null', transformationRule: 'orphan_set_null' };
+              }
+            }
+            return f;
+          }),
+        };
+      });
+    } else if (action.type === 'resolve_deep_nesting' && action.fieldName) {
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, targetType: 'JSONB', isJsonb: true }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'sanitize_sparse_array' && action.fieldName) {
+      const strat = (typeof action.recommendedValue === 'string' ? action.recommendedValue : 'filter_nulls') as 'filter_nulls' | 'allow_nulls';
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, sparseArrayStrategy: strat, transformationRule: strat === 'filter_nulls' ? 'filter_array_nulls' : undefined }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'assign_primary_key') {
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName) return col;
+        const idCol = typeof action.recommendedValue === 'string' ? action.recommendedValue : 'id';
+        const existing = col.fields.find((f) => f.targetColumn === idCol);
+        if (existing) {
+          return {
+            ...col,
+            fields: col.fields.map((f) => f.targetColumn === idCol ? { ...f, include: true, isNullable: false } : f),
+          };
+        }
+        return {
+          ...col,
+          fields: [
+            {
+              id: `pk-${col.collectionName}`,
+              sourceField: '_id',
+              sourceType: 'ObjectId',
+              targetColumn: idCol,
+              targetType: 'VARCHAR(64)',
+              isNullable: false,
+              include: true,
+              transformationRule: 'primary_key',
+            },
+            ...col.fields,
+          ],
+        };
+      });
+    } else if (action.type === 'promote_varchar_length' && action.fieldName) {
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, targetType: 'TEXT' }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'sanitize_reserved_keyword' && action.fieldName) {
+      const safeAlias = typeof action.recommendedValue === 'string' ? action.recommendedValue : `${action.fieldName}_val`;
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) =>
+            f.sourceField === action.fieldName || f.targetColumn === action.fieldName
+              ? { ...f, targetColumn: safeAlias }
+              : f
+          ),
+        };
+      });
+    } else if (action.type === 'create_foreign_key_index') {
+      const idxName = typeof action.recommendedValue === 'string' ? action.recommendedValue : `idx_${action.fieldName}`;
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        const currentIndices = col.indexes || [];
+        const exists = currentIndices.some((i) => i.targetIndexName === idxName);
+        if (exists) return col;
+        return {
+          ...col,
+          indexes: [
+            ...currentIndices,
+            {
+              sourceIndexName: idxName,
+              targetIndexName: idxName,
+              targetSql: `CREATE INDEX CONCURRENTLY "${idxName}" ON "${col.targetTableName || col.collectionName}" ("${action.fieldName}");`,
+              include: true,
+              isConcurrently: true,
+            },
+          ],
+        };
+      });
     }
 
     // Update risk item status to fixed
@@ -278,6 +463,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       const criticalCount = updatedRisks.filter((r) => r.severity === 'critical' && !r.fixed && !r.acknowledged).length;
       const warningCount = updatedRisks.filter((r) => r.severity === 'warning' && !r.fixed).length;
       const infoCount = updatedRisks.filter((r) => r.severity === 'info').length;
+      const safetyScore = Math.max(0, Math.min(100, 100 - (criticalCount * 15 + warningCount * 4)));
 
       updatedRiskAnalysis = {
         ...riskAnalysis,
@@ -287,6 +473,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
           criticalCount,
           warningCount,
           infoCount,
+          safetyScore,
           recommendedBatchSize:
             action.type === 'reduce_batch_size'
               ? (action.recommendedValue as number) || 50
@@ -470,17 +657,47 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     set({ schemaMapping: updated, dryRunResult: updatedDryRun });
   },
 
-  // ── Batch Auto-Fix: Apply ALL fixable warnings in one click ─────────────
+  // ── Batch Auto-Fix: Apply ALL fixable risks (both critical and warnings) ──
   applyAllAutoFixes: () => {
     const { riskAnalysis, applyAutoFix } = get();
     if (!riskAnalysis) return;
     const fixableRisks = riskAnalysis.risks.filter(
-      (r) => r.autoFixAvailable && r.autoFixAction && !r.fixed && r.severity !== 'critical'
+      (r) => r.autoFixAvailable && r.autoFixAction && !r.fixed
     );
     // Apply each fix sequentially — each call is a pure mutation so order is safe
     for (const risk of fixableRisks) {
       applyAutoFix(risk.autoFixAction!);
     }
+  },
+
+  // ── Apply All Safe Remediations: Bounded, non-destructive auto-fixes ──
+  applyAllSafeRemediations: () => {
+    const { riskAnalysis, applyAutoFix } = get();
+    if (!riskAnalysis) return;
+    const safeFixable = riskAnalysis.risks.filter(
+      (r) => r.decisionTier === 'safe' && r.autoFixAvailable && r.autoFixAction && !r.fixed
+    );
+    for (const risk of safeFixable) {
+      applyAutoFix(risk.autoFixAction!);
+    }
+  },
+
+  // ── Acknowledge All Critical: Mark all critical issues as acknowledged ──
+  acknowledgeAllCritical: () => {
+    const { riskAnalysis, acknowledgedRiskIds } = get();
+    if (!riskAnalysis) return;
+    const criticalIds = riskAnalysis.risks
+      .filter((r) => r.severity === 'critical' && !r.fixed)
+      .map((r) => r.id);
+    const merged = Array.from(new Set([...acknowledgedRiskIds, ...criticalIds]));
+    set({ acknowledgedRiskIds: merged });
+  },
+
+  // ── Resolve & Acknowledge All: 1-Click Fix for all critical + warnings ──
+  resolveAndAcknowledgeAll: () => {
+    const { applyAllAutoFixes, acknowledgeAllCritical } = get();
+    applyAllAutoFixes();
+    acknowledgeAllCritical();
   },
 
   // ── Acknowledge All of Same Type: batch-ignore identical warning categories ─
