@@ -490,12 +490,12 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
         const tDuration = tr.startTime && tr.endTime ? Math.max(25, new Date(tr.endTime).getTime() - new Date(tr.startTime).getTime()) : 120;
         const tSpeed = tr.rowsCompleted > 0 ? Math.round(tr.rowsCompleted / (tDuration / 1000)) : 0;
         tablesList.push({
-          name: tr.tableName,
+          name: tr.tableName || 'table',
           role: isChild ? 'child' : 'parent',
-          sourceDocs: tr.totalRows || tr.rowsCompleted,
-          targetRows: tr.rowsCompleted,
-          durationMs: tDuration,
-          throughput: tSpeed,
+          sourceDocs: tr.totalRows ?? tr.rowsCompleted ?? 0,
+          targetRows: tr.rowsCompleted ?? 0,
+          durationMs: tDuration || 120,
+          throughput: tSpeed || 0,
           status: tr.tableName === 'orders' ? 'Healed (Step 6)' : 'Completed',
           isHealed: tr.tableName === 'orders',
         });
@@ -745,12 +745,12 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
                             {tbl.role === 'child' ? 'Child 1:N' : 'Parent Table'}
                           </span>
                         </td>
-                        <td>{tbl.sourceDocs.toLocaleString()} docs</td>
+                        <td>{(tbl.sourceDocs ?? 0).toLocaleString()} docs</td>
                         <td>
-                          <strong style={{ color: '#0F172A' }}>{tbl.targetRows.toLocaleString()} rows</strong>
+                          <strong style={{ color: '#0F172A' }}>{(tbl.targetRows ?? 0).toLocaleString()} rows</strong>
                         </td>
-                        <td>{tbl.throughput.toLocaleString()} r/s</td>
-                        <td>{tbl.durationMs}ms</td>
+                        <td>{(tbl.throughput ?? 0).toLocaleString()} r/s</td>
+                        <td>{tbl.durationMs ?? 0}ms</td>
                         <td>
                           <span className={`migration-status-pill ${tbl.isHealed ? 'healed' : 'success'}`}>
                             <span>{tbl.isHealed ? '🛡️' : '✓'}</span>
