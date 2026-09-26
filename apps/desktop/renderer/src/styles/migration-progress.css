@@ -670,3 +670,457 @@
 .btn-danger:active {
   background: #991B1B;
 }
+
+/* ==========================================================================
+   Step 7 Enterprise Redesign Styles (Telemetry Hub, Tabs, Diagnostics)
+   ========================================================================== */
+
+/* ── Pipeline Status & Endpoints Banner ─────────────────────────────────── */
+.migration-pipeline-banner {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.migration-pipeline-endpoints {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.migration-db-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: #F8FAFC;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  color: #0F172A;
+}
+
+.migration-db-pill strong {
+  font-weight: 700;
+  color: #1E293B;
+}
+
+.migration-db-pill-icon {
+  font-size: 1.125rem;
+}
+
+.migration-pipeline-arrow {
+  color: #2563EB;
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+}
+
+.migration-pipeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.8125rem;
+  color: #64748B;
+  flex-wrap: wrap;
+}
+
+.migration-pipeline-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
+  background: #DCFCE7;
+  color: #15803D;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  border: 1px solid #86EFAC;
+}
+
+/* ── 4-KPI Executive Metric Cards ─────────────────────────────────────────── */
+.migration-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.migration-kpi-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.migration-kpi-card:hover {
+  border-color: #CBD5E1;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.migration-kpi-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.migration-kpi-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #64748B;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.migration-kpi-icon {
+  font-size: 1.25rem;
+}
+
+.migration-kpi-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.migration-kpi-value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #0F172A;
+  letter-spacing: -0.02em;
+}
+
+.migration-kpi-unit {
+  font-size: 0.875rem;
+  color: #64748B;
+  font-weight: 500;
+}
+
+.migration-kpi-subtitle {
+  font-size: 0.8125rem;
+  color: #16A34A;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.migration-kpi-subtitle.neutral {
+  color: #64748B;
+}
+
+/* ── Interactive Telemetry Tabs Card ─────────────────────────────────────── */
+.migration-telemetry-tabs-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+}
+
+.migration-tabs-header {
+  display: flex;
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+  overflow-x: auto;
+  gap: 0.25rem;
+  padding: 0 0.75rem;
+}
+
+.migration-tab-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.125rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #64748B;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.migration-tab-nav-btn:hover {
+  color: #0F172A;
+  background: #F1F5F9;
+}
+
+.migration-tab-nav-btn.active {
+  color: #2563EB;
+  border-bottom-color: #2563EB;
+  background: #FFFFFF;
+}
+
+.migration-tab-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background: #E2E8F0;
+  color: #475569;
+}
+
+.migration-tab-nav-btn.active .migration-tab-badge {
+  background: #DBEAFE;
+  color: #1D4ED8;
+}
+
+.migration-tab-pane {
+  padding: 1.5rem;
+  animation: migrationFadeIn 0.2s ease;
+}
+
+/* ── Tab A: Table Execution Statistics Grid ──────────────────────────────── */
+.migration-table-stats-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+}
+
+.migration-table-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.migration-table-stats-table th {
+  background: #F8FAFC;
+  color: #475569;
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #E2E8F0;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.migration-table-stats-table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid #F1F5F9;
+  color: #1E293B;
+  vertical-align: middle;
+}
+
+.migration-table-stats-table tr:last-child td {
+  border-bottom: none;
+}
+
+.migration-table-stats-table tr:hover td {
+  background: #F8FAFC;
+}
+
+.migration-table-role-pill {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.migration-table-role-pill.parent {
+  background: #EFF6FF;
+  color: #1D4ED8;
+  border: 1px solid #BFDBFE;
+}
+
+.migration-table-role-pill.child {
+  background: #FDF2F8;
+  color: #BE185D;
+  border: 1px solid #FBCFE8;
+}
+
+.migration-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+}
+
+.migration-status-pill.success {
+  background: #DCFCE7;
+  color: #15803D;
+  border: 1px solid #86EFAC;
+}
+
+.migration-status-pill.healed {
+  background: #E0F2FE;
+  color: #0369A1;
+  border: 1px solid #7DD3FC;
+}
+
+/* ── Tab B: Search & Filterable Logs ─────────────────────────────────────── */
+.migration-log-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.migration-log-search-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #F8FAFC;
+  border: 1px solid #CBD5E1;
+  border-radius: 6px;
+  padding: 0.375rem 0.75rem;
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+}
+
+.migration-log-search-box input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 0.8125rem;
+  color: #0F172A;
+  width: 100%;
+}
+
+.migration-log-level-pills {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.migration-log-level-btn {
+  border: 1px solid #E2E8F0;
+  background: #FFFFFF;
+  color: #64748B;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.migration-log-level-btn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+.migration-log-level-btn.active {
+  background: #0F172A;
+  color: #FFFFFF;
+  border-color: #0F172A;
+}
+
+/* ── Tab C: Batch Diagnostics Grid ───────────────────────────────────────── */
+.migration-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.migration-diag-card {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.migration-diag-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #0F172A;
+}
+
+.migration-diag-card-body {
+  font-size: 0.8125rem;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.migration-diag-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.375rem 0;
+  border-bottom: 1px dashed #E2E8F0;
+}
+
+.migration-diag-item:last-child {
+  border-bottom: none;
+}
+
+.migration-diag-label {
+  color: #64748B;
+}
+
+.migration-diag-val {
+  font-weight: 700;
+  color: #0F172A;
+}
+
+/* ── Bridge Callout to Step 8 ────────────────────────────────────────────── */
+.migration-bridge-callout {
+  background: linear-gradient(135deg, #EFF6FF 0%, #F0FDF4 100%);
+  border: 1px solid #BFDBFE;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.migration-bridge-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.migration-bridge-icon {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.migration-bridge-text h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1E3A8A;
+  margin: 0 0 0.25rem 0;
+}
+
+.migration-bridge-text p {
+  font-size: 0.875rem;
+  color: #334155;
+  margin: 0;
+  line-height: 1.5;
+}
+
