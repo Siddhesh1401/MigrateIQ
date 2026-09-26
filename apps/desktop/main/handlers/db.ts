@@ -60,8 +60,20 @@ export function setupMongoDBHandler(): void {
         // Get document count
         const documentCount = await collection.countDocuments();
 
-        // Sample 100 documents to infer field types
-        const sampleDocs = await collection.find({}).limit(100).toArray();
+        // Adaptive statistical sampling: sample up to 1,000 documents using random sampling
+        // Provides 10x deeper field discovery across large/sparse enterprise collections
+        const sampleLimit = Math.min(1000, documentCount > 0 ? documentCount : 1000);
+        let sampleDocs: Array<Record<string, unknown>> = [];
+        try {
+          if (documentCount > 0) {
+            sampleDocs = (await collection.aggregate([
+              { $sample: { size: sampleLimit } }
+            ]).toArray()) as Array<Record<string, unknown>>;
+          }
+        } catch {
+          // Fallback to cursor limit if $sample is unsupported on specific views/collections
+          sampleDocs = (await collection.find({}).limit(sampleLimit).toArray()) as Array<Record<string, unknown>>;
+        }
 
         // Infer field types from samples and detect actual _id BSON type
         const fieldsMap = new Map<string, FieldDefinition>();
