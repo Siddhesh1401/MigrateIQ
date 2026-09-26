@@ -105,7 +105,9 @@ export function generate1To1Markdown(state: WizardState): string {
       if (mapping.childTables && mapping.childTables.length > 0) {
         lines.push(`#### ↳ Normalized Child Tables (${mapping.childTables.length}):`);
         for (const child of mapping.childTables) {
-          lines.push(`##### Child Table: \`${child.targetTableName}\` (from source collection \`${child.collectionName}\`)`);
+          const childTarget = child.targetTableName || child.collectionName || `${mapping.targetTableName}_items`;
+          const childSource = child.collectionName || mapping.collectionName;
+          lines.push(`##### Child Table: \`${childTarget}\` (from source collection \`${childSource}\`)`);
           lines.push(`- **Parent Table:** references \`${mapping.targetTableName}.id\``);
           lines.push(`- **Preserved Order Column:** \`sort_order INTEGER NOT NULL\``);
           lines.push(``);

@@ -739,3 +739,27 @@ A deep retrospective audit was performed after the initial implementation. The f
 git add .
 git commit -m "fix: phase-09 — resolve 18 TS errors, wire MigrationProgressScreen, fix rollback/sort_order/IPC/child-table"
 ```
+
+---
+
+## 8. Recent ETL Engine Heals & Backend Parity Verification
+
+### 8.1 Key Engineering Enhancements:
+1. **Unified DDL Generation & Value Extraction (DRY Code Hygiene)**:
+   - `apps/desktop/main/engine/etlEngine.ts` previously had duplicate copies of `generateCreateTableDdl` and `extractFieldValue` that had fallen out of sync with `dryRun.ts`.
+   - Unified both modules by directly importing `generateCreateTableDdl` and `extractFieldValue` from `dryRun.ts`, eliminating ~96 lines of redundant code and ensuring identical behavior between Dry Run simulation and Live Migration.
+
+2. **Step 6 Remediation Default Value Imputation**:
+   - In `apps/desktop/main/engine/etlEngine.ts`, updated `buildBatchInsertSql()` and `buildSingleInsertSql()` to inspect `field.defaultValue`.
+   - When a source document field is `null` or `undefined` but a default value was configured during Step 6 Remediation (e.g. `orders.sort_order = 0`), the ETL engine automatically passes the default value into PostgreSQL instead of sending `NULL`, successfully satisfying `NOT NULL` constraints.
+
+3. **Exhaustive Live Backend Database Cross-Check**:
+   - Built `scripts/deep-cross-check-backend.js` and `scripts/deep-data-content-comparator.js`.
+   - Directly audited live MongoDB (`migrateiq_phase7_test`) and PostgreSQL (`postgres` on port 5432).
+   - **Verification Results:**
+     - **130 / 130 records migrated** (100 parent rows + 30 child table rows) with **0 quarantined rows**.
+     - **712 / 712 individual field values matched (100.00% content match rate)**.
+     - **0 broken foreign keys** in `orders_items`.
+     - **0 null-byte crashes** in `analytics.raw_log` (sanitized safely).
+     - **Binary payloads (PDF manuals)** preserved in PostgreSQL `bytea` with exact byte counts (143,360 bytes each).
+

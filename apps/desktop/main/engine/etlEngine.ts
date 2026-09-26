@@ -24,7 +24,6 @@ import { Client as PgClient } from 'pg';
 import type {
   ConnectionConfig,
   CollectionMapping,
-  FieldMapping,
   MigrationResult,
   MigrationProgressEvent,
   MigrationLogEntry,
@@ -33,7 +32,7 @@ import type {
   ETLBatchResult
 } from '@migrateiq/shared';
 import { maskSensitiveFields, sanitizeIdentifier } from '../utils';
-import { transformValueForSql } from './dryRun';
+import { transformValueForSql, extractFieldValue, generateCreateTableDdl } from './dryRun';
 
 export interface MigrationOptions {
   sourceConfig: ConnectionConfig;
@@ -120,6 +119,24 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
 
     // ── Step 4: Create tables in dependency order ─────────────────────────
     emitLog(onLog, 'info', `📐 Creating tables in safe order...`);
+
+    // Drop existing colliding tables if marked for 'drop' (in reverse order for FK safety)
+    for (const tableName of [...tableOrder].reverse()) {
+      const mapping = findMappingForTable(mappings, tableName);
+      const isChild = isChildTableName(mappings, tableName);
+      const parentMapping = isChild ? findParentMappingForChild(mappings, tableName) : undefined;
+      const shouldDrop = mapping?.tableAction === 'drop' || parentMapping?.tableAction === 'drop';
+
+      if (shouldDrop) {
+        try {
+          await pgClient.query(`DROP TABLE IF EXISTS "${sanitizeIdentifier(tableName)}" CASCADE;`);
+          emitLog(onLog, 'info', `🗑️ Dropped existing colliding table: ${tableName} (fresh recreation)`);
+        } catch (err: unknown) {
+          emitLog(onLog, 'warn', `⚠️ Could not drop existing table ${tableName}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
     for (const tableName of tableOrder) {
       const mapping = findMappingForTable(mappings, tableName);
       if (!mapping) continue;
@@ -136,7 +153,12 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     }
 
     // Clean any existing data in the target tables (in reverse order for FK safety) to allow seamless re-runs
+    // (Skip tables with tableAction === 'append' to preserve existing historical records)
     for (const tableName of [...tableOrder].reverse()) {
+      const mapping = findMappingForTable(mappings, tableName);
+      if (mapping?.tableAction === 'append') {
+        continue;
+      }
       try {
         await pgClient.query(`TRUNCATE TABLE "${sanitizeIdentifier(tableName)}" CASCADE;`);
       } catch {
@@ -562,7 +584,16 @@ function buildBatchInsertSql(
     const rowValues: unknown[] = [];
     
     for (const field of uniqueFields) {
-      let rawValue = extractFieldValue(doc, field.sourceField);
+      let rawValue = extractFieldValue(doc, field.sourceField, field.targetColumn);
+      // Fallback to defaultValue if rawValue is missing or null (imputation from Step 6)
+      if (
+        (rawValue === undefined || rawValue === null) &&
+        field.defaultValue !== undefined &&
+        field.defaultValue !== null &&
+        field.defaultValue !== ''
+      ) {
+        rawValue = field.defaultValue;
+      }
       // For child tables: if foreign key column to parent is missing in child doc, use doc._parentId
       if (rawValue === undefined && doc._parentId && (field.targetColumn.toLowerCase().includes('id') || field.foreignKeyToParent)) {
         rawValue = doc._parentId;
@@ -625,7 +656,16 @@ function buildSingleInsertSql(
   const values: unknown[] = [];
 
   for (const field of uniqueFields) {
-    let rawValue = extractFieldValue(doc, field.sourceField);
+    let rawValue = extractFieldValue(doc, field.sourceField, field.targetColumn);
+    // Fallback to defaultValue if rawValue is missing or null (imputation from Step 6)
+    if (
+      (rawValue === undefined || rawValue === null) &&
+      field.defaultValue !== undefined &&
+      field.defaultValue !== null &&
+      field.defaultValue !== ''
+    ) {
+      rawValue = field.defaultValue;
+    }
     if (rawValue === undefined && doc._parentId && (field.targetColumn.toLowerCase().includes('id') || field.foreignKeyToParent)) {
       rawValue = doc._parentId;
     }
@@ -644,100 +684,6 @@ function buildSingleInsertSql(
   const sql = `INSERT INTO "${sanitizeIdentifier(tableName)}" (${columnNames}) VALUES (${placeholders})`;
 
   return { sql, values };
-}
-
-function generateCreateTableDdl(
-  tableName: string,
-  fields: FieldMapping[],
-  isChildTable: boolean
-): { sql: string } {
-  const safeTableName = sanitizeIdentifier(tableName);
-  const activeFields = fields.filter(
-    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
-  );
-
-  const columnDefs: string[] = [];
-  const seenColumns = new Set<string>();
-  let hasPk = false;
-
-  for (const field of activeFields) {
-    const colName = sanitizeIdentifier(field.targetColumn);
-    const colLower = colName.toLowerCase();
-    if (seenColumns.has(colLower)) continue;
-    seenColumns.add(colLower);
-
-    const rawType = (field.targetType || 'TEXT').toUpperCase().replace(/[^A-Z0-9_(),\s\[\]]/g, '').trim();
-    // Strip any redundant embedded PRIMARY KEY from targetType to prevent "SERIAL PRIMARY KEY PRIMARY KEY"
-    const colType = rawType.replace(/\bPRIMARY\s+KEY\b/gi, '').trim() || 'TEXT';
-    const isNullable = field.isNullable ? '' : ' NOT NULL';
-    const isPk = (colLower === 'id' || colLower === '_id') && !hasPk;
-
-    if (isPk) {
-      hasPk = true;
-      columnDefs.push(`  "${colName}" ${colType} PRIMARY KEY`);
-    } else {
-      columnDefs.push(`  "${colName}" ${colType}${isNullable}`);
-    }
-  }
-
-  // Ensure child table has an explicit primary key if none was mapped
-  if (isChildTable && !hasPk && !seenColumns.has('id')) {
-    columnDefs.unshift(`  "id" SERIAL PRIMARY KEY`);
-    seenColumns.add('id');
-    hasPk = true;
-  }
-
-  // Array→Child Table Rule (AGENTS.md): auto-add sort_order for child tables,
-  // value is the 0-based array element index — populated during INSERT.
-  if (isChildTable && !seenColumns.has('sort_order')) {
-    columnDefs.push(`  "sort_order" INTEGER NOT NULL DEFAULT 0`);
-    seenColumns.add('sort_order');
-  }
-
-  const sql = `CREATE TABLE IF NOT EXISTS "${safeTableName}" (\n${columnDefs.join(',\n')}\n);`;
-  return { sql };
-}
-
-// ============================================
-// Utility Functions (Reused from dryRun.ts)
-// ============================================
-
-function extractFieldValue(
-  doc: Record<string, unknown>,
-  sourceField: string
-): unknown {
-  if (!doc || typeof doc !== 'object') return undefined;
-
-  // Direct match
-  if (sourceField in doc && doc[sourceField] !== undefined) {
-    return doc[sourceField];
-  }
-
-  // Dot-notation navigation (e.g. "address.city")
-  if (sourceField.includes('.')) {
-    const parts = sourceField.split('.');
-    let current: unknown = doc;
-    for (const p of parts) {
-      if (current === null || current === undefined || typeof current !== 'object') {
-        current = undefined;
-        break;
-      }
-      current = (current as Record<string, unknown>)[p];
-    }
-    if (current !== undefined) return current;
-  }
-
-  // Normalized case-insensitive match (handles minor name variations)
-  const normalizedSource = sourceField.toLowerCase().replace(/[^a-z0-9]/g, '');
-  for (const [key, val] of Object.entries(doc)) {
-    if (val === undefined) continue;
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (normalizedKey === normalizedSource) {
-      return val;
-    }
-  }
-
-  return undefined;
 }
 
 /**
