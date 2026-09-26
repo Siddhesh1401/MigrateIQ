@@ -42,6 +42,39 @@ import { maskSensitiveFields } from '../utils';
 export { maskSensitiveFields };
 
 /**
+ * Universally retrieves a value from a source document using direct key or nested dot-notation path.
+ * Supports arbitrary depth (e.g., "address.street", "order.shipping.address.geo.lat").
+ * Fully generic across any database, collection, and document schema.
+ */
+export function getDocumentFieldValue(doc: unknown, sourceField: string): unknown {
+  if (doc === null || doc === undefined || typeof doc !== 'object') {
+    return undefined;
+  }
+
+  const record = doc as Record<string, unknown>;
+
+  // 1. Direct property match (fast path and handles keys with literal dots)
+  if (sourceField in record && record[sourceField] !== undefined) {
+    return record[sourceField];
+  }
+
+  // 2. Universal dot-notation navigation for nested objects/subdocuments
+  if (sourceField.includes('.')) {
+    const parts = sourceField.split('.');
+    let current: unknown = doc;
+    for (const p of parts) {
+      if (current === null || current === undefined || typeof current !== 'object') {
+        return undefined;
+      }
+      current = (current as Record<string, unknown>)[p];
+    }
+    return current;
+  }
+
+  return record[sourceField];
+}
+
+/**
  * Setup Risk IPC handlers for Step 5 pre-migration analysis
  */
 export function setupRiskHandlers(): void {
@@ -402,13 +435,26 @@ export function setupRiskHandlers(): void {
                 const numericSpecialsColMap: Record<string, Set<string>> = {};
 
                 for (const field of colMapping.fields) {
+                  if (!field.include) continue;
+                  // Skip synthetic auto-injected fields and child table references:
+                  // These are generated during ETL and do not exist in source MongoDB docs.
+                  if (
+                    field.isChildTable ||
+                    field.sortOrderColumn ||
+                    field.sourceType === 'auto' ||
+                    field.sourceField === 'sort_order' ||
+                    field.targetType?.toUpperCase() === 'CHILD_TABLE'
+                  ) {
+                    continue;
+                  }
+
                   let missing = 0;
                   let maxStringLen = 0;
                   const varcharMatch = (field.targetType || '').match(/VARCHAR\s*\(\s*(\d+)\s*\)/i);
                   const varcharLimit = varcharMatch ? parseInt(varcharMatch[1], 10) : null;
 
                   sampleDocs.forEach((doc) => {
-                    const val = (doc as Record<string, unknown>)[field.sourceField];
+                    const val = getDocumentFieldValue(doc, field.sourceField);
                     const docId = String((doc as Record<string, unknown>)._id || 'sample-doc');
 
                     if (val === null || val === undefined) {
@@ -530,10 +576,10 @@ export function setupRiskHandlers(): void {
 
                 // Check for orphan foreign keys
                 for (const field of colMapping.fields) {
-                  if (field.foreignKeyToParent) {
+                  if (field.foreignKeyToParent && field.sourceType !== 'auto') {
                     const parentTable = field.foreignKeyToParent.split('.')[0];
                     const sampleFkValues = sampleDocs
-                      .map((d) => (d as Record<string, unknown>)[field.sourceField])
+                      .map((d) => getDocumentFieldValue(d, field.sourceField))
                       .filter((v) => v !== null && v !== undefined)
                       .slice(0, 10);
                     if (sampleFkValues.length > 0) {

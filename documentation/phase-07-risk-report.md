@@ -471,3 +471,24 @@ All **14 test suites and 38 unit assertions passed with 100% success**:
   - Absence of unacknowledged critical blockers (guaranteed by Step 5 hard gating).
   - Configured batch size recommendation (`recommendedBatchSize`) and circular foreign key deferral flags (`deferForeignKeys`).
   - Ready to execute transactional dry run simulation (`BEGIN ... ROLLBACK`) in `apps/desktop/main/engine/dryRun.ts`.
+
+---
+
+## 7. Recent Enhancements & Verification (Step 5 Remediation Studio)
+
+### 7.1 Key Additions:
+1. **Nested Dot-Notation Field Sampling (`getDocumentFieldValue`)**:
+   - `apps/desktop/main/handlers/risk.ts` now features safe path traversal for nested attributes (e.g. `address.city`), ensuring nested object fields are correctly sampled during live database inspection without returning `undefined`.
+
+2. **Synthetic Field Exclusion**:
+   - Auto-injected columns (`sort_order`, `sourceType: 'auto'`, child table markers) are automatically excluded from source missing-value checks since they are synthetic constructs generated during ETL, eliminating false-positive risk warnings.
+
+3. **`resolve_schema_drift` Auto-Fix Action**:
+   - Added support for `resolve_schema_drift` across `RiskReport.tsx` and `wizardStore.ts`. Choosing to resolve schema drift or dropping/renaming collisions automatically heals both the collision card and the schema drift risk card.
+
+4. **1-Click "Re-scan & Verify Fixes" Trigger**:
+   - Added a persistent re-scan button on the Risk Report action bar. When users apply auto-fixes, the telemetry re-scans in the background against the updated mappings to instantly update the safety scorecard.
+
+5. **Test Suite Verification**:
+   - `scripts/test-phase7-risk-engine.js` passed **88/88 unit assertions (100% pass rate)**.
+

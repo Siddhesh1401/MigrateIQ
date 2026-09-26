@@ -4,6 +4,8 @@ import type {
   Layer2FeatureItem,
   RiskAnalysisResult,
   RiskInteractiveOption,
+  CollectionMapping,
+  AutoFixAction,
 } from '@migrateiq/shared';
 import { useWizardStore } from '../store/wizardStore';
 import '../styles/risk-report.css';
@@ -429,8 +431,8 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
     acknowledgedLayer2Ids,
     toggleAcknowledgeRisk,
     toggleAcknowledgeLayer2,
-    applyAutoFix,
-    applyAllSafeRemediations,
+    applyAutoFix: storeApplyAutoFix,
+    applyAllSafeRemediations: storeApplyAllSafeRemediations,
   } = useWizardStore();
 
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
@@ -516,8 +518,9 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const runLiveAnalysis = useCallback(async () => {
-    if (!schemaMapping || !sourceSchema) return;
+  const runLiveAnalysis = useCallback(async (customMapping?: CollectionMapping[]) => {
+    const mappingToUse = customMapping || schemaMapping;
+    if (!mappingToUse || !sourceSchema) return;
     if (typeof window === 'undefined' || !window.electronAPI) return;
 
     if (isAnalyzing) return;
@@ -530,7 +533,7 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
     try {
       const res = await window.electronAPI.invoke<RiskAnalysisResult>('risk:analyze', {
         sourceSchema,
-        mapping: schemaMapping,
+        mapping: mappingToUse,
         direction: direction || 'mongodb-to-postgres',
         sourceConfig,
         targetConfig,
@@ -555,6 +558,36 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
       runLiveAnalysis();
     }
   }, [riskAnalysis, schemaMapping, sourceSchema, runLiveAnalysis]);
+
+  const applyAutoFix = useCallback(
+    (action: AutoFixAction) => {
+      storeApplyAutoFix(action);
+      setToastMessage(`✓ Applied fix: ${action.description || action.type}`);
+      setTimeout(() => setToastMessage(null), 3000);
+
+      // Auto-rescan / refresh immediately in background with the updated schema mapping
+      setTimeout(() => {
+        const currentMapping = useWizardStore.getState().schemaMapping;
+        if (currentMapping) {
+          runLiveAnalysis(currentMapping);
+        }
+      }, 150);
+    },
+    [storeApplyAutoFix, runLiveAnalysis]
+  );
+
+  const applyAllSafeRemediations = useCallback(() => {
+    storeApplyAllSafeRemediations();
+    setToastMessage('✓ Applied all safe remediations');
+    setTimeout(() => setToastMessage(null), 3000);
+
+    setTimeout(() => {
+      const currentMapping = useWizardStore.getState().schemaMapping;
+      if (currentMapping) {
+        runLiveAnalysis(currentMapping);
+      }
+    }, 150);
+  }, [storeApplyAllSafeRemediations, runLiveAnalysis]);
 
   const risks: RiskItem[] = useMemo(() => {
     if (riskAnalysis) {
@@ -1371,6 +1404,13 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
                                               recommendedValue: `${risk.affectedField}_col`,
                                               description: `Alias reserved keyword to "${risk.affectedField}_col"`,
                                             });
+                                          } else if (chosenOpt?.actionType === 'resolve_schema_drift') {
+                                            applyAutoFix({
+                                              type: 'resolve_schema_drift',
+                                              collectionName: risk.affectedTable || '',
+                                              recommendedValue: chosenValue,
+                                              description: `Resolve schema drift with "${chosenValue}"`,
+                                            });
                                           } else if (risk.autoFixAction) {
                                             applyAutoFix(risk.autoFixAction);
                                           }
@@ -1547,6 +1587,25 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
             title="Download formal DBA audit sign-off report with decisions ledger"
           >
             📥 Export Audit Report
+          </button>
+
+          <button
+            type="button"
+            className="btn-export-audit"
+            onClick={() => runLiveAnalysis()}
+            disabled={isAnalyzing}
+            title="Re-scan database against current schema mapping to verify your fixes"
+            style={{
+              backgroundColor: '#EFF6FF',
+              color: '#2563EB',
+              borderColor: '#BFDBFE',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <span>{isAnalyzing ? '⏳' : '🔄'}</span>
+            <span>{isAnalyzing ? 'Re-scanning...' : 'Re-scan & Verify Fixes'}</span>
           </button>
 
           <div className="risk-stats-chips">
@@ -2011,7 +2070,7 @@ export const RiskReport: React.FC<RiskReportProps> = ({ onBack, onContinue }) =>
           <button
             type="button"
             className="btn-ghost-sm"
-            onClick={runLiveAnalysis}
+            onClick={() => runLiveAnalysis()}
             disabled={isAnalyzing}
           >
             {isAnalyzing ? 'Scanning...' : '🔄 Re-scan Telemetry'}

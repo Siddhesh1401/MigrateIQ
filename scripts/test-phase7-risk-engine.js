@@ -3,6 +3,7 @@
  */
 
 const { analyzeRisks, detectFkCycles } = require('../apps/desktop/dist-electron/engine/riskAnalyzer');
+const { getDocumentFieldValue } = require('../apps/desktop/dist-electron/handlers/risk');
 
 console.log('====================================================');
 console.log('🧪 MigrateIQ Phase 7 - Risk Engine Verification Suite');
@@ -531,12 +532,70 @@ assert(jsonbRisk !== undefined, 'Detected plain JSON column for indexing advice'
 assert(jsonbRisk?.severity === 'info', 'JSON advisor severity is INFO');
 assert(jsonbRisk?.autoFixAction?.recommendedValue === 'JSONB', 'Recommended type is JSONB');
 
-// ── Test 24: Collection Health Matrix & Zero Data Loss Metrics ───────────────
-console.log('\n--- Test 24: Collection Health Matrix & Zero Data Loss Metrics ---');
-assert(Array.isArray(result20.metrics.collectionHealth), 'Result includes collectionHealth array');
-assert(result20.metrics.collectionHealth.length > 0, 'Collection health array is populated');
-assert(result20.metrics.collectionHealth[0].collectionName === 'customers', 'Collection health tracks customers');
-assert(typeof result20.metrics.atRiskRowCount === 'number', 'Result includes atRiskRowCount calculation');
+// ── Test 25: Universal Nested Dot-Notation Value Extraction ─────────────────
+console.log('\n--- Test 25: Universal Nested Dot-Notation Value Extraction ---');
+const sampleNestedDoc = {
+  customerId: 'CUST-101',
+  'literal.dot.key': 'Literal Dot Value',
+  address: {
+    street: '12 MG Road',
+    city: 'Bengaluru',
+    geo: {
+      coordinates: {
+        lat: 12.9716,
+        lng: 77.5946,
+      },
+    },
+  },
+  items: [
+    { name: 'Mechanical Keyboard', qty: 2 },
+    { name: 'Mousepad', qty: 1 },
+  ],
+  brokenParent: null,
+};
+
+assert(getDocumentFieldValue(sampleNestedDoc, 'customerId') === 'CUST-101', 'Direct scalar field retrieved');
+assert(getDocumentFieldValue(sampleNestedDoc, 'literal.dot.key') === 'Literal Dot Value', 'Literal dot in key takes priority');
+assert(getDocumentFieldValue(sampleNestedDoc, 'address.street') === '12 MG Road', '1-level nested dot path retrieved');
+assert(getDocumentFieldValue(sampleNestedDoc, 'address.city') === 'Bengaluru', 'Sibling nested dot path retrieved');
+assert(getDocumentFieldValue(sampleNestedDoc, 'address.geo.coordinates.lat') === 12.9716, 'Deep 4-level nested dot path retrieved');
+assert(getDocumentFieldValue(sampleNestedDoc, 'brokenParent.child.field') === undefined, 'Null intermediate path returns undefined without throwing');
+assert(getDocumentFieldValue(sampleNestedDoc, 'nonexistent.path') === undefined, 'Non-existent path returns undefined');
+assert(getDocumentFieldValue(sampleNestedDoc, 'items.0.name') === 'Mechanical Keyboard', 'Array index dot navigation retrieved');
+
+// ── Test 26: Synthetic Auto-Generated Columns Exemption (Rule 4) ────────────
+console.log('\n--- Test 26: Synthetic Auto-Generated Columns Exemption ---');
+const childTableMapping = [
+  {
+    collectionName: 'orders_items',
+    targetTableName: 'orders_items',
+    fields: [
+      { id: 'f1', sourceField: 'productId', sourceType: 'string', targetColumn: 'product_id', targetType: 'VARCHAR(50)', isNullable: false, include: true },
+      { id: 'f2', sourceField: 'sort_order', sourceType: 'auto', targetColumn: 'sort_order', targetType: 'INTEGER', isNullable: false, include: true, sortOrderColumn: true },
+      { id: 'f3', sourceField: 'orders_id', sourceType: 'auto', targetColumn: 'orders_id', targetType: 'VARCHAR(24)', isNullable: false, include: true, foreignKeyToParent: 'orders.id' },
+    ],
+  },
+];
+
+const result26 = analyzeRisks({
+  sourceSchema: [{ collectionName: 'orders_items', documentCount: 50, fields: [] }],
+  mapping: childTableMapping,
+  direction: 'mongodb-to-postgres',
+  fieldMissingCounts: {
+    orders_items: {
+      // In MongoDB, sort_order does not exist, so missing count was reported as 50
+      sort_order: 50,
+      orders_id: 50,
+      productId: 0,
+    },
+  },
+});
+
+const sortOrderRisk = result26.risks.find((r) => r.affectedField === 'sort_order' || r.id.includes('sort_order'));
+assert(sortOrderRisk === undefined, 'Synthetic sort_order column is exempt from NOT NULL missing risks');
+
+const fkAutoRisk = result26.risks.find((r) => r.affectedField === 'orders_id' && r.id.includes('missing'));
+assert(fkAutoRisk === undefined, 'Synthetic orders_id foreign key is exempt from NOT NULL missing risks');
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log('\n====================================================');

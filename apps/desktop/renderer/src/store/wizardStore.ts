@@ -272,6 +272,15 @@ export const useWizardStore = create<WizardState>((set, get) => ({
           tableAction: act,
         };
       });
+    } else if (action.type === 'resolve_schema_drift') {
+      const act = typeof action.recommendedValue === 'string' ? action.recommendedValue : 'alter_add_columns';
+      updatedMappings = updatedMappings.map((col) => {
+        if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
+        return {
+          ...col,
+          tableAction: act === 'drop' ? 'drop' : (col.tableAction || 'alter_add_columns'),
+        };
+      });
     } else if (action.type === 'sanitize_null_bytes' && action.fieldName) {
       updatedMappings = updatedMappings.map((col) => {
         if (col.collectionName !== action.collectionName && col.targetTableName !== action.collectionName) return col;
@@ -458,6 +467,30 @@ export const useWizardStore = create<WizardState>((set, get) => ({
         ) {
           return { ...r, fixed: true, acknowledged: true };
         }
+
+        // Cross-card linked resolution:
+        // If tableAction is set to 'drop' or 'rename', both table-collision AND schema-drift for that table are resolved!
+        const affectsSameTable =
+          r.affectedTable?.toLowerCase() === action.collectionName?.toLowerCase() ||
+          r.autoFixAction?.collectionName?.toLowerCase() === action.collectionName?.toLowerCase();
+
+        if (affectsSameTable) {
+          if (
+            (action.type === 'set_table_action' &&
+              (action.recommendedValue === 'drop' || action.recommendedValue === 'rename')) ||
+            action.type === 'rename_target_table' ||
+            (action.type === 'resolve_schema_drift' && action.recommendedValue === 'drop')
+          ) {
+            return { ...r, fixed: true, acknowledged: true };
+          }
+          if (
+            action.type === 'resolve_schema_drift' &&
+            (r.id.includes('drift') || r.autoFixAction?.type === 'resolve_schema_drift')
+          ) {
+            return { ...r, fixed: true, acknowledged: true };
+          }
+        }
+
         return r;
       });
       const criticalCount = updatedRisks.filter((r) => r.severity === 'critical' && !r.fixed && !r.acknowledged).length;

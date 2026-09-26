@@ -67,10 +67,13 @@ export function detectFkCycles(mappings: CollectionMapping[]): string[][] {
 
     // Check fields for foreign keys or child tables
     for (const field of collection.fields) {
-      if (field.foreignKeyToParent) {
+      // Child-table markers on parent collections do NOT create parent dependencies
+      if (field.foreignKeyToParent && !field.isChildTable) {
         const referencedTable = field.foreignKeyToParent.split('.')[0] || field.foreignKeyToParent;
-        if (!graph.has(table)) graph.set(table, new Set());
-        graph.get(table)!.add(referencedTable);
+        if (referencedTable && referencedTable !== table) {
+          if (!graph.has(table)) graph.set(table, new Set());
+          graph.get(table)!.add(referencedTable);
+        }
       }
       if (field.isChildTable && field.childTableName) {
         if (!graph.has(field.childTableName)) graph.set(field.childTableName, new Set());
@@ -255,7 +258,16 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
     const colMissingStats = fieldMissingCounts[colMapping.collectionName] || {};
 
     for (const field of colMapping.fields) {
-      if (!field.include || field.isChildTable) continue;
+      if (
+        !field.include ||
+        field.isChildTable ||
+        field.sortOrderColumn ||
+        field.sourceType === 'auto' ||
+        field.sourceField === 'sort_order' ||
+        field.targetType?.toUpperCase() === 'CHILD_TABLE'
+      ) {
+        continue;
+      }
 
       if (!field.isNullable) {
         const srcField = srcSchema?.fields.find((f) => f.name === field.sourceField);
@@ -421,12 +433,15 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
           },
         ];
 
+        const isMixedFixed = field.targetType?.toUpperCase() === 'TEXT' || field.targetType?.toUpperCase() === 'JSONB';
         risks.push({
           id: `risk-mixed-type-${colMapping.collectionName}-${field.sourceField}`,
           severity: 'warning',
           category: 'data_integrity',
           decisionTier: 'decision',
           actionCategory: 'schema_choice',
+          fixed: isMixedFixed,
+          acknowledged: isMixedFixed,
           title: `Mixed Data Types Detected in Field "${field.sourceField}"`,
           description: `Field "${field.sourceField}" in "${colMapping.collectionName}" contains mixed polymorphic data types across sample documents (e.g. string and integer).`,
           suggestedFix: `Select target column type (TEXT or JSONB) to prevent SQL cast errors during insertion.`,
@@ -490,12 +505,15 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
           ? ` (contains ${tblDetails.rowCount.toLocaleString()} existing rows)`
           : '';
 
+        const isCollisionResolved = colMapping.tableAction === 'drop' || colMapping.tableAction === 'rename' || Boolean(colMapping.targetTableName && colMapping.targetTableName.toLowerCase() !== colMapping.collectionName.toLowerCase());
         risks.push({
           id: `risk-table-collision-${targetEntity.toLowerCase()}`,
           severity: 'warning',
           category: 'schema',
           decisionTier: 'destructive',
           actionCategory: 'destructive',
+          fixed: isCollisionResolved,
+          acknowledged: isCollisionResolved,
           title: `Target ${dbLabel} Already Contains ${entityLabel} "${targetEntity}"`,
           description: `The destination ${dbLabel} database already contains an existing ${entityLabel.toLowerCase()} named "${targetEntity}"${rowCountNote}. Choose how to handle this collision.`,
           suggestedFix: `Select whether to append data, overwrite/recreate the table, or rename the destination table.`,
@@ -788,12 +806,15 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
       for (const colName of nullCols) {
         const field = colMapping.fields.find((f) => f.sourceField === colName);
         if (field && field.include) {
+          const isNullByteFixed = field.sanitizeNullBytes === true || field.transformationRule === 'strip_null_bytes';
           risks.push({
             id: `risk-nullbyte-${colMapping.collectionName}-${colName}`,
             severity: 'critical',
             category: 'data_integrity',
             decisionTier: 'safe',
             actionCategory: 'remediation',
+            fixed: isNullByteFixed,
+            acknowledged: isNullByteFixed,
             title: `Fatal UTF-8 Null Byte (\\0) Detected in String Column: ${colName}`,
             description: `Sample documents in "${colMapping.collectionName}.${colName}" contain raw null characters (0x00). PostgreSQL's internal C-string parser terminates on \\0 and will immediately crash with "ERROR: invalid byte sequence for encoding UTF8: 0x00".`,
             suggestedFix: `Sanitize text values during ETL by stripping or replacing 0x00 null bytes before PostgreSQL insertion.`,
@@ -964,12 +985,16 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
         },
       ];
 
+      const field = colMapping.fields.find(f => f.sourceField === item.field || f.targetColumn === item.field);
+      const isOrphanFixed = field?.orphanStrategy === 'set_null' || field?.orphanStrategy === 'remove_constraint' || !field?.foreignKeyToParent;
       risks.push({
         id: `risk-orphan-${colMapping.collectionName}-${item.field}`,
         severity: 'critical',
         category: 'relational',
         decisionTier: 'decision',
         actionCategory: 'safety_strategy',
+        fixed: isOrphanFixed,
+        acknowledged: isOrphanFixed,
         title: `Orphan Foreign References in Column: ${colMapping.collectionName}.${item.field}`,
         description: `Sample documents contain reference values for "${item.field}" pointing to "${item.foreignTable}", but ~${item.missingCount} parent IDs do not exist in the destination. Strict PostgreSQL foreign keys will reject these rows.`,
         suggestedFix: `Configure FK with ON DELETE SET NULL or keep as an unconstrained indexed column.`,
@@ -1143,12 +1168,15 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
         tblDetails.extraInTarget = extraInTarget;
 
         if (missingInTarget.length > 0) {
+          const isDriftResolved = colMapping.tableAction === 'drop' || colMapping.tableAction === 'alter_add_columns';
           risks.push({
             id: `risk-drift-missing-${targetEntity}`,
             severity: 'critical',
             category: 'schema',
             decisionTier: 'decision',
             actionCategory: 'schema_choice',
+            fixed: isDriftResolved,
+            acknowledged: isDriftResolved,
             title: `Target Table Schema Drift: ${missingInTarget.length} Missing Column(s) in "${targetEntity}"`,
             description: `The existing PostgreSQL table "${targetEntity}" is missing columns expected by your mapping: [${missingInTarget.join(', ')}]. Appending rows to this table will immediately fail with column does not exist errors.`,
             suggestedFix: `Choose whether to auto-generate ALTER TABLE statements, drop and recreate the table, or exclude the missing columns.`,
