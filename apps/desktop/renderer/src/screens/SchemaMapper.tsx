@@ -1074,11 +1074,42 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                                       ⚡ Was Nested
                                     </span>
                                   )}
-                                  {!field.sortOrderColumn && (field.foreignKeyToParent || (field.sourceField !== '_id' && (field.sourceField.endsWith('_id') || field.sourceField.endsWith('Id')))) && (
-                                    <span className="field-badge fk-badge" title="Inferred Foreign Key relationship">
-                                      🔗 FK → {field.foreignKeyToParent || field.sourceField.replace(/_?id$/i, '') + 's'}
-                                    </span>
-                                  )}
+                                  {(() => {
+                                    if (field.sortOrderColumn || field.isChildTable || field.sourceField === '_id') return null;
+
+                                    let fkTarget = field.foreignKeyToParent;
+                                    const currentColl = (collection.collectionName || '').toLowerCase();
+                                    const currentTable = (collection.targetTableName || '').toLowerCase();
+
+                                    // If not explicitly set, infer only if an external collection actually exists in the migration
+                                    if (!fkTarget && (field.sourceField.endsWith('_id') || field.sourceField.endsWith('Id'))) {
+                                      const rawTarget = field.sourceField.replace(/_?id$/i, '');
+                                      const candidateTarget = rawTarget.toLowerCase() + 's';
+
+                                      const targetCol = mappings.find(
+                                        (m) =>
+                                          m.collectionName.toLowerCase() === candidateTarget ||
+                                          m.targetTableName.toLowerCase() === candidateTarget
+                                      );
+
+                                      if (targetCol && candidateTarget !== currentColl && candidateTarget !== currentTable) {
+                                        fkTarget = `${targetCol.targetTableName || targetCol.collectionName}.id`;
+                                      }
+                                    }
+
+                                    if (fkTarget) {
+                                      const targetTable = fkTarget.split('.')[0].toLowerCase();
+                                      if (targetTable === currentColl || targetTable === currentTable) {
+                                        return null; // Never display self-referencing foreign keys on table's own ID
+                                      }
+                                      return (
+                                        <span className="field-badge fk-badge" title="Inferred Foreign Key relationship">
+                                          🔗 FK → {fkTarget}
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                   {field.isChildTable && (
                                     <span className="field-badge child-table-badge">
                                       <span className="badge-dot"></span>

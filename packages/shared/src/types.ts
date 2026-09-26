@@ -75,7 +75,7 @@ export interface CollectionMapping {
   fields: FieldMapping[];
   indexes?: IndexMapping[];
   childTables?: CollectionMapping[];
-  tableAction?: 'drop' | 'append' | 'rename';
+  tableAction?: 'drop' | 'append' | 'rename' | 'alter_add_columns';
 }
 
 export interface TargetIndexPlan {

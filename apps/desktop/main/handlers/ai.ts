@@ -9,7 +9,7 @@ import type {
   AnomalyFixRequest,
   AIAnomalyFixRecommendation,
 } from '@migrateiq/shared';
-import { generateMappingByRules } from '../engine/ruleEngine';
+import { generateMappingByRules, sanitizePostgresIdentifier } from '../engine/ruleEngine';
 import { recordAIUsage } from './aiUsageStore';
 import { getTypeAwareDefaultValue, formatSqlDefaultClause } from '../engine/dryRun';
 
@@ -1131,54 +1131,71 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
 `;
   } else {
     prompt = `
-You are a principal database architect and migration expert. Convert this MongoDB schema to a high-performance PostgreSQL schema mapping.
+You are a principal database architect and enterprise migration engineer. Convert this MongoDB document schema into a pristine, production-grade PostgreSQL relational schema mapping.
+
+Target Database: PostgreSQL (Relational schema)
+Source Database: MongoDB (Document schema)
 
 Rules:
-1. ObjectId → VARCHAR(24) (store as hex string)
-2. String → TEXT (default) or VARCHAR(N) if known length
-3. NumberInt → INTEGER
-4. NumberLong → BIGINT
-5. Double → DOUBLE PRECISION (never for money)
-6. Decimal128 → NUMERIC(18,4) (always for money/currency)
-7. ISODate/Date → TIMESTAMPTZ (always timezone-aware)
-8. Boolean → BOOLEAN
-9. Binary / UUID → UUID or BYTEA
-10. Array of primitives (strings/ints) → TEXT[] or INTEGER[]
-11. Array of objects → Create separate child table with foreign key (set isChildTable: true, childTableName, foreignKeyToParent)
-12. Nested object (1-2 levels) → Flatten with underscore (e.g., address.city → address_city)
-13. Nested object (3+ levels or polymorphic) → JSONB
-14. Null/missing → Column must be NULLABLE (isNullable: true)
-15. Cross-Collection Relationships & Foreign Keys (Improvement 3):
-    Analyze all collections together. If a collection has a field referencing another collection's primary key (e.g., 'userId' or 'customerId' in orders pointing to 'users._id', or 'productId' pointing to 'products._id'):
-    - Set foreignKeyToParent to the referenced table (e.g. "users.id")
-    - Ensure targetColumn uses snake_case (e.g. "user_id")
-    - Set targetType to match the referenced key (VARCHAR(24))
-16. Value-Aware Sizing from sampleValues (Improvement 1):
-    If sampleValues are provided, use them to optimize column types:
-    - Email addresses → VARCHAR(255)
-    - Short status/codes → VARCHAR(20) or VARCHAR(50)
-    - Phone numbers → VARCHAR(20)
-    - Price/money values → NUMERIC(18,4) or DOUBLE PRECISION
-17. PostgreSQL Reserved Words Protection (Improvement 2):
-    Do NOT name columns or tables with unquoted PostgreSQL reserved keywords (such as 'order', 'user', 'group', 'table', 'check', 'limit', 'offset', 'primary', 'references').
-    Rename them safely to prevent syntax errors (e.g. 'order' → 'orders' or 'order_record', 'user' → 'users' or 'app_user', 'limit' → 'item_limit', 'check' → 'check_status').
+1. ObjectId → VARCHAR(24) (store as hex string). Primary key "_id" MUST map to "id" with isNullable: false.
+2. String → TEXT (default) or VARCHAR(N) if length is known or bounded (e.g., status → VARCHAR(50), email → VARCHAR(255)).
+3. NumberInt / int32 → INTEGER (32-bit signed integer).
+4. NumberLong / int64 → BIGINT (64-bit signed integer).
+5. Unix millisecond timestamps / epoch counters / byte counters (e.g. timestamp_ms, epoch_ms, file_bytes) → BIGINT.
+6. Double → DOUBLE PRECISION (for scientific measurements; NEVER use for money/prices).
+7. Decimal128 → NUMERIC(18,4) (always for currency, prices, financial totals).
+8. ISODate / Date → TIMESTAMPTZ (always timezone-aware, never naive TIMESTAMP).
+9. Boolean → BOOLEAN.
+10. Binary / UUID → UUID or BYTEA.
+11. Array of primitives (strings/ints) → TEXT[] or INTEGER[].
+12. Array of objects (1:N relationship) → Child Table:
+    - In the parent collection mapping, set isChildTable: true, childTableName: "<parent_table>_<field_name>" (e.g. "orders_items"), targetType: "JSONB", isNullable: true.
+    - CRITICAL: Do NOT set foreignKeyToParent on this field in the parent table! (The parent table never references the child table or itself).
+13. Fixed subdocuments (1-2 levels with consistent scalar fields across all documents, e.g., address: { street, city, zipCode }):
+    - Flatten into clean relational columns with underscores (e.g., address.street → address_street, address.city → address_city).
+14. Dynamic dictionaries & Polymorphic key-value objects (e.g., specs, metadata, attributes, properties, options, tags, payload):
+    - When keys vary widely across different items (like catalog specs where laptops have cpu/gpu, chairs have lumbar_support, and coffee has roast_level):
+    - Map to JSONB (do NOT flatten into dozens of mostly-null sparse columns!).
+15. Polymorphic scalars (e.g., phone stored as both number and string across documents):
+    - Map to TEXT (not JSONB) to allow clean scalar querying.
+16. Nullability:
+    - If a field is present in all documents or is the primary key "_id", set isNullable: false.
+    - If a field is optional, missing, or null in some documents, set isNullable: true.
+17. Cross-Collection Relationships & Foreign Keys:
+    - Analyze all collections together. If a collection has a field referencing another collection's primary key (e.g., 'customerId' in orders pointing to 'customers._id'):
+    - Set foreignKeyToParent to the referenced table and column (e.g. "customers.id").
+    - Ensure targetColumn uses snake_case (e.g. "customer_id").
+    - NEVER set foreignKeyToParent pointing to the SAME table (no circular self-references like orders -> orders).
+18. PostgreSQL Reserved Words Protection:
+    - Do NOT name columns or tables with unquoted PostgreSQL reserved keywords (such as 'order', 'user', 'group', 'table', 'check', 'limit', 'offset', 'primary', 'references').
+    - Rename them safely to prevent syntax errors (e.g. 'order' → 'orders' or 'order_col', 'user' → 'users').
 
 ---
-### Few-Shot Example (Improvement 4):
+### Few-Shot Example:
 Example Input Schema:
 [
   {
-    "collectionName": "users",
+    "collectionName": "customers",
     "fields": [
       { "name": "_id", "bsonType": "ObjectId", "sampleValues": ["60d5ec49f1b24b0015f8e001"] },
-      { "name": "email", "bsonType": "string", "sampleValues": ["alice@example.com"] }
+      { "name": "company", "bsonType": "string", "sampleValues": ["Acme Corp"] },
+      { "name": "phone", "bsonType": "mixed", "sampleValues": ["+91-98200-10010"] }
+    ]
+  },
+  {
+    "collectionName": "catalog",
+    "fields": [
+      { "name": "_id", "bsonType": "ObjectId" },
+      { "name": "title", "bsonType": "string", "sampleValues": ["Pro Laptop"] },
+      { "name": "price", "bsonType": "Decimal128", "sampleValues": ["1299.99"] },
+      { "name": "specs", "bsonType": "object" }
     ]
   },
   {
     "collectionName": "orders",
     "fields": [
       { "name": "_id", "bsonType": "ObjectId" },
-      { "name": "userId", "bsonType": "ObjectId", "sampleValues": ["60d5ec49f1b24b0015f8e001"] },
+      { "name": "customerId", "bsonType": "string", "sampleValues": ["CUST-101"] },
       { "name": "status", "bsonType": "string", "sampleValues": ["completed", "pending"] },
       { "name": "items", "bsonType": "arrayOfObjects" }
     ]
@@ -1188,25 +1205,36 @@ Example Input Schema:
 Example Expected JSON Output:
 [
   {
-    "collectionName": "users",
-    "targetTableName": "users",
+    "collectionName": "customers",
+    "targetTableName": "customers",
     "fields": [
       { "id": "f1", "sourceField": "_id", "sourceType": "ObjectId", "targetColumn": "id", "targetType": "VARCHAR(24)", "isNullable": false, "include": true },
-      { "id": "f2", "sourceField": "email", "sourceType": "string", "targetColumn": "email", "targetType": "VARCHAR(255)", "isNullable": false, "include": true }
+      { "id": "f2", "sourceField": "company", "sourceType": "string", "targetColumn": "company", "targetType": "TEXT", "isNullable": false, "include": true },
+      { "id": "f3", "sourceField": "phone", "sourceType": "mixed", "targetColumn": "phone", "targetType": "TEXT", "isNullable": false, "include": true }
     ],
-    "indexes": [
-      { "sourceIndexName": "idx_users_email", "targetIndexName": "idx_users_email", "targetSql": "CREATE INDEX CONCURRENTLY \"idx_users_email\" ON \"users\" (\"email\");", "include": true, "isConcurrently": true, "isGin": false }
+    "indexes": [],
+    "childTables": []
+  },
+  {
+    "collectionName": "catalog",
+    "targetTableName": "catalog",
+    "fields": [
+      { "id": "f4", "sourceField": "_id", "sourceType": "ObjectId", "targetColumn": "id", "targetType": "VARCHAR(24)", "isNullable": false, "include": true },
+      { "id": "f5", "sourceField": "title", "sourceType": "string", "targetColumn": "title", "targetType": "TEXT", "isNullable": false, "include": true },
+      { "id": "f6", "sourceField": "price", "sourceType": "Decimal128", "targetColumn": "price", "targetType": "NUMERIC(18,4)", "isNullable": false, "include": true },
+      { "id": "f7", "sourceField": "specs", "sourceType": "object", "targetColumn": "specs", "targetType": "JSONB", "isNullable": true, "include": true }
     ],
+    "indexes": [],
     "childTables": []
   },
   {
     "collectionName": "orders",
     "targetTableName": "orders",
     "fields": [
-      { "id": "f3", "sourceField": "_id", "sourceType": "ObjectId", "targetColumn": "id", "targetType": "VARCHAR(24)", "isNullable": false, "include": true },
-      { "id": "f4", "sourceField": "userId", "sourceType": "ObjectId", "targetColumn": "user_id", "targetType": "VARCHAR(24)", "isNullable": false, "include": true, "foreignKeyToParent": "users.id" },
-      { "id": "f5", "sourceField": "status", "sourceType": "string", "targetColumn": "status", "targetType": "VARCHAR(20)", "isNullable": false, "include": true },
-      { "id": "f6", "sourceField": "items", "sourceType": "arrayOfObjects", "targetColumn": "items", "targetType": "JSONB", "isNullable": true, "include": true, "isChildTable": true, "childTableName": "orders_items", "foreignKeyToParent": "orders_id" }
+      { "id": "f8", "sourceField": "_id", "sourceType": "ObjectId", "targetColumn": "id", "targetType": "VARCHAR(24)", "isNullable": false, "include": true },
+      { "id": "f9", "sourceField": "customerId", "sourceType": "string", "targetColumn": "customer_id", "targetType": "VARCHAR(24)", "isNullable": false, "include": true, "foreignKeyToParent": "customers.id" },
+      { "id": "f10", "sourceField": "status", "sourceType": "string", "targetColumn": "status", "targetType": "VARCHAR(50)", "isNullable": false, "include": true },
+      { "id": "f11", "sourceField": "items", "sourceType": "arrayOfObjects", "targetColumn": "items", "targetType": "JSONB", "isNullable": true, "include": true, "isChildTable": true, "childTableName": "orders_items" }
     ],
     "indexes": [],
     "childTables": []
@@ -1271,8 +1299,122 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
 
   const mappings: CollectionMapping[] = rawMappings as CollectionMapping[];
 
-  // Validate, add UUIDs if missing, inject sort_order for child tables, and ensure indexes are populated
-  mappings.forEach((mapping) => {
+  // ── Enterprise Post-Processing Guardrails (20/20 Standard) ──
+  const allKnownTables = new Set<string>();
+  for (const m of mappings) {
+    if (!m.collectionName) continue;
+    m.targetTableName = sanitizePostgresIdentifier(m.targetTableName || m.collectionName, true);
+    allKnownTables.add(m.targetTableName.toLowerCase());
+    allKnownTables.add(m.collectionName.toLowerCase());
+  }
+
+  for (const mapping of mappings) {
+    const srcSchema = schemas.find((s) => s.collectionName === mapping.collectionName);
+    const srcFieldsMap = new Map<string, import('@migrateiq/shared').FieldDefinition>();
+    if (srcSchema?.fields) {
+      for (const sf of srcSchema.fields) {
+        srcFieldsMap.set(sf.name, sf);
+        if (sf.path) srcFieldsMap.set(sf.path, sf);
+      }
+    }
+
+    // Guardrail 1: Sparse Dynamic Object Consolidation
+    // If Gemini flattened dynamic dictionaries like specs, attributes, or metadata into multiple sparse columns
+    // (e.g. specs_cpu, specs_gpu, specs_roast_level), consolidate them back into a single JSONB column.
+    const dynamicPrefixes = ['specs', 'metadata', 'attributes', 'properties', 'custom_fields'];
+    for (const prefix of dynamicPrefixes) {
+      const srcHasDict = srcFieldsMap.has(prefix);
+      if (srcHasDict) {
+        const flattenedCols = mapping.fields.filter(
+          (f) => f.sourceField.startsWith(`${prefix}.`) || f.targetColumn.startsWith(`${prefix}_`)
+        );
+        if (flattenedCols.length >= 3 && !mapping.fields.some((f) => f.targetColumn === prefix || f.sourceField === prefix)) {
+          mapping.fields = mapping.fields.filter((f) => !flattenedCols.includes(f));
+          mapping.fields.push({
+            id: randomUUID(),
+            sourceField: prefix,
+            sourceType: 'object',
+            targetColumn: prefix,
+            targetType: 'JSONB',
+            isNullable: true,
+            include: true,
+            isChildTable: false,
+            transformationRule: 'jsonb',
+          });
+        }
+      }
+    }
+
+    // Guardrail 2: Per-Field Sanitization & Constraint Safety
+    for (const field of mapping.fields) {
+      // Clean and sanitize identifiers
+      if (field.sourceField === '_id') {
+        field.targetColumn = 'id';
+        field.isNullable = false;
+        if (!isPgToMongo && field.targetType.toUpperCase() !== 'UUID') {
+          field.targetType = 'VARCHAR(24)';
+        }
+      } else {
+        field.targetColumn = sanitizePostgresIdentifier(field.targetColumn || field.sourceField, false);
+      }
+
+      // Guardrail 2B: Strip Circular and Self-Referencing Foreign Keys
+      if (field.isChildTable) {
+        field.foreignKeyToParent = undefined;
+        if (!field.childTableName) {
+          field.childTableName = `${mapping.targetTableName}_${field.targetColumn}`;
+        } else {
+          field.childTableName = sanitizePostgresIdentifier(field.childTableName, true);
+        }
+      }
+
+      if (field.foreignKeyToParent) {
+        const refParts = field.foreignKeyToParent.split('.');
+        const refTable = refParts[0].toLowerCase();
+        const currentTable = mapping.targetTableName.toLowerCase();
+        const currentCollection = mapping.collectionName.toLowerCase();
+
+        // If FK points to self or self_id, strip it
+        if (
+          refTable === currentTable ||
+          refTable === currentCollection ||
+          refTable === `${currentTable}_id` ||
+          refTable === `${currentCollection}_id` ||
+          refTable === 'id' ||
+          refTable === field.targetColumn.toLowerCase()
+        ) {
+          console.warn(`[AI Guardrail] Stripped self-referencing foreign key on ${mapping.collectionName}.${field.sourceField} ("${field.foreignKeyToParent}")`);
+          field.foreignKeyToParent = undefined;
+        } else if (!allKnownTables.has(refTable) && !allKnownTables.has(`${refTable}s`) && !allKnownTables.has(refTable.replace(/s$/, ''))) {
+          console.warn(`[AI Guardrail] Stripped phantom foreign key pointing to non-existent table "${refTable}" on ${mapping.collectionName}.${field.sourceField}`);
+          field.foreignKeyToParent = undefined;
+        }
+      }
+
+      // Guardrail 2C: Polymorphic Scalar Coercion (mixed -> TEXT instead of JSONB when scalar)
+      const srcField = srcFieldsMap.get(field.sourceField);
+      if (srcField && (srcField.bsonType === 'mixed' || field.sourceType === 'mixed')) {
+        const isScalarName = /(?:phone|mobile|contact|code|id|ref|status|zip|pin)/i.test(field.sourceField);
+        const hasScalarSamples = srcField.sampleValues && srcField.sampleValues.every((v) => v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean');
+        if (isScalarName || hasScalarSamples) {
+          field.targetType = 'TEXT';
+        }
+      }
+
+      // Guardrail 2D: Unix Epoch / Timestamp_ms Elevation to BIGINT
+      if (
+        (field.targetType === 'INTEGER' || field.targetType === 'INT') &&
+        /(?:timestamp|epoch|_ms|_bytes|filesize)/i.test(field.sourceField)
+      ) {
+        field.targetType = 'BIGINT';
+      }
+
+      // Guardrail 2E: Data-Driven Nullability
+      if (srcField && srcField.isNullable === false) {
+        field.isNullable = false;
+      }
+    }
+
     // Build enriched fields array with sort_order injected after each child-table field
     const enrichedFields: CollectionMapping['fields'] = [];
     mapping.fields.forEach((field) => {
@@ -1308,7 +1450,22 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
     });
     mapping.fields = enrichedFields;
 
-    const srcSchema = schemas.find((s) => s.collectionName === mapping.collectionName);
+    // Guardrail 3: Child Tables Normalization
+    if (mapping.childTables && Array.isArray(mapping.childTables)) {
+      mapping.childTables = mapping.childTables.map((ct) => {
+        const sanitizedTableName = sanitizePostgresIdentifier(ct.targetTableName || ct.collectionName || `${mapping.targetTableName}_items`, true);
+        return {
+          ...ct,
+          collectionName: ct.collectionName || mapping.collectionName,
+          targetTableName: sanitizedTableName,
+          fields: Array.isArray(ct.fields) ? ct.fields : [],
+          indexes: Array.isArray(ct.indexes) ? ct.indexes : [],
+        };
+      });
+    } else {
+      mapping.childTables = [];
+    }
+
     if (srcSchema && srcSchema.indexes && srcSchema.indexes.length > 0) {
       const validAiIndexes = (mapping.indexes || []).filter(
         (idx) => idx && idx.sourceIndexName && idx.targetSql
@@ -1335,7 +1492,7 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
         });
       }
     }
-  });
+  }
 
   return mappings;
 }

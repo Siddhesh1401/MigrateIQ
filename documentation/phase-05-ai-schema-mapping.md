@@ -1093,5 +1093,25 @@ git commit -m "feat: phase-05 — bidirectional schema mapping engine, BSON type
 
 ---
 
+## 9. Recent Enhancements: Enterprise AI Post-Processing Guardrails (20/20 Standard)
+
+### 9.1 Key Capabilities Added:
+1. **Dynamic Sparse Object Consolidation (Guardrail 1)**:
+   - When Gemini flattens dynamic dictionaries (`specs`, `metadata`, `attributes`) into multiple sparse columns (`specs_cpu`, `specs_gpu`, `specs_roast_level`), the post-processor consolidates them into a single, clean `JSONB` column.
+2. **Circular & Phantom Foreign Key Stripping (Guardrail 2)**:
+   - Automatically sanitizes table and column identifiers.
+   - Detects and strips self-referencing foreign keys (e.g. `orders.id -> orders.id`) and phantom foreign keys pointing to non-existent tables.
+3. **Polymorphic Scalar Coercion (Guardrail 3)**:
+   - Coerces scalar `mixed` types (such as phone numbers formatted with both numbers and country-code strings) to `TEXT` instead of `JSONB`.
+4. **Unix Epoch / Timestamp Elevation (Guardrail 4)**:
+   - Detects millisecond timestamps and large byte counters in field names (`timestamp_ms`, `epoch`, `_bytes`, `filesize`) and elevates them from `INTEGER` to `BIGINT` to prevent 2.14B integer overflow.
+5. **Data-Driven Nullability (Guardrail 5)**:
+   - Propagates strict `isNullable: false` constraints when source MongoDB documents are non-nullable.
+6. **3-Way Benchmark & Guardrail Test Suite**:
+   - Added `scripts/test-gemini-guardrails.js`, `scripts/compare-3way.js`, and `scripts/compare-rule-vs-gemini.js` to benchmark prompt performance and verify guardrail reliability.
+
+---
+
 **Phase 5 Complete.** ✅ Ready for Phase 6 (DDL Preview + Risk Detection).
+
 

@@ -16,11 +16,19 @@ import { randomUUID } from 'crypto';
  *   inStock       → in_stock
  */
 function toSnakeCase(str: string): string {
-  return str
-    .replace(/\./g, '_')             // dot notation → underscore (address.city → address_city)
-    .replace(/([A-Z])/g, '_$1')      // insert _ before each uppercase letter
+  let s = str
+    .replace(/\./g, '_')                    // dot notation → underscore
+    .replace(/[-\s]+/g, '_')                 // hyphens & spaces → underscore
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2') // camelCase → snake_case
+    .replace(/[^a-zA-Z0-9_]/g, '_')          // any other symbol → underscore
     .toLowerCase()
-    .replace(/^_/, '');              // strip leading underscore if field started with uppercase
+    .replace(/_+/g, '_')                     // collapse multiple underscores
+    .replace(/^_|_$/g, '');                  // trim leading/trailing underscores
+
+  if (/^[0-9]/.test(s)) {
+    s = `col_${s}`;
+  }
+  return s || 'col';
 }
 
 /**
@@ -63,7 +71,7 @@ export function sanitizePostgresIdentifier(str: string, isTable = false): string
  * Auto-detects the mapping direction based on the field types in the schema.
  */
 export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mongodb-to-postgres' | 'postgres-to-mongo'): CollectionMapping[] {
-  return schemas.map((schema) => {
+  const mappings: CollectionMapping[] = schemas.map((schema) => {
     // If direction is not specified, guess based on whether the first field is BSON-like or SQL-like
     let mapFunc = mapFieldToPostgres;
     if (direction === 'postgres-to-mongo') {
@@ -88,17 +96,61 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
       };
     }
 
-    // Map fields and inject sort_order for any child table fields (AGENTS.md: Array → Child Table Rule)
-    const rawFields = schema.fields.map((field) => {
+    // Map fields with intelligent subdocument flattening and sort_order injection
+    const rawFields: FieldMapping[] = [];
+
+    for (const field of schema.fields) {
+      const fieldName = field.name || field.path || 'field';
+      const effectiveBsonType = (field.bsonType || 'string').toLowerCase();
+
+      // ── Intelligent Subdocument Flattening (Rule 12) ──
+      // If the field is an embedded object with known scalar subfields (e.g. address: { street, city, zipCode, state }),
+      // unroll into clean, 1NF relational columns (address_street, address_city, etc.).
+      // If the object has dynamic/variable keys (like catalog.specs or dynamic metadata) or no nestedFields, keep as JSONB.
+      const isDynamicDict =
+        /(?:specs|metadata|attributes|properties|extra|settings|options|tags|payload)/i.test(fieldName) ||
+        (field.nestedFields && field.nestedFields.length > 12);
+
+      const hasScalarSubfields =
+        field.nestedFields &&
+        field.nestedFields.length > 0 &&
+        field.nestedFields.every((nf) => {
+          const t = (nf.bsonType || '').toLowerCase();
+          return t !== 'arrayofobjects' && t !== 'object' && t !== 'array';
+        });
+
+      if (direction !== 'postgres-to-mongo' && effectiveBsonType === 'object' && hasScalarSubfields && !isDynamicDict) {
+        for (const subField of field.nestedFields!) {
+          const subSourceField = `${fieldName}.${subField.name}`;
+          const subTargetColumn = sanitizePostgresIdentifier(`${fieldName}_${subField.name}`, false);
+          const subTargetType = bsonTypeToPostgresType(subField.bsonType || 'string', subField);
+
+          rawFields.push({
+            id: randomUUID(),
+            sourceField: subSourceField,
+            sourceType: subField.bsonType || 'string',
+            targetColumn: subTargetColumn,
+            targetType: subTargetType,
+            isNullable: (field.isNullable || subField.isNullable) ?? true,
+            include: true,
+            isChildTable: false,
+            childTableName: undefined,
+            foreignKeyToParent: undefined,
+            transformationRule: 'flatten',
+          });
+        }
+        continue;
+      }
+
+      // Standard field mapping
       const mapping = mapFunc(field, schema.collectionName);
-      // Ensure field has a UUID
       if (!mapping.id || mapping.id === field.name) {
         mapping.id = randomUUID();
       }
-      return mapping;
-    });
+      rawFields.push(mapping);
+    }
 
-    // After mapping, inject sort_order column immediately after each child-table row
+    // After mapping, inject sort_order column immediately after each child-table row (AGENTS.md §4)
     const fields: FieldMapping[] = [];
     for (const mapping of rawFields) {
       fields.push(mapping);
@@ -160,6 +212,46 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
       childTables: [], // Child tables for array-of-objects handled separately
     };
   });
+
+  // ── Universal Cross-Collection Foreign Key Graph Discovery ──
+  // If collection A has a field referencing collection B (e.g., customerId or customer_id in orders pointing to customers),
+  // infer foreignKeyToParent: "customers.id"
+  const collectionNames = new Set(mappings.map((m) => m.collectionName.toLowerCase()));
+  const collectionTargetTableMap = new Map<string, string>();
+  mappings.forEach((m) => collectionTargetTableMap.set(m.collectionName.toLowerCase(), m.targetTableName));
+
+  for (const m of mappings) {
+    const currentTableLower = m.collectionName.toLowerCase();
+    for (const f of m.fields) {
+      if (f.isChildTable || f.sortOrderColumn || f.sourceField === '_id' || f.foreignKeyToParent) {
+        continue;
+      }
+
+      const match = f.sourceField.match(/^([a-zA-Z0-9]+?)(?:_id|Id)$/i);
+      if (match) {
+        const entityPrefix = match[1].toLowerCase();
+        const candidate1 = entityPrefix + 's';
+        const candidate2 = entityPrefix.endsWith('y') ? entityPrefix.slice(0, -1) + 'ies' : entityPrefix + 'es';
+        const candidate3 = entityPrefix;
+
+        let referencedCol: string | null = null;
+        if (collectionNames.has(candidate1) && candidate1 !== currentTableLower) {
+          referencedCol = candidate1;
+        } else if (collectionNames.has(candidate2) && candidate2 !== currentTableLower) {
+          referencedCol = candidate2;
+        } else if (collectionNames.has(candidate3) && candidate3 !== currentTableLower) {
+          referencedCol = candidate3;
+        }
+
+        if (referencedCol) {
+          const targetTable = collectionTargetTableMap.get(referencedCol) || referencedCol;
+          f.foreignKeyToParent = `${targetTable}.id`;
+        }
+      }
+    }
+  }
+
+  return mappings;
 }
 
 /**
@@ -219,17 +311,40 @@ function mapFieldToPostgres(field: FieldDefinition, collectionName: string): Fie
  */
 function bsonTypeToPostgresType(bsonType: string, field: FieldDefinition): string {
   const typeStr = (bsonType || field.bsonType || 'string').toLowerCase();
+  const lowerName = (field.name || '').toLowerCase();
+
   switch (typeStr) {
     // ── Core Types ──
     case 'objectid':
       return 'VARCHAR(24)'; // 12-byte ObjectId as hex string
 
     case 'string':
+      if (lowerName.includes('email')) return 'VARCHAR(255)';
+      if (lowerName === 'status' || lowerName.endsWith('_status') || lowerName.endsWith('tier') || lowerName.endsWith('type')) {
+        return 'VARCHAR(50)';
+      }
       return 'TEXT'; // Default for strings
 
     case 'int':
     case 'int32':
     case 'numberint':
+      // Detect Unix epoch timestamps, millisecond counters, and large byte sizes
+      if (
+        lowerName.includes('timestamp') ||
+        lowerName.includes('epoch') ||
+        lowerName.endsWith('_ms') ||
+        lowerName.endsWith('_bytes') ||
+        lowerName.includes('filesize')
+      ) {
+        return 'BIGINT';
+      }
+      // Check sampled values for 32-bit integer overflow ceiling
+      if (
+        field.sampleValues &&
+        field.sampleValues.some((v) => typeof v === 'number' && (v > 2147483647 || v < -2147483648))
+      ) {
+        return 'BIGINT';
+      }
       return 'INTEGER'; // 32-bit signed integer
 
     case 'long':
@@ -239,6 +354,10 @@ function bsonTypeToPostgresType(bsonType: string, field: FieldDefinition): strin
 
     case 'double':
     case 'numberdouble':
+      // Financial precision: amounts, prices, fees must use exact NUMERIC to prevent IEEE-754 rounding drift
+      if (/(?:amount|price|cost|balance|total|fee|revenue|salary)/i.test(lowerName)) {
+        return 'NUMERIC(14,2)';
+      }
       return 'DOUBLE PRECISION'; // IEEE 754 floating point
 
     case 'decimal':
@@ -279,12 +398,19 @@ function bsonTypeToPostgresType(bsonType: string, field: FieldDefinition): strin
     // ── Complex Types ──
     case 'object':
     case 'embedded':
-      // Always store nested objects as JSONB — preserves structure, queryable
-      // with PostgreSQL JSON operators (->>, @>), and supports GIN indexing.
+      // Embedded objects not eligible for scalar flattening default to JSONB with GIN index
       return 'JSONB';
 
     case 'mixed':
-      return 'JSONB'; // Mixed types stored as JSON
+      // Polymorphic scalar handling: if field name or sample values indicate scalar data (phone, codes, IDs),
+      // map to TEXT with automatic string coercion rather than awkward JSONB.
+      if (
+        /(?:phone|mobile|contact|code|id|ref|status|zip|pin)/i.test(lowerName) ||
+        (field.sampleValues && field.sampleValues.every((v) => v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'))
+      ) {
+        return 'TEXT';
+      }
+      return 'JSONB'; // Complex polymorphic structures stored as JSON
 
     case 'null':
       return 'TEXT'; // NULL defaults to TEXT (nullable)
