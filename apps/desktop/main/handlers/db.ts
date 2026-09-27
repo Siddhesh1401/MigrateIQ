@@ -339,7 +339,7 @@ export function setupPostgresqlHandler(): void {
         };
       }
 
-      // Read schema from information_schema for target schema
+      // Read schema from information_schema for target schema (filtering for physical BASE TABLE only, excluding views)
       const tablesResult = await client.query(`
         SELECT 
           c.table_name,
@@ -354,7 +354,9 @@ export function setupPostgresqlHandler(): void {
             LIMIT 1
           ), 0) as estimated_rows
         FROM information_schema.columns c
-        WHERE c.table_schema = $1
+        JOIN information_schema.tables t
+          ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = $1 AND t.table_type = 'BASE TABLE'
         GROUP BY c.table_name
       `, [targetSchema]);
 

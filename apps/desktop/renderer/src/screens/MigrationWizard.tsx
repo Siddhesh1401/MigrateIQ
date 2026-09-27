@@ -449,6 +449,8 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   );
   const [showConfirmResetModal, setShowConfirmResetModal] = useState(false);
   const [showWipeModal, setShowWipeModal] = useState(false);
+  const [wipeConfirmToken, setWipeConfirmToken] = useState('');
+  const [wipeModalError, setWipeModalError] = useState<string | null>(null);
   const [isWiping, setIsWiping] = useState(false);
   const [wipeMessage, setWipeMessage] = useState<string | null>(null);
 
@@ -635,7 +637,9 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
   const handleWipeTargetDatabase = async () => {
     if (!wizardStore.targetConfig) return;
+    if (wipeConfirmToken.trim().toUpperCase() !== 'WIPE') return;
     setIsWiping(true);
+    setWipeModalError(null);
     setError(null);
 
     try {
@@ -645,7 +649,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
       );
 
       if (!response.success) {
-        setError(response.error || 'Failed to wipe database');
+        setWipeModalError(response.error || 'Failed to wipe database');
         return;
       }
 
@@ -657,9 +661,11 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
       );
       setWipeMessage(`Successfully cleared ${response.data?.clearedCount || 0} existing items from target database.`);
       setShowWipeModal(false);
+      setWipeConfirmToken('');
+      setWipeModalError(null);
       setTimeout(() => setWipeMessage(null), 5000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to clear database');
+      setWipeModalError(err instanceof Error ? err.message : 'Failed to clear database');
     } finally {
       setIsWiping(false);
     }
@@ -683,6 +689,13 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
           return false;
         }
 
+        if (response.data.length === 0) {
+          setError('Connected successfully, but the source MongoDB database contains 0 collections. Please create collections with documents before migrating.');
+          setSourceConnectedSuccessfully(false);
+          setSourceMongoPreview(null);
+          return false;
+        }
+
         setSourceLatencyMs(elapsed);
         setSourcePgPreview(null);
         wizardStore.setSourceConfig(config);
@@ -699,6 +712,13 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
         if (!response.success || !response.data) {
           setError(response.error || 'Connection failed');
+          return false;
+        }
+
+        if (!response.data.tables || response.data.tables.length === 0) {
+          setError(`Connected successfully, but the source PostgreSQL schema '${response.data.schema || config.schema || 'public'}' contains 0 tables. Please create tables before migrating.`);
+          setSourceConnectedSuccessfully(false);
+          setSourcePgPreview(null);
           return false;
         }
 
@@ -803,8 +823,8 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   };
 
   const isSourceConnected = sourceDbType === 'mongodb'
-    ? sourceConnectedSuccessfully || (sourceMongoPreview !== null) || (wizardStore.direction === 'mongodb-to-postgres' && !!wizardStore.sourceConfig && Array.isArray(wizardStore.sourceSchema))
-    : sourceConnectedSuccessfully || !!sourcePgPreview || (wizardStore.direction === 'postgres-to-mongo' && !!wizardStore.sourceConfig);
+    ? (sourceConnectedSuccessfully && Array.isArray(sourceMongoPreview) && sourceMongoPreview.length > 0) || (wizardStore.direction === 'mongodb-to-postgres' && !!wizardStore.sourceConfig && Array.isArray(wizardStore.sourceSchema) && wizardStore.sourceSchema.length > 0)
+    : (sourceConnectedSuccessfully && !!sourcePgPreview && sourcePgPreview.tables.length > 0) || (wizardStore.direction === 'postgres-to-mongo' && !!wizardStore.sourceConfig && Array.isArray(wizardStore.sourceSchema) && wizardStore.sourceSchema.length > 0);
   const isTargetConnected = !!targetSuccessMessage || !!wizardStore.targetConfig;
 
   // ── 1:1 Diagnostic Snapshot & Executive PDF Handlers ─────────────────────
@@ -1023,7 +1043,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             backgroundColor: '#FFFFFF',
             borderRadius: '12px',
             padding: '1.75rem',
-            maxWidth: '460px',
+            maxWidth: '480px',
             width: '90%',
             boxShadow: '0 25px 30px -5px rgba(0, 0, 0, 0.15)',
             display: 'flex',
@@ -1045,9 +1065,50 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             <p style={{ margin: 0, fontSize: '0.8125rem', color: '#DC2626', fontWeight: 600 }}>
               ⚠️ This action is irreversible. Use this only for test/staging databases where you want a clean slate.
             </p>
+
+            {wipeModalError && (
+              <div style={{
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #FECACA',
+                color: '#DC2626',
+                padding: '0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.875rem',
+                lineHeight: 1.4,
+              }}>
+                <strong>Error wiping database:</strong> {wipeModalError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                To confirm destructive wipe, please type <strong style={{ color: '#DC2626' }}>WIPE</strong> below:
+              </label>
+              <input
+                type="text"
+                placeholder="Type WIPE to confirm"
+                value={wipeConfirmToken}
+                onChange={(e) => setWipeConfirmToken(e.target.value)}
+                disabled={isWiping}
+                autoFocus
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-subtle)',
+                  fontFamily: 'monospace',
+                  fontSize: '0.9375rem',
+                  outline: 'none',
+                }}
+              />
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
               <button
-                onClick={() => setShowWipeModal(false)}
+                onClick={() => {
+                  setShowWipeModal(false);
+                  setWipeConfirmToken('');
+                  setWipeModalError(null);
+                }}
                 disabled={isWiping}
                 style={{
                   padding: '0.625rem 1rem',
@@ -1064,17 +1125,18 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
               </button>
               <button
                 onClick={handleWipeTargetDatabase}
-                disabled={isWiping}
+                disabled={isWiping || wipeConfirmToken.trim().toUpperCase() !== 'WIPE'}
                 style={{
                   padding: '0.625rem 1.125rem',
                   borderRadius: '6px',
                   border: 'none',
                   backgroundColor: '#DC2626',
                   color: '#FFFFFF',
-                  cursor: isWiping ? 'not-allowed' : 'pointer',
-                  opacity: isWiping ? 0.7 : 1,
+                  cursor: (isWiping || wipeConfirmToken.trim().toUpperCase() !== 'WIPE') ? 'not-allowed' : 'pointer',
+                  opacity: (isWiping || wipeConfirmToken.trim().toUpperCase() !== 'WIPE') ? 0.45 : 1,
                   fontWeight: 600,
                   fontFamily: 'inherit',
+                  transition: 'opacity 0.2s ease',
                 }}
               >
                 {isWiping ? 'Wiping Database…' : 'Yes, Wipe Database Clean'}
@@ -1494,7 +1556,11 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
                         <button
                           type="button"
-                          onClick={() => setShowWipeModal(true)}
+                          onClick={() => {
+                            setWipeConfirmToken('');
+                            setWipeModalError(null);
+                            setShowWipeModal(true);
+                          }}
                           style={{
                             backgroundColor: '#DC2626',
                             color: '#FFFFFF',

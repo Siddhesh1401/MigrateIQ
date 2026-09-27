@@ -126,6 +126,11 @@ assert(wizardContent.includes('Can create tables:'), 'Can create tables item dis
 assert(wizardContent.includes('Can insert data:'), 'Can insert data item displayed in Step 3');
 assert(wizardContent.includes('Lock timeout supported:'), 'Lock timeout supported item displayed in Step 3');
 assert(wizardContent.includes('Wipe Target Database Clean?'), 'Destructive target wipe modal guards against accidental deletion');
+assert(wizardContent.includes('wipeConfirmToken'), 'Typed token confirmation (WIPE) protects destructive wipe button');
+assert(wizardContent.includes('wipeModalError'), 'Wipe failure errors are displayed directly inside the confirmation modal');
+assert(wizardContent.includes('contains 0 collections'), 'Empty MongoDB database stops user from proceeding to Step 3 & 4');
+assert(wizardContent.includes('contains 0 tables'), 'Empty PostgreSQL schema stops user from proceeding to Step 3 & 4');
+assert(dbHandlerContent.includes("t.table_type = 'BASE TABLE'"), 'PostgreSQL introspection strictly filters for BASE TABLE, excluding SQL views');
 
 // ── Check 6: Wizard Store State Persistence ─────────────────────────────────
 console.log('\n📋 Test 6: Wizard Store & electron-store Sync');

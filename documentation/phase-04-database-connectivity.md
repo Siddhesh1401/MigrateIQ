@@ -496,13 +496,19 @@ Following a comprehensive retrospective audit against production engineering, da
   - `✅ Lock timeout supported: Yes`
 
 ### 13. Automated Test Suite (`scripts/test-phase4-verification.js`)
-- **Addition:** Built an automated 53-assertion verification suite covering MongoDB schema sampling, dynamic `_id` inference, numeric widening, credential masking, identifier sanitization, pooler detection, wipe resilience, and wizard state persistence.
+- **Addition:** Built an automated 58-assertion verification suite covering MongoDB schema sampling, dynamic `_id` inference, numeric widening, credential masking, identifier sanitization, pooler detection, wipe resilience, wizard state persistence, typed WIPE confirmation tokens, and base table view filtering.
+
+### 14. Enterprise Safety & No-Dead-End Audit Hardening
+- **Typed WIPE Confirmation Token (`MigrationWizard.tsx`):** Added a typed token requirement (`WIPE`) to the Step 3 target database wipe modal, preventing accidental single-click schema destruction.
+- **Inline Wipe Error Recovery (`MigrationWizard.tsx`):** If a wipe fails, errors are rendered directly inside the modal with clear diagnostics, preventing modal occlusion freezes.
+- **Empty Database Progression Guard (`MigrationWizard.tsx`):** Step 2 now actively blocks progression if the source database contains 0 collections or 0 tables, avoiding empty schema dead ends in Step 4.
+- **Physical Base Table Filtering (`db.ts`):** PostgreSQL table introspection now explicitly filters for `information_schema.tables.table_type = 'BASE TABLE'`, preventing SQL views from contaminating the table list.
 
 ---
 
 ## 8. Verification & Build Integrity
 
-- **Automated Phase 4 Suite:** Passed with 53/53 tests (`node scripts/test-phase4-verification.js`).
+- **Automated Phase 4 Suite:** Passed with 58/58 tests (`node scripts/test-phase4-verification.js`).
 - **Automated Phase 2 & 3 Suite:** Passed with 22/22 tests (`node scripts/test-phase2-phase3-verification.js`).
 - **TypeScript Compilation:** Passed with exit code 0 across all workspaces (`npm run typecheck`).
 - **Light Theme Compliance:** All banners and modals strictly use light surface tokens (`#F8FAFC`, `#EFF6FF`, `#FFFBEB`, `#15803D`, `#92400E`).
@@ -516,7 +522,7 @@ After reviewing and testing Phase 4, run:
 
 ```bash
 git add .
-git commit -m "feat: phase-04 — dynamic _id inference, cloud wipe fallback, permission checklist, and automated test suite"
+git commit -m "feat: phase-04 — dynamic _id inference, cloud wipe fallback, typed wipe token, and automated test suite"
 ```
 
 ---
