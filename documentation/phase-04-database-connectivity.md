@@ -504,6 +504,19 @@ Following a comprehensive retrospective audit against production engineering, da
 - **Empty Database Progression Guard (`MigrationWizard.tsx`):** Step 2 now actively blocks progression if the source database contains 0 collections or 0 tables, avoiding empty schema dead ends in Step 4.
 - **Physical Base Table Filtering (`db.ts`):** PostgreSQL table introspection now explicitly filters for `information_schema.tables.table_type = 'BASE TABLE'`, preventing SQL views from contaminating the table list.
 
+### 15. Connection Form Re-render & Saved Profile Synchronization Fix (`ConnectionForm.tsx`)
+- **Issue:** Selecting a saved connection profile caused a cascading re-render cycle: `useEffect` re-triggered from stale `initialConfig` references, wiping out the user's dropdown selection and reverting input fields.
+- **Resolution:** Re-architected form synchronization to trigger updates only on explicit user interaction (`handleFieldChange` and `handleSavedSelect`). Eliminated redundant `initialConfig` re-renders and auto-saved validated profiles on successful connection test.
+- **Intelligent Profile Naming:** Automatically generates clean, intuitive labels based on the target database (e.g. `phase9b_target_pg [PostgreSQL]`) rather than obscure generic hashes.
+
+### 16. Two-Way URI Database Normalization (`utils.ts`, `db.ts`, `etlEngine.ts`)
+- **Issue:** When users provided a standard PostgreSQL or MongoDB connection string (e.g. `postgresql://localhost:5432/postgres`) but overrode the database name field to an isolated testbed (e.g. `phase9b_target_pg`), drivers defaulted to the URI pathname, creating tables in the wrong database.
+- **Resolution:** Implemented `updateDatabaseInConnectionString()` and `normalizeConnectionConfig()` in `apps/desktop/main/utils.ts`. Both `db:connect-*` and `executeMigration` now strictly normalize connection URIs to target the intended database segment before connecting.
+
+### 17. Step 3 Target Dirty State & Stale Banner Prevention (`MigrationWizard.tsx`)
+- **Issue:** If a user successfully connected to Target DB A, advanced, and subsequently returned to Step 3 to change the connection to Target DB B, the green "Connected Successfully" card remained visible, allowing progression without testing the new credentials.
+- **Resolution:** Introduced `isTargetDirty` state. Modifying any target connection field immediately clears previous connection previews, resets success banners, and mandates a successful test connection before Step 4 can be accessed.
+
 ---
 
 ## 8. Verification & Build Integrity
