@@ -9,6 +9,7 @@ import { setupDryRunHandlers } from './handlers/dryRun';
 import { setupSchemaUpdateHandlers } from './handlers/schemaUpdate';
 import { setupMigrationHandlers } from './handlers/migration';
 import { setupDiagnosticsHandlers } from './handlers/diagnostics';
+import { setupVerificationHandlers } from './handlers/verification';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -93,6 +94,9 @@ app.whenReady().then(() => {
 
   // Setup IPC handlers for diagnostics & PDF audit reporting
   setupDiagnosticsHandlers();
+
+  // Setup IPC handlers for data parity & verification studio (Phase 9B)
+  setupVerificationHandlers();
 
   createWindow();
 

@@ -31,7 +31,7 @@ import type {
   SkippedRow,
   ETLBatchResult
 } from '@migrateiq/shared';
-import { maskSensitiveFields, sanitizeIdentifier } from '../utils';
+import { maskSensitiveFields, sanitizeIdentifier, normalizeConnectionConfig } from '../utils';
 import { transformValueForSql, extractFieldValue, generateCreateTableDdl } from './dryRun';
 
 export interface MigrationOptions {
@@ -74,6 +74,9 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     onRollbackScriptReady
   } = options;
 
+  const effectiveSourceConfig = normalizeConnectionConfig(sourceConfig);
+  const effectiveTargetConfig = normalizeConnectionConfig(targetConfig);
+
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
 
@@ -84,28 +87,28 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     // ── Step 1: Connect to MongoDB ───────────────────────────────────────
     emitLog(onLog, 'info', `🔌 Connecting to MongoDB...`);
     mongoClient = new MongoClient(
-      sourceConfig.connectionString || buildMongoConnectionString(sourceConfig),
+      effectiveSourceConfig.connectionString || buildMongoConnectionString(effectiveSourceConfig),
       { serverSelectionTimeoutMS: 10000 }
     );
     await mongoClient.connect();
-    const mongoDB = sourceConfig.database
-      ? mongoClient.db(sourceConfig.database)
+    const mongoDB = effectiveSourceConfig.database
+      ? mongoClient.db(effectiveSourceConfig.database)
       : mongoClient.db();
     emitLog(onLog, 'info', `✅ Connected to MongoDB database: ${mongoDB.databaseName}`);
 
     // ── Step 2: Connect to PostgreSQL ────────────────────────────────────
     emitLog(onLog, 'info', `🔌 Connecting to PostgreSQL...`);
     pgClient = new PgClient({
-      connectionString: targetConfig.connectionString,
-      host: targetConfig.host,
-      port: targetConfig.port,
-      user: targetConfig.user,
-      password: targetConfig.password,
-      database: targetConfig.database,
-      ssl: targetConfig.ssl ? { rejectUnauthorized: false } : false
+      connectionString: effectiveTargetConfig.connectionString,
+      host: effectiveTargetConfig.host,
+      port: effectiveTargetConfig.port,
+      user: effectiveTargetConfig.user,
+      password: effectiveTargetConfig.password,
+      database: effectiveTargetConfig.database,
+      ssl: effectiveTargetConfig.ssl ? { rejectUnauthorized: false } : false
     });
     await pgClient.connect();
-    const targetSchema = sanitizeIdentifier(targetConfig.schema || 'public');
+    const targetSchema = sanitizeIdentifier(effectiveTargetConfig.schema || 'public');
     await pgClient.query(`SET search_path TO "${targetSchema}"`);
     emitLog(onLog, 'info', `✅ Connected to PostgreSQL schema: ${targetSchema}`);
 

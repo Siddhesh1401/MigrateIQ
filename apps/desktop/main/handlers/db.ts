@@ -8,14 +8,15 @@ import type {
   IPCResponse,
   PostgresIntrospectionResult 
 } from '@migrateiq/shared';
-import { maskSensitiveFields, sanitizeIdentifier } from '../utils';
+import { maskSensitiveFields, sanitizeIdentifier, normalizeConnectionConfig } from '../utils';
 
 /**
  * MongoDB Connection Handler
  * Tests connection, reads schema, and infers field types from sample documents
  */
 export function setupMongoDBHandler(): void {
-  ipcMain.handle('db:connect-mongodb', async (_event, config: ConnectionConfig): Promise<IPCResponse<SourceSchema[]>> => {
+  ipcMain.handle('db:connect-mongodb', async (_event, rawConfig: ConnectionConfig): Promise<IPCResponse<SourceSchema[]>> => {
+    const config = normalizeConnectionConfig(rawConfig);
     let client: MongoClient | null = null;
 
     try {
@@ -290,7 +291,8 @@ function detectCloudPooler(
  * Tests connection, reads schema, checks permissions, and scans Layer 2 features (PostgreSQL only)
  */
 export function setupPostgresqlHandler(): void {
-  ipcMain.handle('db:connect-postgresql', async (_event, config: ConnectionConfig): Promise<IPCResponse<PostgresIntrospectionResult>> => {
+  ipcMain.handle('db:connect-postgresql', async (_event, rawConfig: ConnectionConfig): Promise<IPCResponse<PostgresIntrospectionResult>> => {
+    const config = normalizeConnectionConfig(rawConfig);
     let client: PgClient | null = null;
     const targetSchema = sanitizeIdentifier(config.schema, 'public');
 
@@ -547,7 +549,8 @@ function extractSampleValue(key: string, value: unknown): unknown | null {
  * when requested by user for a clean migration slate.
  */
 export function setupClearTargetHandler(): void {
-  ipcMain.handle('db:clear-target', async (_event, config: ConnectionConfig): Promise<IPCResponse<{ clearedCount: number }>> => {
+  ipcMain.handle('db:clear-target', async (_event, rawConfig: ConnectionConfig): Promise<IPCResponse<{ clearedCount: number }>> => {
+    const config = normalizeConnectionConfig(rawConfig);
     if (config.type === 'postgresql') {
       let client: PgClient | null = null;
       try {

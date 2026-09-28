@@ -896,3 +896,201 @@ export interface EnhancedSkippedRow extends SkippedRow {
   retryAttempt?: number;
   stackTrace?: string;
 }
+
+// ============================================
+// Phase 9B: Data Parity & Verification Studio
+// ============================================
+
+export interface ReconciliationRequest {
+  sourceDb: ConnectionConfig;
+  targetDb: ConnectionConfig;
+  tableNames?: string[];
+  mappings?: CollectionMapping[];
+}
+
+export interface TableReconciliation {
+  tableName: string;
+  sourceType: 'primary_collection' | 'child_table';
+  sourceCount: number;
+  targetCount: number;
+  delta: number;
+  isMatch: boolean;
+  status: 'perfect' | 'drift' | 'quarantined';
+}
+
+export interface AggregateReconciliation {
+  tableName: string;
+  columnName: string;
+  metric: 'SUM' | 'AVG';
+  sourceValue: number;
+  targetValue: number;
+  driftPercentage: number;
+  isPrecisionGuaranteed: boolean; // drift < 0.0001%
+}
+
+export interface OrphanReconciliation {
+  childTable: string;
+  parentTable: string;
+  foreignKeyColumn: string;
+  orphanCount: number;
+  isClean: boolean; // orphanCount === 0
+  sortOrderSequenceValid: boolean; // 0..N-1 sequential check
+}
+
+export interface ColumnStat {
+  columnName: string;
+  sqlType: string;
+  sourceNullPct: number;
+  targetNullPct: number;
+  nullPctDelta: number;
+  sourceDistinctCount: number;
+  targetDistinctCount: number;
+  isProfileValid: boolean;
+}
+
+export interface ColumnProfileResult {
+  tableName: string;
+  columns: ColumnStat[];
+  silentNullDetected: boolean;
+}
+
+export interface ChunkHash {
+  chunkIndex: number;
+  startId: string;
+  endId: string;
+  rowCount: number;
+  sourceSha256: string;
+  targetSha256: string;
+  isMatch: boolean;
+}
+
+export interface ChunkHashResult {
+  tableName: string;
+  totalChunks: number;
+  matchedChunks: number;
+  chunks: ChunkHash[];
+  allChunksMatch: boolean;
+}
+
+export interface CutoverReadinessScorecard {
+  overallScore: number; // 0 to 100
+  status: 'PRODUCTION_READY' | 'WARNING_NEEDS_REVIEW' | 'CRITICAL_BLOCK';
+  breakdown: {
+    volumetricWeight: number; // 25%
+    volumetricScore: number;
+    financialWeight: number; // 25%
+    financialScore: number;
+    referentialWeight: number; // 20%
+    referentialScore: number;
+    statisticalWeight: number; // 15%
+    statisticalScore: number;
+    latencyWeight: number; // 15%
+    latencyScore: number;
+  };
+}
+
+export interface ReconciliationResult {
+  tables: TableReconciliation[];
+  aggregates: AggregateReconciliation[];
+  orphans: OrphanReconciliation[];
+  totalSourceEntities: number;
+  totalTargetEntities: number;
+  overallDelta: number;
+  readinessScore: number; // 0 to 100
+  scorecard: CutoverReadinessScorecard;
+  auditTimestamp: string;
+  sha256Seal: string;
+  sequencesAligned: number;
+  indexesVerified: number;
+}
+
+export interface FieldDiff {
+  fieldName: string;
+  sourceRawValue: unknown;
+  sourceType: string;
+  targetColumnName: string;
+  targetValue: unknown;
+  targetSqlType: string;
+  matchStatus: 'exact_match' | 'type_coerced' | 'mismatch' | 'missing';
+}
+
+export interface RecordDiffResult {
+  recordId: string;
+  tableName: string;
+  sourceDoc: Record<string, unknown> | null;
+  targetRow: Record<string, unknown> | null;
+  fields: FieldDiff[];
+  isIdentical: boolean;
+}
+
+export interface RecordBrowseResult {
+  tableName: string;
+  offset: number;
+  limit: number;
+  totalRows: number;
+  records: Array<{
+    id: string;
+    summaryText: string;
+    isMatch: boolean;
+  }>;
+}
+
+export interface BenchmarkRequest {
+  queryCount?: number; // default: 100
+  concurrency?: number; // default: 10
+}
+
+export interface BenchmarkMetrics {
+  totalQueries: number;
+  avgLatencyMs: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+  throughputQps: number;
+}
+
+export interface BenchmarkResult {
+  mongo: BenchmarkMetrics;
+  postgres: BenchmarkMetrics;
+  speedupFactor: number; // e.g. 5.4x
+  isPostgresFaster: boolean;
+}
+
+export interface SandboxQueryRequest {
+  mongoMql: string; // e.g. '{"status": "completed"}'
+  postgresSql: string; // e.g. 'SELECT * FROM orders WHERE status = $1'
+  tableName: string;
+  limit?: number;
+}
+
+export interface SandboxQueryResult {
+  mongoCount: number;
+  mongoLatencyMs: number;
+  mongoSample: unknown[];
+  postgresCount: number;
+  postgresLatencyMs: number;
+  postgresSample: unknown[];
+  isResultIdentical: boolean;
+}
+
+export interface ComplianceReportPayload {
+  organizationName?: string;
+  auditorName: string;
+  auditNotes?: string;
+  includeRawManifest?: boolean;
+}
+
+export interface RescueActionRequest {
+  action: 'wipe_target' | 'export_takeaway' | 'export_diagnostics' | 'force_reset';
+  targetConfig?: ConnectionConfig;
+  tables?: string[];
+  sessionId?: string;
+}
+
+export interface RescueActionResult {
+  success: boolean;
+  message: string;
+  filePath?: string;
+  droppedTables?: string[];
+}
+
