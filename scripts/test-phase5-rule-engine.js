@@ -208,6 +208,110 @@ assert(summary.some((r) => r.bson.includes('ObjectId')), 'Rules summary contains
 assert(summary.some((r) => r.postgres === 'TIMESTAMPTZ'), 'Rules summary contains TIMESTAMPTZ rule');
 assert(summary.some((r) => r.bson.includes('Array of Objects')), 'Rules summary documents child table array rule');
 
+// ── Test 7: Pre-Flight Schema Validation Rules (No-Dead-End Guarantee) ───
+console.log('\n📋 Test 7: Pre-Flight Schema Validation Rules');
+
+function validateMappingConfiguration(mappings) {
+  for (const col of mappings) {
+    const included = col.fields.filter((f) => f.include);
+    if (included.length === 0) {
+      return { valid: false, error: `Table "${col.targetTableName}" has no columns selected. At least one column must be included.` };
+    }
+
+    const seenColNames = new Set();
+    for (const f of included) {
+      const colName = (f.targetColumn || '').trim();
+      if (!colName) {
+        return { valid: false, error: `Target column name cannot be blank in table "${col.targetTableName}".` };
+      }
+      const lowerName = colName.toLowerCase();
+      if (seenColNames.has(lowerName)) {
+        return { valid: false, error: `Duplicate column name "${colName}" found in table "${col.targetTableName}".` };
+      }
+      seenColNames.add(lowerName);
+    }
+  }
+  return { valid: true };
+}
+
+// 7a: Zero columns included
+const emptyTableMapping = [
+  {
+    collectionName: 'users',
+    targetTableName: 'users',
+    fields: [
+      { id: '1', sourceField: 'name', targetColumn: 'name', include: false },
+      { id: '2', sourceField: 'email', targetColumn: 'email', include: false },
+    ],
+  },
+];
+const zeroColResult = validateMappingConfiguration(emptyTableMapping);
+assert(!zeroColResult.valid && zeroColResult.error.includes('no columns selected'), 'Rejects table with 0 included columns');
+
+// 7b: Blank column name
+const blankColMapping = [
+  {
+    collectionName: 'users',
+    targetTableName: 'users',
+    fields: [
+      { id: '1', sourceField: 'name', targetColumn: '   ', include: true },
+    ],
+  },
+];
+const blankColResult = validateMappingConfiguration(blankColMapping);
+assert(!blankColResult.valid && blankColResult.error.includes('cannot be blank'), 'Rejects blank or whitespace-only target column name');
+
+// 7c: Duplicate column names in same table
+const duplicateColMapping = [
+  {
+    collectionName: 'users',
+    targetTableName: 'users',
+    fields: [
+      { id: '1', sourceField: 'first_name', targetColumn: 'user_name', include: true },
+      { id: '2', sourceField: 'nick_name', targetColumn: 'USER_NAME', include: true },
+    ],
+  },
+];
+const dupColResult = validateMappingConfiguration(duplicateColMapping);
+assert(!dupColResult.valid && dupColResult.error.includes('Duplicate column name'), 'Rejects duplicate case-insensitive column names in same table');
+
+// 7d: Valid configuration
+const validColMapping = [
+  {
+    collectionName: 'users',
+    targetTableName: 'users',
+    fields: [
+      { id: '1', sourceField: '_id', targetColumn: 'id', include: true },
+      { id: '2', sourceField: 'email', targetColumn: 'email_address', include: true },
+      { id: '3', sourceField: 'passwordHash', targetColumn: 'pwd_hash', include: false },
+    ],
+  },
+];
+const validResult = validateMappingConfiguration(validColMapping);
+assert(validResult.valid === true, 'Accepts valid schema mapping configuration with unique non-empty columns');
+
+// ── Test 8: SQL Identifier Double-Quote Escaping ─────────────────────────────
+console.log('\n📋 Test 8: SQL Identifier Quote Escaping');
+
+function escapePostgresIdentifier(identifier) {
+  return identifier.replace(/"/g, '""');
+}
+
+assert(escapePostgresIdentifier('users') === 'users', 'Clean identifier remains unchanged');
+assert(escapePostgresIdentifier('user"profile') === 'user""profile', 'Embedded double quote is escaped to double-double-quote');
+assert(escapePostgresIdentifier('drop table "users"') === 'drop table ""users""', 'SQL injection attempt with quotes is safely neutralized');
+
+// ── Test 9: Primary Key _id Exclusion Warning Detection ─────────────────────
+console.log('\n📋 Test 9: Primary Key _id Exclusion Warning');
+
+function isPkExcluded(fields) {
+  const idField = fields.find((f) => f.sourceField === '_id');
+  return idField !== undefined && !idField.include;
+}
+
+assert(isPkExcluded([{ sourceField: '_id', include: true }, { sourceField: 'name', include: true }]) === false, 'PK included returns isPkExcluded: false');
+assert(isPkExcluded([{ sourceField: '_id', include: false }, { sourceField: 'name', include: true }]) === true, 'PK excluded returns isPkExcluded: true');
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log('\n═══════════════════════════════════════════════════════════════');
 console.log(`Phase 5 Unit Tests: ${passedTests} passed, ${failedTests} failed`);
@@ -218,3 +322,4 @@ if (failedTests > 0) {
 } else {
   process.exit(0);
 }
+

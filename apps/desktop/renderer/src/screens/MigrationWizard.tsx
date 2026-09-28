@@ -551,6 +551,30 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
     }
   };
 
+  const handleSkipAIToRules = async () => {
+    if (!wizardStore.sourceSchema) return;
+    try {
+      const response = await window.electronAPI.invoke<AIGenerateMappingResponse>(
+        'ai:generate-mapping',
+        {
+          schemas: wizardStore.sourceSchema,
+          apiKey: '', // Empty key instructs backend handler to immediately run local rule engine
+          direction: wizardStore.direction,
+          forceRefresh: true,
+        }
+      );
+      if (response.data) {
+        setAiMapping(response.data);
+        setMappingBadge(response.data.badge);
+      }
+    } catch (err) {
+      console.error('[SchemaMapper] Fast rule fallback error:', err);
+    } finally {
+      setIsAILoading(false);
+      isGeneratingRef.current = false;
+    }
+  };
+
   // Async health score (non-blocking, updates badge when ready) with retry logic
   const fetchHealthScoreAsync = async (schemas: SourceSchema[]) => {
     setIsHealthScoreLoading(true);
@@ -1782,6 +1806,31 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
                   <div className="ai-loading-footer">
                     <span className="ai-secure-shield">🛡️</span>
                     <span>Zero Data Transfer · Schema Architecture Analysis Only</span>
+                  </div>
+
+                  <div style={{ marginTop: '1.25rem', textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={handleSkipAIToRules}
+                      style={{
+                        padding: '0.45rem 1rem',
+                        fontSize: '0.8125rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.375rem',
+                        backgroundColor: '#FFFFFF',
+                        border: '1px solid #CBD5E1',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        color: '#475569',
+                        fontWeight: 500,
+                        transition: 'all 150ms ease',
+                      }}
+                      title="Skip remote AI analysis and instantly generate mapping using local deterministic rule engine"
+                    >
+                      ⚡ Skip AI &amp; Use Fast Rule-Based Mapping
+                    </button>
                   </div>
                 </div>
             ) : (

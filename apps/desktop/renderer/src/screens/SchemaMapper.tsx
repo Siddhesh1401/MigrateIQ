@@ -190,23 +190,25 @@ function generatePostgresDdl(mappings: CollectionMapping[], schemas?: SourceSche
     lines.push(`-- ─────────────────────────────────────────────────────────────`);
     lines.push(`-- Table: "${col.targetTableName}" (Source: "${col.collectionName}")`);
     lines.push(`-- ─────────────────────────────────────────────────────────────`);
-    lines.push(`CREATE TABLE IF NOT EXISTS "${col.targetTableName}" (`);
+    const safeTableName = col.targetTableName.replace(/"/g, '""');
+    lines.push(`CREATE TABLE IF NOT EXISTS "${safeTableName}" (`);
 
     const colDefs: string[] = [];
     for (const f of col.fields) {
       if (!f.include) continue;
       if (f.isChildTable) continue; // child tables are created as separate tables below
 
-      const safeColName = f.targetColumn.trim().replace(/\s+/g, '_');
+      const rawColName = f.targetColumn.trim().replace(/\s+/g, '_');
+      const safeColName = rawColName.replace(/"/g, '""');
       let def = `  "${safeColName}" ${f.targetType}`;
-      if (safeColName === 'id' || f.sourceField === '_id') {
+      if (rawColName === 'id' || f.sourceField === '_id') {
         def += ' PRIMARY KEY';
       } else {
         if (!f.isNullable) def += ' NOT NULL';
         if (f.foreignKeyToParent) {
           const parts = f.foreignKeyToParent.split('.');
-          const refTable = parts[0] || 'users';
-          const refCol = parts[1] || 'id';
+          const refTable = (parts[0] || 'users').replace(/"/g, '""');
+          const refCol = (parts[1] || 'id').replace(/"/g, '""');
           def += ` REFERENCES "${refTable}"("${refCol}") ON DELETE CASCADE`;
         }
       }
@@ -219,11 +221,13 @@ function generatePostgresDdl(mappings: CollectionMapping[], schemas?: SourceSche
     // Child Tables (created for array of objects)
     for (const f of col.fields) {
       if (!f.include || !f.isChildTable || !f.childTableName) continue;
-      lines.push(`-- Child Table: "${f.childTableName}" (from ${col.collectionName}.${f.sourceField})`);
-      lines.push(`CREATE TABLE IF NOT EXISTS "${f.childTableName}" (`);
+      const safeChildTableName = f.childTableName.replace(/"/g, '""');
+      lines.push(`-- Child Table: "${safeChildTableName}" (from ${col.collectionName}.${f.sourceField})`);
+      lines.push(`CREATE TABLE IF NOT EXISTS "${safeChildTableName}" (`);
+      const safeParentFk = (f.foreignKeyToParent || `${col.targetTableName}_id`).replace(/"/g, '""');
       const childDefs: string[] = [
         '  "id" BIGSERIAL PRIMARY KEY',
-        `  "${f.foreignKeyToParent || `${col.targetTableName}_id`}" VARCHAR(24) NOT NULL REFERENCES "${col.targetTableName}"("id") ON DELETE CASCADE`,
+        `  "${safeParentFk}" VARCHAR(24) NOT NULL REFERENCES "${safeTableName}"("id") ON DELETE CASCADE`,
         // AGENTS.md §4 — Array → Child Table Rule: sort_order preserves original array element ordering
         '  "sort_order" INTEGER NOT NULL',
       ];
@@ -232,7 +236,7 @@ function generatePostgresDdl(mappings: CollectionMapping[], schemas?: SourceSche
       const srcField = srcCol?.fields.find((sf) => sf.name === f.sourceField);
       if (srcField?.nestedFields && srcField.nestedFields.length > 0) {
         for (const nf of srcField.nestedFields) {
-          const colName = nf.name.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+          const colName = nf.name.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '').replace(/"/g, '""');
           const pType = nf.bsonType === 'int' ? 'INTEGER' : nf.bsonType === 'double' ? 'DOUBLE PRECISION' : nf.bsonType === 'date' ? 'TIMESTAMPTZ' : 'TEXT';
           childDefs.push(`  "${colName}" ${pType}${nf.isNullable ? '' : ' NOT NULL'}`);
         }
@@ -286,6 +290,11 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
   const [expandedChildTables, setExpandedChildTables] = useState<Set<string>>(new Set());
   const [showDdlModal, setShowDdlModal] = useState(false);
   const [copiedDdl, setCopiedDdl] = useState(false);
+
+  // Safety confirmation & pre-flight validation state
+  const [showRegenerateConfirmModal, setShowRegenerateConfirmModal] = useState(false);
+  const [showBackConfirmModal, setShowBackConfirmModal] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
 
   const [showCopilotModal, setShowCopilotModal] = useState(false);
@@ -753,7 +762,50 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
     );
   };
 
+  const hasUnsavedCustomizations = JSON.stringify(mappings) !== JSON.stringify(initialMappings);
+
+  const handleBackClick = () => {
+    if (hasUnsavedCustomizations) {
+      setShowBackConfirmModal(true);
+    } else {
+      onBack();
+    }
+  };
+
+  const handleRegenerateClick = () => {
+    if (hasUnsavedCustomizations) {
+      setShowRegenerateConfirmModal(true);
+    } else if (onRegenerate) {
+      onRegenerate();
+    }
+  };
+
   const handleSave = () => {
+    // Pre-flight Schema Validation
+    for (const col of mappings) {
+      const included = col.fields.filter((f) => f.include);
+      if (included.length === 0) {
+        setValidationError(`Table "${col.targetTableName}" has no columns selected. At least one column must be included to create a valid table.`);
+        return;
+      }
+
+      const seenColNames = new Set<string>();
+      for (const f of included) {
+        const colName = f.targetColumn.trim();
+        if (!colName) {
+          setValidationError(`Target column name cannot be blank in table "${col.targetTableName}" (source field: "${f.sourceField}").`);
+          return;
+        }
+        const lowerName = colName.toLowerCase();
+        if (seenColNames.has(lowerName)) {
+          setValidationError(`Duplicate column name "${colName}" found in table "${col.targetTableName}". Target column names within each table must be unique.`);
+          return;
+        }
+        seenColNames.add(lowerName);
+      }
+    }
+
+    setValidationError(null);
     onSave(mappings);
   };
 
@@ -789,7 +841,7 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
             {onRegenerate && (
               <button
                 type="button"
-                onClick={onRegenerate}
+                onClick={handleRegenerateClick}
                 className="btn-regenerate-cache"
                 title="Bypasses memory cache and re-analyzes schema with Gemini"
               >
@@ -1015,7 +1067,36 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                         <th>{isPgToMongo ? 'MongoDB Field' : 'PostgreSQL Column'}</th>
                         <th>{isPgToMongo ? 'BSON Data Type' : 'Data Type'}</th>
                         <th>Nullable</th>
-                        <th>Include?</th>
+                        <th style={{ textAlign: 'center', minWidth: '95px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                            <span>Include?</span>
+                            <button
+                              type="button"
+                              className="btn-th-toggle-all"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const allIncluded = collection.fields.every((f) => f.include);
+                                setMappings((prev) =>
+                                  prev.map((c) =>
+                                    c.collectionName === collection.collectionName
+                                      ? {
+                                          ...c,
+                                          fields: c.fields.map((f) => ({ ...f, include: !allIncluded })),
+                                        }
+                                      : c
+                                  )
+                                );
+                              }}
+                              title={
+                                collection.fields.every((f) => f.include)
+                                  ? 'Deselect all columns in this collection'
+                                  : 'Select all columns in this collection'
+                              }
+                            >
+                              {collection.fields.every((f) => f.include) ? 'Deselect' : 'Select All'}
+                            </button>
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1129,6 +1210,11 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                                   {field.sortOrderColumn && (
                                     <span className="field-badge sort-order-badge" title="Auto-generated column (AGENTS.md §4). Preserves original array element ordering during ETL. You may rename or exclude this column.">
                                       📋 Auto: Sort Order
+                                    </span>
+                                  )}
+                                  {field.sourceField === '_id' && !field.include && (
+                                    <span className="field-badge warning" title="Primary key _id is excluded. Live data records will lack their original document identifiers.">
+                                      ⚠️ PK Excluded
                                     </span>
                                   )}
 
@@ -1416,9 +1502,28 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
       {/* Data Type Reference Panel */}
       <DataTypeReferencePanel direction={direction} />
 
+      {/* Validation Error Banner */}
+      {validationError && (
+        <div className="mapper-validation-error-banner" role="alert">
+          <div className="validation-error-icon">⚠️</div>
+          <div className="validation-error-content">
+            <strong>Validation Error: Cannot Proceed</strong>
+            <p>{validationError}</p>
+          </div>
+          <button
+            type="button"
+            className="validation-error-close"
+            onClick={() => setValidationError(null)}
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Action Buttons */}
       <div className="mapper-buttons">
-        <button onClick={onBack} className="btn-secondary">
+        <button onClick={handleBackClick} className="btn-secondary">
           ← Back to Connection
         </button>
         <button onClick={handleSave} className="btn-primary">
@@ -1485,6 +1590,74 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                   {isPgToMongo ? '💾 Download .js File' : '💾 Download .sql File'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Re-analyze Confirmation Modal */}
+      {showRegenerateConfirmModal && (
+        <div className="mapper-confirm-overlay" onClick={() => setShowRegenerateConfirmModal(false)}>
+          <div className="mapper-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="mapper-confirm-header">
+              <div className="mapper-confirm-icon warning">⚠️</div>
+              <h3 className="mapper-confirm-title">Re-analyze Schema with AI?</h3>
+            </div>
+            <p className="mapper-confirm-body">
+              Re-running AI schema analysis will regenerate mappings and <strong>overwrite any manual column renames, type selections, and exclusions</strong> you have configured.
+            </p>
+            <div className="mapper-confirm-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowRegenerateConfirmModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-danger-confirm"
+                onClick={() => {
+                  setShowRegenerateConfirmModal(false);
+                  if (onRegenerate) onRegenerate();
+                }}
+              >
+                Yes, Re-Analyze
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Discard Unsaved Changes on Back Navigation Modal */}
+      {showBackConfirmModal && (
+        <div className="mapper-confirm-overlay" onClick={() => setShowBackConfirmModal(false)}>
+          <div className="mapper-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="mapper-confirm-header">
+              <div className="mapper-confirm-icon warning">⚠️</div>
+              <h3 className="mapper-confirm-title">Discard Mapping Changes?</h3>
+            </div>
+            <p className="mapper-confirm-body">
+              You have unsaved schema mapping customizations. Returning to the connection step will discard these changes.
+            </p>
+            <div className="mapper-confirm-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowBackConfirmModal(false)}
+              >
+                Keep Editing
+              </button>
+              <button
+                type="button"
+                className="btn-danger-confirm"
+                onClick={() => {
+                  setShowBackConfirmModal(false);
+                  onBack();
+                }}
+              >
+                Discard &amp; Go Back
+              </button>
             </div>
           </div>
         </div>

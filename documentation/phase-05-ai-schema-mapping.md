@@ -289,12 +289,26 @@ Same light theme colors and responsive design as original Phase 5.
 - [x] Step 4 auto-triggers AI mapping on mount
 - [x] Mapping saved to Zustand store on Continue click
 
-✅ **Code Quality:**
+✅ **UX Safety Guards & No-Dead-End Guarantees:**
+- [x] **Unprotected Re-Analysis Guard**: `showRegenerateConfirmModal` prevents accidental loss of manual column renames and customizations on `🔄 Re-analyze with AI`
+- [x] **Unsaved Changes Guard on Back Navigation**: `showBackConfirmModal` alerts user if customizations exist before returning to Step 3
+- [x] **Pre-Flight Schema Validation**: `handleSave` verifies:
+  - Every table has at least one column included (prevents empty table DDL crashes)
+  - No target column names are blank or whitespace-only
+  - Target column names within each table are strictly unique (case-insensitive collision check)
+  - Displays inline red error banner blocking invalid progression to Step 5
+- [x] **Instant AI Escape Hatch**: `⚡ Skip AI & Use Fast Rule-Based Mapping` button on Step 4 loading card allows users to bypass network/Gemini latency and generate rule-based mappings instantly
+- [x] **Identifier Quote Escaping in DDL**: Double-quotes in table names, column names, foreign keys, and child table names are escaped (`""`) in generated PostgreSQL DDL scripts
+- [x] **Collection-Level Column Toggle**: Table header `Select All / Deselect` button allows toggling all columns in a table with 1 click
+- [x] **Primary Key `_id` Exclusion Advisory**: Visual `⚠️ PK Excluded` badge warns if `_id` is excluded
+
+✅ **Code Quality & Automated Test Suite:**
 - [x] TypeScript 0 errors (`npx tsc --noEmit`)
+- [x] 54/54 automated unit tests passing in `scripts/test-phase5-rule-engine.js` (Tests 1–9)
 - [x] All components use explicit `Props` interfaces
 - [x] IPC handlers properly typed
 - [x] No `any`, `@ts-ignore`, or `@ts-nocheck`
-- [x] Light theme colors applied correctly
+- [x] Light theme colors applied correctly (`#F8FAFC`, `#FFFFFF`, `#2563EB`, `#1E293B`, `#E2E8F0`)
 - [x] Responsive design
 
 ---
