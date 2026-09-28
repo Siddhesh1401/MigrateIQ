@@ -167,7 +167,7 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
           isNullable: false,
           include: true,
           isChildTable: false,
-          childTableName: undefined,
+          childTableName: mapping.childTableName,
           foreignKeyToParent: undefined,
           sortOrderColumn: true,
           transformationRule: 'sort_order',

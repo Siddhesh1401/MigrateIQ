@@ -196,7 +196,7 @@ function generatePostgresDdl(mappings: CollectionMapping[], schemas?: SourceSche
     const colDefs: string[] = [];
     for (const f of col.fields) {
       if (!f.include) continue;
-      if (f.isChildTable) continue; // child tables are created as separate tables below
+      if (f.isChildTable || f.sortOrderColumn) continue; // child tables and their sort_order columns are created as separate tables below
 
       const rawColName = f.targetColumn.trim().replace(/\s+/g, '_');
       const safeColName = rawColName.replace(/"/g, '""');
@@ -225,12 +225,23 @@ function generatePostgresDdl(mappings: CollectionMapping[], schemas?: SourceSche
       lines.push(`-- Child Table: "${safeChildTableName}" (from ${col.collectionName}.${f.sourceField})`);
       lines.push(`CREATE TABLE IF NOT EXISTS "${safeChildTableName}" (`);
       const safeParentFk = (f.foreignKeyToParent || `${col.targetTableName}_id`).replace(/"/g, '""');
+
+      // Find sort_order configuration for this child table
+      const childIdx = col.fields.indexOf(f);
+      const sortOrderField = col.fields.find(
+        (sf, idx) => (idx === childIdx + 1 || sf.childTableName === f.childTableName) && sf.sortOrderColumn
+      );
+      const sortOrderInclude = sortOrderField ? sortOrderField.include : true;
+      const sortOrderColName = (sortOrderField?.targetColumn.trim() || 'sort_order').replace(/"/g, '""');
+
       const childDefs: string[] = [
         '  "id" BIGSERIAL PRIMARY KEY',
         `  "${safeParentFk}" VARCHAR(24) NOT NULL REFERENCES "${safeTableName}"("id") ON DELETE CASCADE`,
-        // AGENTS.md §4 — Array → Child Table Rule: sort_order preserves original array element ordering
-        '  "sort_order" INTEGER NOT NULL',
       ];
+      if (sortOrderInclude) {
+        // AGENTS.md §4 — Array → Child Table Rule: sort_order preserves original array element ordering
+        childDefs.push(`  "${sortOrderColName}" INTEGER NOT NULL`);
+      }
 
       const srcCol = schemas?.find((s) => s.collectionName === col.collectionName);
       const srcField = srcCol?.fields.find((sf) => sf.name === f.sourceField);
@@ -783,14 +794,15 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
   const handleSave = () => {
     // Pre-flight Schema Validation
     for (const col of mappings) {
-      const included = col.fields.filter((f) => f.include);
-      if (included.length === 0) {
+      // Validate parent table columns (excluding child tables and child-table sort_order fields)
+      const parentColumns = col.fields.filter((f) => f.include && !f.isChildTable && !f.sortOrderColumn);
+      if (parentColumns.length === 0) {
         setValidationError(`Table "${col.targetTableName}" has no columns selected. At least one column must be included to create a valid table.`);
         return;
       }
 
       const seenColNames = new Set<string>();
-      for (const f of included) {
+      for (const f of parentColumns) {
         const colName = f.targetColumn.trim();
         if (!colName) {
           setValidationError(`Target column name cannot be blank in table "${col.targetTableName}" (source field: "${f.sourceField}").`);
@@ -802,6 +814,14 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
           return;
         }
         seenColNames.add(lowerName);
+      }
+
+      // Also validate child-table sort order columns are not blank if included
+      for (const f of col.fields) {
+        if (f.sortOrderColumn && f.include && !f.targetColumn.trim()) {
+          setValidationError(`Sort order column name cannot be blank in table "${col.targetTableName}".`);
+          return;
+        }
       }
     }
 
@@ -1209,7 +1229,7 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                                   )}
                                   {field.sortOrderColumn && (
                                     <span className="field-badge sort-order-badge" title="Auto-generated column (AGENTS.md §4). Preserves original array element ordering during ETL. You may rename or exclude this column.">
-                                      📋 Auto: Sort Order
+                                      📋 Auto: Sort Order {field.childTableName ? `(${field.childTableName})` : ''}
                                     </span>
                                   )}
                                   {field.sourceField === '_id' && !field.include && (

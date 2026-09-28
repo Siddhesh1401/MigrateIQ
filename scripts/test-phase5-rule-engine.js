@@ -146,6 +146,7 @@ assert(sortOrderCol.targetColumn === 'sort_order', 'Injected column name is "sor
 assert(sortOrderCol.targetType === 'INTEGER', 'sort_order column type is INTEGER');
 assert(sortOrderCol.isNullable === false, 'sort_order column is NOT NULL (isNullable: false)');
 assert(sortOrderCol.sortOrderColumn === true, 'sortOrderColumn flag is true');
+assert(sortOrderCol.childTableName === 'invoices_line_items', 'childTableName is linked to invoices_line_items');
 assert(sortOrderCol.transformationRule === 'sort_order', 'transformationRule is "sort_order"');
 
 // ── Test 4: Reverse Direction (PostgreSQL -> MongoDB BSON) ──────────────────
@@ -213,13 +214,13 @@ console.log('\n📋 Test 7: Pre-Flight Schema Validation Rules');
 
 function validateMappingConfiguration(mappings) {
   for (const col of mappings) {
-    const included = col.fields.filter((f) => f.include);
-    if (included.length === 0) {
+    const parentColumns = col.fields.filter((f) => f.include && !f.isChildTable && !f.sortOrderColumn);
+    if (parentColumns.length === 0) {
       return { valid: false, error: `Table "${col.targetTableName}" has no columns selected. At least one column must be included.` };
     }
 
     const seenColNames = new Set();
-    for (const f of included) {
+    for (const f of parentColumns) {
       const colName = (f.targetColumn || '').trim();
       if (!colName) {
         return { valid: false, error: `Target column name cannot be blank in table "${col.targetTableName}".` };
@@ -229,6 +230,12 @@ function validateMappingConfiguration(mappings) {
         return { valid: false, error: `Duplicate column name "${colName}" found in table "${col.targetTableName}".` };
       }
       seenColNames.add(lowerName);
+    }
+
+    for (const f of col.fields) {
+      if (f.sortOrderColumn && f.include && !(f.targetColumn || '').trim()) {
+        return { valid: false, error: `Sort order column name cannot be blank in table "${col.targetTableName}".` };
+      }
     }
   }
   return { valid: true };
@@ -289,6 +296,24 @@ const validColMapping = [
 ];
 const validResult = validateMappingConfiguration(validColMapping);
 assert(validResult.valid === true, 'Accepts valid schema mapping configuration with unique non-empty columns');
+
+// 7e: Collection with multiple child tables each having a sort_order column (e.g. customers or orders)
+const multiChildTableMapping = [
+  {
+    collectionName: 'customers',
+    targetTableName: 'customers',
+    fields: [
+      { id: '1', sourceField: '_id', targetColumn: 'id', include: true },
+      { id: '2', sourceField: 'name', targetColumn: 'name', include: true },
+      { id: '3', sourceField: 'shippingAddresses', targetColumn: 'shipping_addresses', isChildTable: true, childTableName: 'customers_shipping_addresses', include: true },
+      { id: '4', sourceField: 'sort_order', targetColumn: 'sort_order', sortOrderColumn: true, childTableName: 'customers_shipping_addresses', include: true },
+      { id: '5', sourceField: 'kycDocuments', targetColumn: 'kyc_documents', isChildTable: true, childTableName: 'customers_kyc_documents', include: true },
+      { id: '6', sourceField: 'sort_order', targetColumn: 'sort_order', sortOrderColumn: true, childTableName: 'customers_kyc_documents', include: true },
+    ],
+  },
+];
+const multiChildResult = validateMappingConfiguration(multiChildTableMapping);
+assert(multiChildResult.valid === true, 'Accepts collection with multiple child tables each having sort_order without duplicate column collision');
 
 // ── Test 8: SQL Identifier Double-Quote Escaping ─────────────────────────────
 console.log('\n📋 Test 8: SQL Identifier Quote Escaping');

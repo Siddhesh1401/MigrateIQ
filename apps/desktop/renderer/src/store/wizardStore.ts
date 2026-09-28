@@ -216,7 +216,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
               ? {
                   ...f,
                   isChildTable: true,
-                  childTableName: `${action.collectionName}_${action.fieldName}`,
+                  childTableName: `${action.collectionName}_${action.fieldName.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '').replace(/_+/g, '_')}`,
                   include: true,
                 }
               : f

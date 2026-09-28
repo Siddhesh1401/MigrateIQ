@@ -138,7 +138,7 @@ export function generateCreateTableDdl(
 ): { sql: string; activeColumns: FieldMapping[] } {
   const safeTableName = sanitizeIdentifier(tableName);
   const activeFields = fields.filter(
-    (f) => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
+    (f) => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE' && (isChildTable || !f.sortOrderColumn)
   );
 
   const columnDefs: string[] = [];

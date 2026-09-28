@@ -19,6 +19,6 @@ export function maskSensitiveFields(text: string): string {
  */
 export function sanitizeIdentifier(name: string | undefined | null, fallback = 'public'): string {
   if (!name || typeof name !== 'string') return fallback;
-  const sanitized = name.trim().replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 63);
+  const sanitized = name.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase().slice(0, 63);
   return sanitized.length > 0 ? sanitized : fallback;
 }

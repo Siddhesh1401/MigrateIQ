@@ -10,9 +10,12 @@ This phase tested high-throughput streaming, memory stability, topological depen
 ## 2. Files Created & Modified
 
 ### Files Modified:
+- `apps/desktop/main/utils.ts` — Updated `sanitizeIdentifier` to always enforce lowercase on PostgreSQL table and column names, preventing quoted case-sensitivity mismatches during live insert.
 - `apps/desktop/main/engine/etlEngine.ts` — Added `resolveChildArrayField()` to bind child tables to designated schema array fields; eliminated cross-array fallbacks that previously polluted child tables; added high-speed MongoDB `$size` aggregation query for child table `totalRows` to prevent progress percentages from exceeding 100%.
+- `apps/desktop/main/engine/ruleEngine.ts` & `apps/desktop/main/handlers/ai.ts` — Scoped auto-injected `sort_order` columns exclusively to their respective child tables, preventing duplicate column collision errors on parent tables with multiple array fields.
+- `apps/desktop/renderer/src/screens/SchemaMapper.tsx` — Filtered `sortOrderColumn` from parent DDL generation and duplicate column validation so each child table safely receives its own sequence column.
+- `apps/desktop/renderer/src/store/wizardStore.ts` — Updated `setSourceConfig` and `setTargetConfig` to persist immediately; normalized dynamically created child table names to standard snake_case.
 - `apps/desktop/main/handlers/store.ts` — Hardened saved connection retrieval with defensive checks (`c && c.name && typeof c.name === 'string'`) to prevent undefined property errors.
-- `apps/desktop/renderer/src/store/wizardStore.ts` — Updated `setSourceConfig` and `setTargetConfig` to invoke `persistWizardState` immediately upon modification.
 - `apps/desktop/renderer/src/components/ConnectionForm.tsx` — Fixed state synchronization on connection inputs and `handleLoadSavedConnection` so Step 2 and Step 3 always save and propagate configuration immediately to the wizard store.
 
 ### Files Created:
@@ -97,6 +100,8 @@ In complex enterprise document databases, parents often contain multiple array f
 1. **Polymorphic Field Handling & Missing Array Protection:** When a parent document has a `null` or missing array field (e.g. 2,003 customers with `kycDocuments: null`), the ETL engine must strictly yield 0 child records rather than falling back to sibling arrays. This prevents silent database pollution.
 2. **Topological Ordering with Circular Dependencies:** When parent and child tables or foreign keys have inter-dependencies, foreign keys must be temporarily deferred and applied via `ALTER TABLE ... ADD CONSTRAINT` after data insertion completes.
 3. **High-Speed Child Array Estimation:** Aggregation counting using `$size` with `$cond: { if: { $isArray: '$arr' }, then: { $size: '$arr' }, else: 0 }` prevents collection-scanning overhead while ensuring that the frontend UI progress bar accurately reflects exact child row metrics from start to finish.
+4. **Multi-Child-Table `sort_order` Scoping:** When a single parent collection contains multiple arrays (e.g., `customers` with `shippingAddresses` and `kycDocuments`), auto-injected `sort_order` columns must be strictly scoped to their respective child tables. Parent DDL generation and duplicate column checks must explicitly filter `f.sortOrderColumn` to prevent false positive column collisions (`Duplicate column name sort_order in table customers`).
+5. **PostgreSQL Quoted Identifier Case-Sensitivity:** PostgreSQL treats double-quoted identifiers as strictly case-sensitive (`"customers_paymentmethods"` $\ne$ `"customers_paymentMethods"`). Table sanitization must unconditionally enforce `.toLowerCase()` across both DDL generation and streaming INSERT queries so camelCase MongoDB field names decompose into relational tables without relation not found failures.
 
 ---
 

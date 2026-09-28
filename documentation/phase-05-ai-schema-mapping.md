@@ -301,10 +301,11 @@ Same light theme colors and responsive design as original Phase 5.
 - [x] **Identifier Quote Escaping in DDL**: Double-quotes in table names, column names, foreign keys, and child table names are escaped (`""`) in generated PostgreSQL DDL scripts
 - [x] **Collection-Level Column Toggle**: Table header `Select All / Deselect` button allows toggling all columns in a table with 1 click
 - [x] **Primary Key `_id` Exclusion Advisory**: Visual `⚠️ PK Excluded` badge warns if `_id` is excluded
+- [x] **Multi-Child-Table `sort_order` Scoping**: Collections with multiple embedded arrays (e.g. `shippingAddresses` AND `kycDocuments`) isolate `sort_order` to their respective child tables without false duplicate column collision on the parent table
 
 ✅ **Code Quality & Automated Test Suite:**
 - [x] TypeScript 0 errors (`npx tsc --noEmit`)
-- [x] 54/54 automated unit tests passing in `scripts/test-phase5-rule-engine.js` (Tests 1–9)
+- [x] 56/56 automated unit tests passing in `scripts/test-phase5-rule-engine.js` (Tests 1–9)
 - [x] All components use explicit `Props` interfaces
 - [x] IPC handlers properly typed
 - [x] No `any`, `@ts-ignore`, or `@ts-nocheck`

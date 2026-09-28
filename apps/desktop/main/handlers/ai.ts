@@ -1428,7 +1428,7 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
       // 0-based index of the original array element is preserved during ETL.
       if (field.isChildTable && field.childTableName) {
         const alreadyHasSortOrder = mapping.fields.some(
-          (f) => f.sortOrderColumn || f.targetColumn === 'sort_order'
+          (f) => f.sortOrderColumn && (f.childTableName === field.childTableName || (!f.childTableName && f.targetColumn === 'sort_order'))
         );
         if (!alreadyHasSortOrder) {
           enrichedFields.push({
@@ -1440,7 +1440,7 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
             isNullable: false,
             include: true,
             isChildTable: false,
-            childTableName: undefined,
+            childTableName: field.childTableName,
             foreignKeyToParent: undefined,
             sortOrderColumn: true,
             transformationRule: 'sort_order',

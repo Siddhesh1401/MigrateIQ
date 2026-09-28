@@ -542,7 +542,7 @@ function buildBatchInsertSql(
   if (batch.length === 0) return null;
 
   const activeFields = mapping.fields.filter(
-    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
+    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE' && (isChildTable || !f.sortOrderColumn)
   );
   if (activeFields.length === 0) return null;
 
@@ -628,7 +628,7 @@ function buildSingleInsertSql(
   rowIndex: number
 ): { sql: string; values: unknown[] } | null {
   const activeFields = mapping.fields.filter(
-    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE'
+    f => f.include && !f.isChildTable && f.targetType?.toUpperCase() !== 'CHILD_TABLE' && (isChildTable || !f.sortOrderColumn)
   );
   if (activeFields.length === 0) return null;
 
