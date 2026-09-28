@@ -34,13 +34,42 @@ export function extractDatabaseFromConnectionString(uri: string): string {
     const parsed = new URL(normalized);
     const pathname = parsed.pathname.replace(/^\/+/, '');
     if (pathname && pathname !== '/') {
-      return pathname.split('/')[0].split('?')[0];
+      return decodeURIComponent(pathname.split('/')[0].split('?')[0]);
     }
   } catch {
     const match = uri.match(/[:\/]\d+\/([a-zA-Z0-9_\-]+)/);
-    if (match && match[1]) return match[1];
+    if (match && match[1]) return decodeURIComponent(match[1]);
   }
   return '';
+}
+
+export function updateDatabaseInConnectionString(uri: string, newDb: string): string {
+  if (!uri || !newDb || typeof uri !== 'string') return uri;
+  try {
+    const isMongoSrv = uri.startsWith('mongodb+srv://');
+    const isMongo = uri.startsWith('mongodb://');
+    
+    let prefix = '';
+    if (isMongoSrv) { prefix = 'mongodb+srv://'; }
+    else if (isMongo) { prefix = 'mongodb://'; }
+    else if (uri.startsWith('postgresql://')) { prefix = 'postgresql://'; }
+    else if (uri.startsWith('postgres://')) { prefix = 'postgres://'; }
+    else return uri;
+
+    const dummyUrl = uri.replace(/^[a-z0-9+]+:\/\//i, 'http://');
+    const parsed = new URL(dummyUrl);
+    parsed.pathname = '/' + encodeURIComponent(newDb.trim());
+    
+    return parsed.toString().replace(/^http:\/\//, prefix);
+  } catch {
+    const match = uri.match(/^([a-z0-9+]+:\/\/[^/?#]+)(\/[^?#]*)?(\?.*)?$/i);
+    if (match) {
+      const base = match[1];
+      const search = match[3] || '';
+      return `${base}/${encodeURIComponent(newDb.trim())}${search}`;
+    }
+    return uri;
+  }
 }
 
 export function extractHostFromConnectionString(uri: string): string {
@@ -56,6 +85,14 @@ export function extractHostFromConnectionString(uri: string): string {
   } catch {
     return '';
   }
+}
+
+export function getLastUsedConfig(_type: 'mongodb' | 'postgresql'): Partial<ConnectionConfig> | null {
+  return null;
+}
+
+export function saveLastUsedConfig(_config: ConnectionConfig): void {
+  // Forms start fresh and clean; saved connections are managed via electron-store
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -97,33 +134,78 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
   const [selectedSavedId, setSelectedSavedId] = useState<string>('');
   const [loadingConnections, setLoadingConnections] = useState(false);
 
-  // Synchronize with initialConfig updates
+  // Track the last emitted config to prevent echoing our own edits back into form state
+  const lastEmittedConfigRef = React.useRef<string | null>(
+    initialConfig ? JSON.stringify(initialConfig) : null
+  );
+
+  // Synchronize with initialConfig updates (only when changed externally, not from active typing)
   useEffect(() => {
-    if (initialConfig) {
-      if (initialConfig.connectionString) {
-        setTab('string');
-        setConnectionString(initialConfig.connectionString);
-        const extracted = extractDatabaseFromConnectionString(initialConfig.connectionString);
-        setDatabase(initialConfig.database || extracted || '');
-      } else if (initialConfig.host) {
-        setTab('fields');
-        setHost(initialConfig.host);
-        setPort(initialConfig.port ? String(initialConfig.port) : (dbType === 'mongodb' ? '27017' : '5432'));
-        setUsername(initialConfig.user || '');
-        setPassword(initialConfig.password || '');
-        setDatabase(initialConfig.database || '');
-      }
-      if (initialConfig.schema) {
-        setPgSchema(initialConfig.schema);
-      }
-      if (initialConfig.name) {
-        setConnectionName(initialConfig.name);
-      }
+    if (!initialConfig) {
+      setConnectionString('');
+      setDatabase('');
+      setUsername('');
+      setPassword('');
+      setHost('localhost');
+      setPort(dbType === 'mongodb' ? '27017' : '5432');
+      setPgSchema('public');
+      setConnectionName('');
+      setSelectedSavedId('');
+      lastEmittedConfigRef.current = null;
+      return;
+    }
+
+    const serialized = JSON.stringify(initialConfig);
+    if (serialized === lastEmittedConfigRef.current) {
+      // Echo of our own local typing update — do not overwrite user's in-progress typing!
+      return;
+    }
+    lastEmittedConfigRef.current = serialized;
+
+    const extracted = initialConfig.connectionString
+      ? extractDatabaseFromConnectionString(initialConfig.connectionString)
+      : '';
+    const targetDb = initialConfig.database || extracted || '';
+
+    if (initialConfig.connectionString) {
+      setTab('string');
+      setConnectionString(initialConfig.connectionString);
+      setDatabase(targetDb);
+    } else if (initialConfig.host) {
+      setTab('fields');
+      setHost(initialConfig.host);
+      setPort(initialConfig.port ? String(initialConfig.port) : (dbType === 'mongodb' ? '27017' : '5432'));
+      setUsername(initialConfig.user || '');
+      setPassword(initialConfig.password || '');
+      setDatabase(targetDb);
+    }
+    if (initialConfig.schema) {
+      setPgSchema(initialConfig.schema);
+    }
+    if (initialConfig.name) {
+      setConnectionName(initialConfig.name);
     }
   }, [initialConfig, dbType]);
 
-  // Load saved connections for this db type on mount
-  const loadSavedConnections = useCallback(() => {
+  // Fetch and refresh saved connections list (without auto-select side-effect)
+  const refreshSavedConnections = useCallback(async (selectId?: string): Promise<void> => {
+    try {
+      const response = await window.electronAPI.invoke<SavedConnection[]>('store:get-connections', dbType);
+      if (response.success && response.data) {
+        setSavedConnections(response.data);
+        if (selectId) {
+          const found = response.data.find((c) => c.id === selectId);
+          if (found) {
+            setSelectedSavedId(found.id);
+            setConnectionName(found.name);
+          }
+        }
+      }
+    } catch { /* silent */ }
+  }, [dbType]);
+
+  // Load saved connections once on mount (with optional auto-select matching initialConfig)
+  useEffect(() => {
     setLoadingConnections(true);
     window.electronAPI
       .invoke<SavedConnection[]>('store:get-connections', dbType)
@@ -131,36 +213,51 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
         if (response.success && response.data) {
           setSavedConnections(response.data);
 
-          // If initialConfig matches an existing saved connection, auto-select it in dropdown
-          if (initialConfig) {
+          // Auto-select if initialConfig matches a saved connection
+          const cfg = initialConfig;
+          if (cfg && (cfg.connectionString || cfg.host || cfg.database)) {
+            const targetDb = (
+              cfg.database ||
+              (cfg.connectionString ? extractDatabaseFromConnectionString(cfg.connectionString) : '')
+            ).trim().toLowerCase();
+            const targetConnStr = (cfg.connectionString || '').trim();
+
             const match = response.data.find((c) => {
-              if (initialConfig.name && c.name.toLowerCase() === initialConfig.name.toLowerCase()) return true;
-              if (initialConfig.connectionString && c.config.connectionString) {
-                return initialConfig.connectionString.trim() === c.config.connectionString.trim();
+              if (cfg.name && c.name.toLowerCase() === cfg.name.toLowerCase()) return true;
+              if (targetConnStr && c.config.connectionString) {
+                if (targetConnStr === c.config.connectionString.trim()) return true;
               }
-              if (initialConfig.host && c.config.host) {
+              const savedDb = (
+                c.config.database ||
+                (c.config.connectionString ? extractDatabaseFromConnectionString(c.config.connectionString) : '')
+              ).trim().toLowerCase();
+              if (targetDb && (targetDb === savedDb || targetDb === c.name.toLowerCase())) return true;
+              if (cfg.host && c.config.host) {
                 return (
-                  initialConfig.host === c.config.host &&
-                  String(initialConfig.port) === String(c.config.port) &&
-                  initialConfig.database === c.config.database
+                  cfg.host === c.config.host &&
+                  String(cfg.port) === String(c.config.port) &&
+                  cfg.database === c.config.database
                 );
               }
               return false;
             });
             if (match) {
+              // Only update the dropdown selector, NOT connectionName
+              // connectionName is only set when user explicitly picks from the dropdown
               setSelectedSavedId(match.id);
-              setConnectionName(match.name);
             }
           }
         }
       })
       .catch(() => {})
       .finally(() => setLoadingConnections(false));
-  }, [dbType, initialConfig]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbType]);
 
-  useEffect(() => {
-    loadSavedConnections();
-  }, [loadSavedConnections]);
+  const getDefaultConnectionName = (): string => {
+    const cleanDb = database.trim() || (connectionString ? extractDatabaseFromConnectionString(connectionString) : '');
+    return cleanDb || (dbType === 'mongodb' ? 'mongodb_database' : 'postgres_database');
+  };
 
   const getAutoConnectionName = (): string => {
     const trimmedStr = connectionString.trim();
@@ -177,15 +274,17 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       const trimmedStr = connectionString.trim();
       const extractedDb = extractDatabaseFromConnectionString(trimmedStr);
       const effectiveDb = database.trim() || extractedDb || (dbType === 'mongodb' ? 'test' : 'postgres');
-      return {
+      const finalUri = effectiveDb && trimmedStr ? updateDatabaseInConnectionString(trimmedStr, effectiveDb) : trimmedStr;
+      const cfg: ConnectionConfig = {
         type: dbType,
-        connectionString: trimmedStr,
+        connectionString: finalUri,
         database: effectiveDb,
         schema: dbType === 'postgresql' ? (pgSchema.trim() || 'public') : undefined,
         name: connectionName.trim() || undefined,
       };
+      return cfg;
     }
-    return {
+    const cfg: ConnectionConfig = {
       type: dbType,
       host: host.trim() || 'localhost',
       port: parseInt(port, 10) || (dbType === 'mongodb' ? 27017 : 5432),
@@ -195,15 +294,120 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       schema: dbType === 'postgresql' ? (pgSchema.trim() || 'public') : undefined,
       name: connectionName.trim() || undefined,
     };
+    return cfg;
   };
 
-  const handleFieldChange = (setter: (val: string) => void, val: string) => {
-    setter(val);
+  const handleTabSwitch = (newTab: 'string' | 'fields') => {
+    if (newTab === tab) return;
+    setTab(newTab);
+
+    if (newTab === 'fields' && connectionString) {
+      try {
+        const normalized = connectionString
+          .replace(/^mongodb\+srv:\/\//, 'http://')
+          .replace(/^mongodb:\/\//, 'http://')
+          .replace(/^postgresql:\/\//, 'http://')
+          .replace(/^postgres:\/\//, 'http://');
+        const parsed = new URL(normalized);
+        if (parsed.hostname) setHost(parsed.hostname);
+        if (parsed.port) setPort(parsed.port);
+        if (parsed.username) setUsername(decodeURIComponent(parsed.username));
+        if (parsed.password) setPassword(decodeURIComponent(parsed.password));
+        const extracted = extractDatabaseFromConnectionString(connectionString);
+        if (extracted) setDatabase(extracted);
+      } catch {}
+    } else if (newTab === 'string') {
+      const auth = username ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@` : '';
+      const effectiveHost = host.trim() || 'localhost';
+      const effectivePort = port.trim() || (dbType === 'mongodb' ? '27017' : '5432');
+      const effectiveDb = database.trim() || (dbType === 'mongodb' ? 'test' : 'postgres');
+      if (!connectionString || connectionString.trim() === '') {
+        const synth = dbType === 'mongodb'
+          ? `mongodb://${auth}${effectiveHost}:${effectivePort}/${effectiveDb}`
+          : `postgresql://${auth}${effectiveHost}:${effectivePort}/${effectiveDb}`;
+        setConnectionString(synth);
+      } else if (database.trim()) {
+        setConnectionString(updateDatabaseInConnectionString(connectionString, database.trim()));
+      }
+    }
+
+    setTimeout(() => {
+      const cfg = buildConfig();
+      lastEmittedConfigRef.current = JSON.stringify(cfg);
+      saveLastUsedConfig(cfg);
+      onChange?.(cfg);
+    }, 0);
+  };
+
+  type FieldKey = 'host' | 'port' | 'username' | 'password' | 'database' | 'schema';
+
+  const handleFieldChange = (field: FieldKey, val: string) => {
     if (selectedSavedId) setSelectedSavedId('');
     setSaveMessage(null);
-    setTimeout(() => {
-      onChange?.(buildConfig());
-    }, 0);
+
+    let nextHost = host;
+    let nextPort = port;
+    let nextUsername = username;
+    let nextPassword = password;
+    let nextDatabase = database;
+    let nextPgSchema = pgSchema;
+    let nextConnectionString = connectionString;
+
+    switch (field) {
+      case 'host':
+        setHost(val);
+        nextHost = val;
+        break;
+      case 'port':
+        setPort(val);
+        nextPort = val;
+        break;
+      case 'username':
+        setUsername(val);
+        nextUsername = val;
+        break;
+      case 'password':
+        setPassword(val);
+        nextPassword = val;
+        break;
+      case 'database':
+        setDatabase(val);
+        nextDatabase = val;
+        if (tab === 'string' && nextConnectionString) {
+          nextConnectionString = updateDatabaseInConnectionString(nextConnectionString, val.trim());
+          setConnectionString(nextConnectionString);
+        }
+        break;
+      case 'schema':
+        setPgSchema(val);
+        nextPgSchema = val;
+        break;
+    }
+
+    const effectiveDb = nextDatabase.trim() || (dbType === 'mongodb' ? 'test' : 'postgres');
+
+    const newConfig: ConnectionConfig = tab === 'string'
+      ? {
+          type: dbType,
+          connectionString: nextConnectionString.trim(),
+          database: effectiveDb,
+          schema: dbType === 'postgresql' ? (nextPgSchema.trim() || 'public') : undefined,
+          name: connectionName.trim() || undefined,
+        }
+      : {
+          type: dbType,
+          host: nextHost.trim() || 'localhost',
+          port: parseInt(nextPort, 10) || (dbType === 'mongodb' ? 27017 : 5432),
+          user: nextUsername,
+          password: nextPassword,
+          database: effectiveDb,
+          schema: dbType === 'postgresql' ? (nextPgSchema.trim() || 'public') : undefined,
+          name: connectionName.trim() || undefined,
+        };
+
+    lastEmittedConfigRef.current = JSON.stringify(newConfig);
+    saveLastUsedConfig(newConfig);
+    onChange?.(newConfig);
   };
 
   const handleConnectionStringChange = (val: string) => {
@@ -214,9 +418,19 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     if (extracted) {
       setDatabase(extracted);
     }
-    setTimeout(() => {
-      onChange?.(buildConfig());
-    }, 0);
+
+    const effectiveDb = extracted || database.trim() || (dbType === 'mongodb' ? 'test' : 'postgres');
+    const newConfig: ConnectionConfig = {
+      type: dbType,
+      connectionString: val.trim(),
+      database: effectiveDb,
+      schema: dbType === 'postgresql' ? (pgSchema.trim() || 'public') : undefined,
+      name: connectionName.trim() || undefined,
+    };
+
+    lastEmittedConfigRef.current = JSON.stringify(newConfig);
+    saveLastUsedConfig(newConfig);
+    onChange?.(newConfig);
   };
 
   const handleLoadSavedConnection = (connId: string) => {
@@ -287,31 +501,45 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
 
   // Explicit Save Connection Button handler
   const handleSaveConnectionNow = async (overrideName?: string): Promise<boolean> => {
-    const autoGen = getAutoConnectionName();
-    const nameToSave = (overrideName || connectionName || autoGen).trim() || autoGen;
+    const trimmedStr = connectionString.trim();
+    const hasDetails = tab === 'string' ? Boolean(trimmedStr) : Boolean(host.trim());
+    if (!hasDetails) {
+      setSaveMessage({ type: 'error', text: 'Please fill in connection details before saving.' });
+      setTimeout(() => setSaveMessage(null), 4000);
+      return false;
+    }
+
+    // Always derive the save name from the actual database name (not the custom connection label)
+    // This prevents Step 2 (source) and Step 3 (target) from using the same label and overwriting each other
+    const dbName = (
+      database.trim() ||
+      (connectionString ? extractDatabaseFromConnectionString(connectionString) : '') ||
+      getDefaultConnectionName()
+    );
+    // Allow explicit override (e.g. user typed a custom name in the "Save this connection" field)
+    const nameToSave = (overrideName && overrideName !== dbName
+      ? (connectionName.trim() === overrideName ? overrideName : dbName)
+      : dbName
+    ).trim() || dbName;
 
     const config = buildConfig();
+    // Ensure the name is reflected in config
+    const configWithName: typeof config = { ...config, name: nameToSave };
+
     setIsSaving(true);
     setSaveMessage(null);
 
     try {
       const response = await window.electronAPI.invoke<SavedConnection>(
         'store:save-connection',
-        { name: nameToSave, config }
+        { name: nameToSave, config: configWithName }
       );
 
       if (response.success && response.data) {
-        const savedItem = response.data;
-        setSavedConnections((prev) => {
-          const filtered = prev.filter((c) => (c.name || '').toLowerCase() !== nameToSave.toLowerCase());
-          return [...filtered, savedItem];
-        });
-        setSelectedSavedId(savedItem.id);
-        setSaveMessage({ type: 'success', text: `Saved "${nameToSave}" for future use!` });
         setShouldSave(false);
-        setConnectionName(nameToSave);
-        if (onSave) onSave(nameToSave, config);
-        onChange?.(config);
+        setSaveMessage({ type: 'success', text: `✅ Saved "${nameToSave}" to saved connections!` });
+        // Refresh the dropdown list and select the new entry
+        await refreshSavedConnections(response.data.id);
         return true;
       } else {
         setSaveMessage({ type: 'error', text: response.error || 'Failed to save connection' });
@@ -322,27 +550,27 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       return false;
     } finally {
       setIsSaving(false);
-      setTimeout(() => setSaveMessage(null), 5000);
+      setTimeout(() => setSaveMessage(null), 8000);
     }
   };
 
   const handleConnect = async () => {
-    const config = buildConfig();
-    
-    // Always persist current config into wizard store
-    if (onSave) {
-      const name = connectionName.trim() || getAutoConnectionName();
-      onSave(name, config);
-    }
+    // Always use the database name as the save key — never the saved-connection's custom name
+    const saveKey = (
+      database.trim() ||
+      (connectionString ? extractDatabaseFromConnectionString(connectionString) : '') ||
+      getDefaultConnectionName()
+    );
+    const config = { ...buildConfig(), name: saveKey };
 
     // Test connection first
     const connectResult = await onConnect(config);
 
-    // Auto-save if checkbox is checked
+    // If successful: notify wizard store AND auto-save to electron-store
     const isSuccessful = connectResult !== false;
-    if (isSuccessful && shouldSave) {
-      const nameToSave = connectionName.trim() || getAutoConnectionName();
-      await handleSaveConnectionNow(nameToSave);
+    if (isSuccessful) {
+      if (onSave) onSave(saveKey, config);
+      await handleSaveConnectionNow(saveKey);
     }
   };
 
@@ -420,11 +648,17 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
             <option value="">
               {loadingConnections ? 'Loading saved connections…' : `— Select saved ${dbType === 'mongodb' ? 'MongoDB' : 'PostgreSQL'} connection —`}
             </option>
-            {savedConnections.map((conn) => (
-              <option key={conn.id} value={conn.id}>
-                {conn.name} {conn.config.database ? `[${conn.config.database}]` : ''}
-              </option>
-            ))}
+            {savedConnections.map((conn) => {
+              const displayDb = conn.config.database ? `[${conn.config.database}]` : '';
+              const displayName = conn.name === conn.config.database
+                ? conn.name
+                : `${conn.name} ${displayDb}`.trim();
+              return (
+                <option key={conn.id} value={conn.id}>
+                  {displayName}
+                </option>
+              );
+            })}
           </select>
 
           {selectedSavedId && (
@@ -458,7 +692,7 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #E2E8F0' }}>
         <button
           type="button"
-          onClick={() => { setTab('string'); onChange?.(); }}
+          onClick={() => handleTabSwitch('string')}
           style={{
             background: 'none',
             border: 'none',
@@ -475,7 +709,7 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => { setTab('fields'); onChange?.(); }}
+          onClick={() => handleTabSwitch('fields')}
           style={{
             background: 'none',
             border: 'none',
@@ -543,13 +777,14 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
 
           <div style={{ display: 'grid', gridTemplateColumns: dbType === 'postgresql' ? '1fr 1fr' : '1fr', gap: '0.75rem' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.25rem', color: '#0F172A' }}>
+              <label htmlFor="conn-string-db" style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.25rem', color: '#0F172A' }}>
                 Database Name {database ? `(Detected: "${database}")` : '(optional override)'}
               </label>
               <input
+                id="conn-string-db"
                 type="text"
                 value={database}
-                onChange={(e) => handleFieldChange(setDatabase, e.target.value)}
+                onChange={(e) => handleFieldChange('database', e.target.value)}
                 placeholder={dbType === 'mongodb' ? 'e.g. migrateiq_test' : 'e.g. postgres'}
                 style={{
                   width: '100%',
@@ -566,13 +801,14 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
 
             {dbType === 'postgresql' && (
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.25rem', color: '#0F172A' }}>
+                <label htmlFor="conn-string-schema" style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.25rem', color: '#0F172A' }}>
                   PostgreSQL Schema (optional)
                 </label>
                 <input
+                  id="conn-string-schema"
                   type="text"
                   value={pgSchema}
-                  onChange={(e) => handleFieldChange(setPgSchema, e.target.value)}
+                  onChange={(e) => handleFieldChange('schema', e.target.value)}
                   placeholder="public (default)"
                   style={{
                     width: '100%',
@@ -595,24 +831,26 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
       {tab === 'fields' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {[
-            { label: 'Host', value: host, setter: setHost, placeholder: 'localhost', type: 'text' },
-            { label: 'Port', value: port, setter: setPort, placeholder: dbType === 'mongodb' ? '27017' : '5432', type: 'number' },
-            { label: 'Username', value: username, setter: setUsername, placeholder: '', type: 'text' },
-            { label: 'Password', value: password, setter: setPassword, placeholder: '', type: 'password' },
-            { label: 'Database Name', value: database, setter: setDatabase, placeholder: '', type: 'text' },
+            { label: 'Host', field: 'host' as const, value: host, placeholder: 'localhost', type: 'text' },
+            { label: 'Port', field: 'port' as const, value: port, placeholder: dbType === 'mongodb' ? '27017' : '5432', type: 'number' },
+            { label: 'Username', field: 'username' as const, value: username, placeholder: 'e.g. postgres', type: 'text' },
+            { label: 'Password', field: 'password' as const, value: password, placeholder: '••••••••', type: 'password' },
+            { label: 'Database Name', field: 'database' as const, value: database, placeholder: dbType === 'mongodb' ? 'phase9b_source_mongo' : 'phase9b_target_pg', type: 'text' },
             ...(dbType === 'postgresql'
-              ? [{ label: 'PostgreSQL Schema', value: pgSchema, setter: setPgSchema, placeholder: 'public (default)', type: 'text' }]
+              ? [{ label: 'PostgreSQL Schema', field: 'schema' as const, value: pgSchema, placeholder: 'public (default)', type: 'text' }]
               : []),
-          ].map(({ label, value, setter, placeholder, type }) => (
-            <div key={label}>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.25rem', color: '#0F172A' }}>
+          ].map(({ label, field, value, placeholder, type }) => (
+            <div key={field}>
+              <label htmlFor={`field-${field}`} style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.25rem', color: '#0F172A' }}>
                 {label}
               </label>
               <input
+                id={`field-${field}`}
                 type={type}
                 value={value}
-                onChange={(e) => handleFieldChange(setter, e.target.value)}
+                onChange={(e) => handleFieldChange(field, e.target.value)}
                 placeholder={placeholder}
+                autoComplete="off"
                 style={{
                   width: '100%',
                   padding: '0.75rem',
@@ -711,8 +949,8 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
             <button
               type="button"
               onClick={() => {
-                const autoName = connectionName.trim() || getAutoConnectionName();
-                handleSaveConnectionNow(autoName);
+                const name = connectionName.trim() || getDefaultConnectionName();
+                handleSaveConnectionNow(name);
               }}
               disabled={isSaving}
               style={{
@@ -738,7 +976,7 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
               type="text"
               value={connectionName}
               onChange={(e) => setConnectionName(e.target.value)}
-              placeholder={getAutoConnectionName()}
+              placeholder={getDefaultConnectionName()}
               style={{
                 flex: 1,
                 padding: '0.625rem 0.75rem',

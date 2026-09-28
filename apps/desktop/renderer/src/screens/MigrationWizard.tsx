@@ -16,6 +16,8 @@ import { SchemaMapper } from './SchemaMapper';
 import { RiskReport } from './RiskReport';
 import { DryRunScreen } from './DryRunScreen';
 import MigrationProgressScreen from './MigrationProgressScreen';
+import { DataVerificationScreen } from './DataVerificationScreen';
+import { RescueCenterModal } from '../components/RescueCenterModal';
 import { generate1To1Markdown, generateExecutiveHtml } from '../utils/reportGenerator';
 import '../styles/wizard.css';
 
@@ -410,6 +412,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const wizardStore = useWizardStore();
 
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
+  const [showRescueModal, setShowRescueModal] = useState(false);
 
   // Sync demoMode flag and resumeNotice from router navigation state if present
   useEffect(() => {
@@ -422,6 +425,14 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
     }
   }, [location.state, wizardStore]);
 
+  // Clear any legacy localStorage config caches so Step 2 and Step 3 always start fresh/blank
+  useEffect(() => {
+    try {
+      localStorage.removeItem('migrateiq_last_config_mongodb');
+      localStorage.removeItem('migrateiq_last_config_postgresql');
+    } catch {}
+  }, []);
+
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll wizard content container to top whenever wizardStep changes
@@ -433,10 +444,12 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceConnectedSuccessfully, setSourceConnectedSuccessfully] = useState<boolean>(
-    !!wizardStore.sourceConfig
+    Boolean(wizardStore.sourceConfig && wizardStore.sourceSchema && wizardStore.sourceSchema.length > 0)
   );
   const [sourceMongoPreview, setSourceMongoPreview] = useState<SourceSchema[] | null>(
-    wizardStore.direction === 'mongodb-to-postgres' ? wizardStore.sourceSchema : null
+    wizardStore.direction === 'mongodb-to-postgres' && wizardStore.sourceSchema && wizardStore.sourceSchema.length > 0
+      ? wizardStore.sourceSchema
+      : null
   );
   const [sourcePgPreview, setSourcePgPreview] = useState<PostgresIntrospectionResult | null>(null);
   const [targetTableCount, setTargetTableCount] = useState<number | null>(null);
@@ -447,6 +460,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const [targetSuccessMessage, setTargetSuccessMessage] = useState<string | null>(
     wizardStore.targetConfig ? 'Target database connected and verified.' : null
   );
+  const [isTargetDirty, setIsTargetDirty] = useState<boolean>(false);
   const [showConfirmResetModal, setShowConfirmResetModal] = useState(false);
   const [showWipeModal, setShowWipeModal] = useState(false);
   const [wipeConfirmToken, setWipeConfirmToken] = useState('');
@@ -628,8 +642,24 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const handleDirectionSelect = (direction: 'mongodb-to-postgres' | 'postgres-to-mongo') => {
     wizardStore.setDirection(direction);
     wizardStore.setSourceSchema([]);
-    wizardStore.setSourceConfig(null);
-    wizardStore.setTargetConfig(null);
+
+    // Preserve existing valid configs or restore cached configs instead of wiping to null
+    const newSourceType = direction === 'mongodb-to-postgres' ? 'mongodb' : 'postgresql';
+    const newTargetType = direction === 'mongodb-to-postgres' ? 'postgresql' : 'mongodb';
+
+    let nextSource = wizardStore.sourceConfig?.type === newSourceType ? wizardStore.sourceConfig : null;
+    let nextTarget = wizardStore.targetConfig?.type === newTargetType ? wizardStore.targetConfig : null;
+
+    if (!nextSource && wizardStore.targetConfig?.type === newSourceType) {
+      nextSource = wizardStore.targetConfig;
+    }
+    if (!nextTarget && wizardStore.sourceConfig?.type === newTargetType) {
+      nextTarget = wizardStore.sourceConfig;
+    }
+
+    wizardStore.setSourceConfig(nextSource);
+    wizardStore.setTargetConfig(nextTarget);
+
     setError(null);
     setSourceConnectedSuccessfully(false);
     setSourceMongoPreview(null);
@@ -645,6 +675,10 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
   const handleStartFresh = () => {
     wizardStore.reset();
+    try {
+      localStorage.removeItem('migrateiq_last_config_mongodb');
+      localStorage.removeItem('migrateiq_last_config_postgresql');
+    } catch {}
     setError(null);
     setSourceConnectedSuccessfully(false);
     setSourceMongoPreview(null);
@@ -794,6 +828,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
         setTargetLatencyMs(elapsed);
         setTargetMongoPreview(null);
+        setIsTargetDirty(false);
         wizardStore.setTargetConfig(config);
         setTargetPgPreview(response.data);
         const count = response.data.tables.length;
@@ -821,6 +856,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
         setTargetLatencyMs(elapsed);
         setTargetPgPreview(null);
+        setIsTargetDirty(false);
         wizardStore.setTargetConfig(config);
         setTargetMongoPreview(response.data || []);
         const count = response.data?.length || 0;
@@ -849,7 +885,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const isSourceConnected = sourceDbType === 'mongodb'
     ? (sourceConnectedSuccessfully && Array.isArray(sourceMongoPreview) && sourceMongoPreview.length > 0) || (wizardStore.direction === 'mongodb-to-postgres' && !!wizardStore.sourceConfig && Array.isArray(wizardStore.sourceSchema) && wizardStore.sourceSchema.length > 0)
     : (sourceConnectedSuccessfully && !!sourcePgPreview && sourcePgPreview.tables.length > 0) || (wizardStore.direction === 'postgres-to-mongo' && !!wizardStore.sourceConfig && Array.isArray(wizardStore.sourceSchema) && wizardStore.sourceSchema.length > 0);
-  const isTargetConnected = !!targetSuccessMessage || !!wizardStore.targetConfig;
+  const isTargetConnected = !!targetSuccessMessage || (!!wizardStore.targetConfig && !isTargetDirty);
 
   // ── 1:1 Diagnostic Snapshot & Executive PDF Handlers ─────────────────────
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -937,7 +973,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
               {wizardStore.direction === 'mongodb-to-postgres' ? 'MongoDB → PostgreSQL' : 'PostgreSQL → MongoDB'}
             </span>
             <span className="wizard-status-step">
-              — Step {wizardStore.wizardStep} of 8
+              — Step {wizardStore.wizardStep} of 9
             </span>
           </div>
 
@@ -971,6 +1007,15 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
                 </button>
               </>
             )}
+
+            <button
+              type="button"
+              className="rescue-header-btn"
+              title="Persistent Emergency & Rescue Center (1-Click Rollback, Standalone Takeaway Kit, Blackbox Diagnostics)"
+              onClick={() => setShowRescueModal(true)}
+            >
+              🆘 Rescue Center ▼
+            </button>
 
             <button
               className="wizard-fresh-btn"
@@ -1170,9 +1215,15 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         </div>
       )}
 
+      {/* ── Persistent Emergency & Rescue Center Modal ── */}
+      <RescueCenterModal
+        isOpen={showRescueModal}
+        onClose={() => setShowRescueModal(false)}
+      />
+
       <StepProgressBar
         currentStep={wizardStore.wizardStep}
-        totalSteps={8}
+        totalSteps={9}
         onStepClick={(step) => wizardStore.setWizardStep(step)}
       />
 
@@ -1218,7 +1269,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         {/* ── Step 1: Choose Direction ── */}
         {wizardStore.wizardStep === 1 && (
           <div className="wizard-step">
-            <h1 className="step-heading">Step 1 of 8 — Choose Direction</h1>
+            <h1 className="step-heading">Step 1 of 9 — Choose Direction</h1>
             <p className="step-prompt">What do you want to do?</p>
 
             <div className="direction-cards">
@@ -1293,7 +1344,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         {wizardStore.wizardStep === 2 && (
           <div className="wizard-step">
             <h2 className="step-heading">
-              Step 2 of 8 — Connect Source Database ({sourceDbType === 'mongodb' ? 'MongoDB' : 'PostgreSQL'})
+              Step 2 of 9 — Connect Source Database ({sourceDbType === 'mongodb' ? 'MongoDB' : 'PostgreSQL'})
             </h2>
             <p className="step-subheading">
               Enter your {sourceDbType === 'mongodb' ? 'MongoDB' : 'PostgreSQL'} connection details to inspect the schema
@@ -1309,14 +1360,14 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
               onSave={(name, config) => {
                 wizardStore.setSourceConfig({ ...config, name });
               }}
-              onChange={(updatedConfig) => {
+              onChange={(cfg) => {
+                if (cfg) {
+                  wizardStore.setSourceConfig(cfg);
+                }
                 setError(null);
                 setSourceConnectedSuccessfully(false);
                 setSourceMongoPreview(null);
                 setSourcePgPreview(null);
-                if (updatedConfig) {
-                  wizardStore.setSourceConfig(updatedConfig);
-                }
               }}
             />
 
@@ -1332,7 +1383,10 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             )}
 
             {/* MongoDB success card with collapsible schema */}
-            {sourceDbType === 'mongodb' && (sourceMongoPreview || (wizardStore.direction === 'mongodb-to-postgres' && wizardStore.sourceSchema)) && (
+            {sourceDbType === 'mongodb' && (
+              (sourceMongoPreview && sourceMongoPreview.length > 0) ||
+              (wizardStore.direction === 'mongodb-to-postgres' && wizardStore.sourceSchema && wizardStore.sourceSchema.length > 0)
+            ) && (
               <div className="success-card">
                 <span className="success-icon">✅</span>
                 <div style={{ flex: 1 }}>
@@ -1437,7 +1491,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         {wizardStore.wizardStep === 3 && (
           <div className="wizard-step">
             <h2 className="step-heading">
-              Step 3 of 8 — Connect Target Database ({targetDbType === 'postgresql' ? 'PostgreSQL' : 'MongoDB'})
+              Step 3 of 9 — Connect Target Database ({targetDbType === 'postgresql' ? 'PostgreSQL' : 'MongoDB'})
             </h2>
             <p className="step-subheading">
               Enter your target {targetDbType === 'postgresql' ? 'PostgreSQL' : 'MongoDB'} connection details
@@ -1453,15 +1507,16 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
               onSave={(name, config) => {
                 wizardStore.setTargetConfig({ ...config, name });
               }}
-              onChange={(updatedConfig) => {
+              onChange={(cfg) => {
+                if (cfg) {
+                  wizardStore.setTargetConfig(cfg);
+                }
                 setError(null);
                 setTargetSuccessMessage(null);
                 setTargetTableCount(null);
                 setTargetPgPreview(null);
                 setTargetMongoPreview(null);
-                if (updatedConfig) {
-                  wizardStore.setTargetConfig(updatedConfig);
-                }
+                setIsTargetDirty(true);
               }}
             />
 
@@ -1496,7 +1551,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
             )}
 
             {/* Target success card */}
-            {(targetSuccessMessage || wizardStore.targetConfig) && (
+            {(targetSuccessMessage || (wizardStore.targetConfig && !isTargetDirty)) && (
               <div className="success-card">
                 <span className="success-icon">✅</span>
                 <div style={{ flex: 1 }}>
@@ -1883,25 +1938,33 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
           />
         )}
 
-        {/* ── Step 8+ (Placeholder for Phase 10: Migration Complete) ── */}
-        {wizardStore.wizardStep > 7 && (
+        {/* ── Step 8: Data Parity & Verification Studio (Phase 9B) ── */}
+        {wizardStore.wizardStep === 8 && (
+          <DataVerificationScreen
+            onBack={() => wizardStore.setWizardStep(7)}
+            onProceedToStep9={() => wizardStore.setWizardStep(9)}
+          />
+        )}
+
+        {/* ── Step 9: Migration Complete & Export Studio (Phase 10) ── */}
+        {wizardStore.wizardStep >= 9 && (
           <div className="wizard-step">
-            <h2 className="step-heading">Step {wizardStore.wizardStep} of 8: Migration Complete</h2>
+            <h2 className="step-heading">Step 9 of 9: Migration Complete &amp; Export Studio</h2>
             <p style={{ color: 'var(--text-muted)', marginTop: '1rem', marginBottom: '1.5rem' }}>
-              Migration has executed successfully! The detailed audit report, checksum validations, and performance benchmarks will be built in Phase 10.
+              Migration has executed successfully and 100% data parity has been verified and certified in Step 8! Downloadable code artifacts, Prisma refactoring kits, and visual ERD diagrams will be delivered in Step 9.
             </p>
             <div className="wizard-buttons" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', flexWrap: 'wrap' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => wizardStore.setWizardStep(8)}
+              >
+                ← Back to Verification (Step 8)
+              </button>
               <button
                 className="btn-secondary"
                 onClick={() => wizardStore.setWizardStep(7)}
               >
                 ← Back to Migration (Step 7)
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => wizardStore.setWizardStep(6)}
-              >
-                ← Back to Dry Run (Step 6)
               </button>
               <button
                 className="btn-primary"

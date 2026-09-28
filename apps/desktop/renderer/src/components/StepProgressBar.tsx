@@ -6,9 +6,9 @@ export interface StepProgressBarProps {
   onStepClick?: (step: number) => void;
 }
 
-const STEP_LABELS = ['Direction', 'Source DB', 'Target DB', 'Map Schema', 'Risk', 'Dry Run', 'Migrate', 'Complete'];
+const STEP_LABELS = ['Direction', 'Source DB', 'Target DB', 'Map Schema', 'Risk', 'Dry Run', 'Migrate', 'Verify', 'Complete'];
 
-export const StepProgressBar: React.FC<StepProgressBarProps> = ({ currentStep, totalSteps = 8, onStepClick }) => {
+export const StepProgressBar: React.FC<StepProgressBarProps> = ({ currentStep, totalSteps = 9, onStepClick }) => {
   const steps = Array.from({ length: totalSteps }, (_, i) => i + 1);
 
   return (

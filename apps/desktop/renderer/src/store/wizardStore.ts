@@ -8,6 +8,7 @@ import type {
   DryRunResult,
   MigrationResult,
   MigrationLogEntry,
+  ReconciliationResult,
 } from '@migrateiq/shared';
 
 export interface Layer2Features {
@@ -37,8 +38,26 @@ export interface WizardState {
   recommendedBatchSize: number;
   deferForeignKeys: boolean;
   quarantinePolicyAcknowledged: boolean;
-  wizardStep: number; // 1-8
+  wizardStep: number; // 1-9
   isDemoMode: boolean;
+
+  // Phase 9B Verification state
+  verificationAudit: ReconciliationResult | null;
+  activeVerificationTab: 'reconciliation' | 'inspector' | 'benchmark' | 'signoff';
+  selectedInspectTable: string;
+  selectedInspectRecordId: string;
+  isVerificationApproved: boolean;
+  auditorSignature: string;
+  auditorOrganization: string;
+  auditorNotes: string;
+
+  // Verification actions
+  setVerificationAudit: (data: ReconciliationResult | null) => void;
+  setActiveVerificationTab: (tab: 'reconciliation' | 'inspector' | 'benchmark' | 'signoff') => void;
+  setSelectedInspectTable: (table: string) => void;
+  setSelectedInspectRecordId: (id: string) => void;
+  setAuditorInfo: (signature: string, organization?: string, notes?: string) => void;
+  setVerificationApproved: (approved: boolean, auditor: string, organization?: string, notes?: string) => void;
 
   // Actions
   setDirection: (dir: 'mongodb-to-postgres' | 'postgres-to-mongo') => void;
@@ -88,6 +107,14 @@ const initialState = {
   quarantinePolicyAcknowledged: false,
   wizardStep: 1,
   isDemoMode: false,
+  verificationAudit: null,
+  activeVerificationTab: 'reconciliation' as const,
+  selectedInspectTable: '',
+  selectedInspectRecordId: '',
+  isVerificationApproved: false,
+  auditorSignature: '',
+  auditorOrganization: '',
+  auditorNotes: '',
 };
 
 /** Persist current wizard snapshot to electron-store via IPC */
@@ -757,11 +784,27 @@ export const useWizardStore = create<WizardState>((set, get) => ({
       wizardStep: step,
       sourceConfig: s.sourceConfig,
       targetConfig: s.targetConfig,
-      status: step >= 8 ? 'completed' : 'in-progress',
+      status: step >= 9 ? 'completed' : 'in-progress',
     });
   },
 
   setIsDemoMode: (isDemoMode) => set({ isDemoMode }),
+
+  setVerificationAudit: (data) => set({ verificationAudit: data }),
+  setActiveVerificationTab: (tab) => set({ activeVerificationTab: tab }),
+  setSelectedInspectTable: (table) => set({ selectedInspectTable: table }),
+  setSelectedInspectRecordId: (id) => set({ selectedInspectRecordId: id }),
+  setAuditorInfo: (signature, organization = '', notes = '') => set({
+    auditorSignature: signature,
+    auditorOrganization: organization,
+    auditorNotes: notes
+  }),
+  setVerificationApproved: (approved, auditor, organization = '', notes = '') => set({
+    isVerificationApproved: approved,
+    auditorSignature: auditor,
+    auditorOrganization: organization,
+    auditorNotes: notes
+  }),
 
   reset: () => {
     set(initialState);
