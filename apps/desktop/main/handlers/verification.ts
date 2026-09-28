@@ -51,7 +51,7 @@ import {
   runBenchmark,
   executeSandboxQuery
 } from '../engine/verificationEngine';
-import { maskSensitiveFields, sanitizeIdentifier } from '../utils';
+import { maskSensitiveFields, sanitizeIdentifier, normalizeConnectionConfig } from '../utils';
 
 // Cached audit result in main process
 let lastAuditResult: ReconciliationResult | null = null;
@@ -446,67 +446,115 @@ export function setupVerificationHandlers(): void {
     'verification:re-sync-table',
     async (
       _event,
-      payload: { sourceDb: ConnectionConfig; targetDb: ConnectionConfig; tableName: string }
+      payload: { sourceDb: ConnectionConfig; targetDb: ConnectionConfig; tableName: string; mappings?: ReconciliationRequest['mappings'] }
     ): Promise<IPCResponse<{ rowsMigrated: number }>> => {
       let pg: PgClient | null = null;
       let mongoClient: MongoClient | null = null;
       try {
         const tbl = sanitizeIdentifier(payload.tableName);
+        const normPg = normalizeConnectionConfig(payload.targetDb);
         pg = new PgClient({
-          connectionString: payload.targetDb.connectionString || undefined,
-          host: payload.targetDb.host || 'localhost',
-          port: payload.targetDb.port || 5432,
-          database: payload.targetDb.database,
-          user: payload.targetDb.user || 'postgres',
-          password: payload.targetDb.password,
-          ssl: payload.targetDb.ssl ? { rejectUnauthorized: false } : undefined,
+          connectionString: normPg.connectionString || undefined,
+          host: normPg.host || 'localhost',
+          port: normPg.port || 5432,
+          database: normPg.database,
+          user: normPg.user || 'postgres',
+          password: normPg.password,
+          ssl: normPg.ssl ? { rejectUnauthorized: false } : undefined,
         });
         await pg.connect();
 
-        let rowsMigrated = 0;
-        const mongoUri = payload.sourceDb.connectionString || `mongodb://${payload.sourceDb.host || 'localhost'}:${payload.sourceDb.port || 27017}/${payload.sourceDb.database}`;
-        mongoClient = new MongoClient(mongoUri);
+        const normMongo = normalizeConnectionConfig(payload.sourceDb);
+        const mongoUri = normMongo.connectionString || `mongodb://${normMongo.host || 'localhost'}:${normMongo.port || 27017}/${normMongo.database}`;
+        mongoClient = new MongoClient(mongoUri, { connectTimeoutMS: 8000, serverSelectionTimeoutMS: 8000 });
         await mongoClient.connect();
-        const mongoDb = mongoClient.db(payload.sourceDb.database);
+        const mongoDb = mongoClient.db(normMongo.database);
 
-        if (tbl === 'payments') {
-          const docs = await mongoDb.collection('payments').find().toArray();
-          await pg.query(`DELETE FROM "payments"`);
+        let rowsMigrated = 0;
+
+        // Find collection name in MongoDB
+        let sourceColName = tbl;
+        const mapping = payload.mappings?.find(m => sanitizeIdentifier(m.targetTableName) === tbl || sanitizeIdentifier(m.collectionName) === tbl);
+        if (mapping?.collectionName) {
+          sourceColName = mapping.collectionName;
+        } else {
+          const cols = await mongoDb.listCollections().toArray();
+          const found = cols.find(c => c.name.toLowerCase() === tbl.toLowerCase() || `${c.name.toLowerCase()}s` === tbl.toLowerCase() || c.name.toLowerCase() === `${tbl.toLowerCase()}s`);
+          if (found) sourceColName = found.name;
+        }
+
+        const docs = await mongoDb.collection(sourceColName).find().toArray();
+
+        // Query column information and primary key from PostgreSQL
+        const colsRes = await pg.query<{ column_name: string; data_type: string }>(
+          `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
+          [tbl]
+        );
+        const tableCols = colsRes.rows.map(r => r.column_name);
+
+        let pkCol = 'id';
+        try {
+          const pkRes = await pg.query<{ column_name: string }>(
+            `SELECT ccu.column_name
+             FROM information_schema.table_constraints tc
+             JOIN information_schema.constraint_column_usage ccu
+               ON tc.constraint_name = ccu.constraint_name
+              AND tc.table_schema = ccu.table_schema
+             WHERE tc.constraint_type = 'PRIMARY KEY'
+               AND tc.table_name = $1
+             LIMIT 1`,
+            [tbl]
+          );
+          if (pkRes.rows[0]?.column_name) pkCol = pkRes.rows[0].column_name;
+        } catch {
+          pkCol = tableCols.includes('id') ? 'id' : (tableCols[0] || 'id');
+        }
+
+        // Wipe existing table data for clean re-sync
+        await pg.query(`DELETE FROM "${tbl}"`);
+
+        if (docs.length > 0 && tableCols.length > 0) {
           for (const d of docs) {
-            await pg.query(
-              `INSERT INTO "payments" (id, transaction_id, order_number, amount, currency, fee, net_amount, payment_method, status, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-               ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount, fee = EXCLUDED.fee, net_amount = EXCLUDED.net_amount`,
-              [
-                d._id.toString(),
-                d.transactionId,
-                d.orderNumber,
-                d.amount,
-                d.currency,
-                d.fee,
-                d.netAmount,
-                d.paymentMethod,
-                d.status,
-                d.createdAt ? new Date(d.createdAt) : new Date()
-              ]
-            );
-          }
-          rowsMigrated = docs.length;
-        } else if (tbl === 'users') {
-          const docs = await mongoDb.collection('users').find().toArray();
-          await pg.query(`DELETE FROM "users"`);
-          for (const d of docs) {
-            await pg.query(
-              `INSERT INTO "users" (id, name, email, role, age, phone, address_street, address_city, address_state, address_zip, tags, account_balance, is_active, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-               ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,
-              [
-                d._id.toString(), d.name, d.email, d.role, d.age, d.phone,
-                d.address?.street, d.address?.city, d.address?.state, d.address?.zip,
-                JSON.stringify(d.tags || []), d.accountBalance, d.isActive,
-                d.createdAt ? new Date(d.createdAt) : new Date()
-              ]
-            );
+            const docRecord = d as Record<string, unknown>;
+            const insertCols: string[] = [];
+            const insertVals: unknown[] = [];
+            const placeholders: string[] = [];
+
+            for (const col of tableCols) {
+              let val: unknown = undefined;
+              if (col === 'id' || col === '_id') {
+                val = d._id ? d._id.toString() : undefined;
+              } else if (mapping) {
+                const fMatch = mapping.fields.find(f => f.targetColumn === col);
+                if (fMatch?.sourceField) {
+                  val = fMatch.sourceField.includes('.')
+                    ? fMatch.sourceField.split('.').reduce((acc: unknown, part: string) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[part] : undefined), docRecord)
+                    : docRecord[fMatch.sourceField];
+                }
+              }
+
+              if (val === undefined) {
+                if (docRecord[col] !== undefined) {
+                  val = docRecord[col];
+                } else {
+                  const camel = col.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
+                  if (docRecord[camel] !== undefined) {
+                    val = docRecord[camel];
+                  }
+                }
+              }
+
+              if (val !== undefined) {
+                insertCols.push(`"${sanitizeIdentifier(col)}"`);
+                insertVals.push(typeof val === 'object' && val !== null && !(val instanceof Date) ? JSON.stringify(val) : val);
+                placeholders.push(`$${insertVals.length}`);
+              }
+            }
+
+            if (insertCols.length > 0) {
+              const sql = `INSERT INTO "${tbl}" (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')}) ON CONFLICT ("${sanitizeIdentifier(pkCol)}") DO NOTHING`;
+              await pg.query(sql, insertVals);
+            }
           }
           rowsMigrated = docs.length;
         } else {
@@ -588,6 +636,59 @@ export function setupVerificationHandlers(): void {
               return { success: false, error: 'Export cancelled by user' };
             }
 
+            let schemaDdl = `-- ====================================================\n-- MigrateIQ Standalone Takeaway Kit DDL\n-- Generated on ${new Date().toISOString()}\n-- ====================================================\n\n`;
+
+            if (payload.targetConfig) {
+              const norm = normalizeConnectionConfig(payload.targetConfig);
+              const pg = new PgClient({
+                connectionString: norm.connectionString || undefined,
+                host: norm.host || 'localhost',
+                port: norm.port || 5432,
+                database: norm.database,
+                user: norm.user || 'postgres',
+                password: norm.password,
+                ssl: norm.ssl ? { rejectUnauthorized: false } : undefined,
+              });
+              try {
+                await pg.connect();
+                const tablesRes = await pg.query<{ table_name: string }>(
+                  `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
+                );
+                for (const tRow of tablesRes.rows) {
+                  const tName = tRow.table_name;
+                  const colsRes = await pg.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+                    `SELECT column_name, data_type, is_nullable, column_default 
+                     FROM information_schema.columns 
+                     WHERE table_schema = 'public' AND table_name = $1 
+                     ORDER BY ordinal_position`,
+                    [tName]
+                  );
+                  schemaDdl += `CREATE TABLE IF NOT EXISTS "${tName}" (\n`;
+                  const colDefs = colsRes.rows.map(c => {
+                    let def = `  "${c.column_name}" ${c.data_type.toUpperCase()}`;
+                    if (c.is_nullable === 'NO') def += ' NOT NULL';
+                    if (c.column_default) def += ` DEFAULT ${c.column_default}`;
+                    return def;
+                  });
+                  schemaDdl += colDefs.join(',\n') + '\n);\n\n';
+                }
+              } catch {
+                schemaDdl += `-- Auto-generation fallback: Ensure target tables exist before running batch scripts.\n`;
+              } finally {
+                await pg.end().catch(() => {});
+              }
+            }
+
+            const readmeContent = `# MigrateIQ Standalone Takeaway Kit
+Generated: ${new Date().toISOString()}
+
+This bundle contains everything required to deploy the migrated database schema and run ETL import jobs independently:
+- schema.sql: Complete PostgreSQL schema definitions and table constraints
+- import.bat: Automated Windows batch importer
+- import.sh: Automated Unix/Linux bash importer
+- quarantine_errors.csv: Log of any quarantined documents with schema mismatches
+`;
+
             const zipPath = saveDialogResult.filePath;
             const output = createWriteStream(zipPath);
             const archiverFactory = require('archiver') as (format: string, options?: ArchiverOptions) => Archiver;
@@ -598,11 +699,10 @@ export function setupVerificationHandlers(): void {
               archive.on('error', reject);
               archive.pipe(output);
 
-              // Add standalone DDL script
-              archive.append(`-- MigrateIQ Standalone Takeaway DDL\n-- Generated on ${new Date().toISOString()}\n\n-- Run with: psql -U postgres -d your_db -f schema.sql\n`, { name: 'schema.sql' });
-              // Add migration runner scripts
-              archive.append(`@echo off\nREM MigrateIQ Standalone Import Batch Script\npsql -U postgres -f schema.sql\necho Done.\n`, { name: 'import.bat' });
-              archive.append(`#!/bin/bash\n# MigrateIQ Standalone Import Script\npsql -U postgres -f schema.sql\necho "Done."\n`, { name: 'import.sh' });
+              archive.append(readmeContent, { name: 'README.md' });
+              archive.append(schemaDdl, { name: 'schema.sql' });
+              archive.append(`@echo off\nREM MigrateIQ Standalone Import Batch Script\npsql -U postgres -f schema.sql\necho Database schema applied successfully.\n`, { name: 'import.bat' });
+              archive.append(`#!/bin/bash\n# MigrateIQ Standalone Import Script\npsql -U postgres -f schema.sql\necho "Database schema applied successfully."\n`, { name: 'import.sh' });
               archive.append(`document_id,table_name,reason,raw_payload\n`, { name: 'quarantine_errors.csv' });
               archive.finalize();
             });

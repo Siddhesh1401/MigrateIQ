@@ -8,6 +8,7 @@ const {
   runBenchmark,
   inspectRecord,
   runColumnProfile,
+  executeSandboxQuery,
 } = require('../apps/desktop/dist-electron/engine/verificationEngine');
 
 async function runTests() {
@@ -118,6 +119,48 @@ async function runTests() {
   const benchResult = await runBenchmark(dummyMongo, dummyPg, 20, 5);
   assert(benchResult.mongo.totalQueries === 20 && benchResult.postgres.totalQueries === 20, 'Completed 20 concurrent benchmark queries');
   assert(benchResult.speedupFactor >= 0.8 || benchResult.postgres.p50LatencyMs <= benchResult.mongo.p50LatencyMs + 5, 'PostgreSQL query latency within SLA threshold');
+
+  // 8. Child Table Financial Precision
+  console.log('\n8. Testing Child Table Financial Precision Proofs...');
+  const childAggregate = auditResult.aggregates.find(a => a.tableName === 'order_items');
+  assert(Boolean(childAggregate), 'Identified and verified financial sums in child table (order_items)');
+  assert(childAggregate && childAggregate.isPrecisionGuaranteed, 'Child table financial drift certified zero-drift');
+
+  // 9. Dual-Query Sandbox Security Guard
+  console.log('\n9. Testing Dual-Query Sandbox Read-Only Security Guard...');
+  const safeQueryRes = await executeSandboxQuery(dummyMongo, dummyPg, {
+    tableName: 'orders',
+    mongoMql: '{ status: "completed" }',
+    postgresSql: 'SELECT * FROM orders WHERE status = \'completed\'',
+    limit: 5
+  });
+  assert(safeQueryRes.postgresCount >= 0, 'Safe read-only SELECT query executed cleanly');
+
+  let dropBlocked = false;
+  try {
+    await executeSandboxQuery(dummyMongo, dummyPg, {
+      tableName: 'orders',
+      mongoMql: '{}',
+      postgresSql: 'DROP TABLE orders;',
+      limit: 5
+    });
+  } catch (err) {
+    dropBlocked = err.message.includes('Security Violation');
+  }
+  assert(dropBlocked, 'Security Guard blocks DROP TABLE execution attempt');
+
+  let truncateBlocked = false;
+  try {
+    await executeSandboxQuery(dummyMongo, dummyPg, {
+      tableName: 'orders',
+      mongoMql: '{}',
+      postgresSql: 'TRUNCATE TABLE users;',
+      limit: 5
+    });
+  } catch (err) {
+    truncateBlocked = err.message.includes('Security Violation');
+  }
+  assert(truncateBlocked, 'Security Guard blocks TRUNCATE TABLE execution attempt');
 
   console.log('\n====================================================');
   console.log(` Verification Summary: ${passed}/${total} Tests Passed (100%)`);

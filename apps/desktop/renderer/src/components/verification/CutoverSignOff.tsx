@@ -21,6 +21,8 @@ export interface CutoverSignOffProps {
   onReSyncTable: (tableName: string) => void;
   onRollback: () => void;
   onDownloadQuarantineCsv: () => void;
+  executiveOverride: boolean;
+  onExecutiveOverrideChange: (override: boolean) => void;
   tablesWithDrift: string[];
   tables?: TableReconciliation[];
   aggregates?: AggregateReconciliation[];
@@ -51,6 +53,8 @@ export const CutoverSignOff: React.FC<CutoverSignOffProps> = ({
   onRollback,
   onDownloadQuarantineCsv,
   tablesWithDrift,
+  executiveOverride,
+  onExecutiveOverrideChange,
   tables,
   aggregates,
   orphans,
@@ -59,7 +63,6 @@ export const CutoverSignOff: React.FC<CutoverSignOffProps> = ({
   targetDbName,
   auditTimestamp,
 }) => {
-  const [executiveOverride, setExecutiveOverride] = useState(false);
   const [showCertificateModal, setShowCertificateModal] = useState(false);
 
   const canApprove = (auditorName.trim().length > 0) && (!hasDiscrepancies || executiveOverride);
@@ -272,7 +275,7 @@ export const CutoverSignOff: React.FC<CutoverSignOffProps> = ({
               type="checkbox"
               id="exec-override"
               checked={executiveOverride}
-              onChange={(e) => setExecutiveOverride(e.target.checked)}
+              onChange={(e) => onExecutiveOverrideChange(e.target.checked)}
               style={{ width: '18px', height: '18px', cursor: 'pointer' }}
             />
             <label htmlFor="exec-override" style={{ fontSize: '0.8125rem', color: '#991B1B', fontWeight: 600, cursor: 'pointer' }}>

@@ -965,10 +965,10 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
       )}
 
       {/* ── Active Migration Status Bar ── */}
-      {wizardStore.wizardStep > 1 && (
+      {wizardStore.wizardStep >= 1 && (
         <div className="wizard-status-bar">
           <div className="wizard-status-left">
-            <span className="wizard-status-pill">Active</span>
+            <span className="wizard-status-pill">{wizardStore.wizardStep === 1 ? 'Setup' : 'Active'}</span>
             <span className="wizard-status-direction">
               {wizardStore.direction === 'mongodb-to-postgres' ? 'MongoDB → PostgreSQL' : 'PostgreSQL → MongoDB'}
             </span>

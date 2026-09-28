@@ -47,6 +47,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   const [auditorOrg, setAuditorOrg] = useState(wizardStore.auditorOrganization || '');
   const [auditorNotes, setAuditorNotes] = useState(wizardStore.auditorNotes || '');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [executiveOverride, setExecutiveOverride] = useState(false);
 
   const availableTables = React.useMemo(() => {
     if (wizardStore.verificationAudit?.tables) {
@@ -59,6 +60,25 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   }, [wizardStore.verificationAudit, wizardStore.schemaMapping]);
 
   const activeTable = wizardStore.selectedInspectTable || availableTables[0] || 'orders';
+
+  // ── Statistical Profiler Table Change Handler ──
+  const handleProfileTableChange = useCallback(async (table: string) => {
+    try {
+      const sourceDb = wizardStore.sourceConfig || { type: 'mongodb', database: 'ecommerce_db' };
+      const targetDb = wizardStore.targetConfig || { type: 'postgresql', database: 'ecommerce_pg' };
+      const res = await window.electronAPI.invoke<ColumnProfileResult>('verification:column-profile', {
+        sourceDb,
+        targetDb,
+        tableName: table,
+        mappings: wizardStore.schemaMapping || [],
+      });
+      if (res.success && res.data) {
+        setColumnStats(res.data);
+      }
+    } catch {
+      // Ignored
+    }
+  }, [wizardStore]);
 
   // ── 1. Run Reconciliation Audit ──────────────────────────────────────────
   const runFullAudit = useCallback(async () => {
@@ -263,22 +283,37 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
     }
   };
 
+  const audit = wizardStore.verificationAudit;
+  const tablesWithDrift = audit?.tables.filter((t) => !t.isMatch).map((t) => t.tableName) || [];
+  const hasDiscrepancies = tablesWithDrift.length > 0 || (audit?.aggregates.some((a) => !a.isPrecisionGuaranteed) ?? false);
+  const canApprove = (auditorName.trim().length > 0) && (!hasDiscrepancies || executiveOverride);
+
   // ── Approve and Proceed ──
   const handleApproveAndProceed = async () => {
+    if (!canApprove) {
+      wizardStore.setActiveVerificationTab('signoff');
+      if (!auditorName.trim()) {
+        alert('Quality Gate Locked: Certified Auditor Name/Signature is required before sign-off.');
+      } else if (hasDiscrepancies && !executiveOverride) {
+        alert('Quality Gate Locked: Parity discrepancies detected. Executive override confirmation is required to proceed.');
+      }
+      return;
+    }
+
     try {
       const res = await window.electronAPI.invoke<{ signed: boolean; timestamp: string; seal: string }>(
         'verification:approve-signoff',
         {
-          auditorName: auditorName || 'DBA Auditor',
+          auditorName: auditorName.trim(),
           notes: auditorNotes,
         }
       );
       if (res.success) {
-        wizardStore.setVerificationApproved(true, auditorName, auditorOrg, auditorNotes);
+        wizardStore.setVerificationApproved(true, auditorName.trim(), auditorOrg, auditorNotes);
         onProceedToStep9();
       }
     } catch {
-      wizardStore.setVerificationApproved(true, auditorName, auditorOrg, auditorNotes);
+      wizardStore.setVerificationApproved(true, auditorName.trim(), auditorOrg, auditorNotes);
       onProceedToStep9();
     }
   };
@@ -289,6 +324,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
       sourceDb: wizardStore.sourceConfig || { type: 'mongodb', database: 'ecommerce_db' },
       targetDb: wizardStore.targetConfig || { type: 'postgresql', database: 'ecommerce_pg' },
       tableName,
+      mappings: wizardStore.schemaMapping || [],
     });
     if (res.success) {
       alert(`✓ Table '${tableName}' re-synced successfully. Refreshing audit…`);
@@ -306,10 +342,6 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
     link.click();
     document.body.removeChild(link);
   };
-
-  const audit = wizardStore.verificationAudit;
-  const tablesWithDrift = audit?.tables.filter((t) => !t.isMatch).map((t) => t.tableName) || [];
-  const hasDiscrepancies = tablesWithDrift.length > 0 || (audit?.aggregates.some((a) => !a.isPrecisionGuaranteed) ?? false);
 
   return (
     <div className="verification-screen">
@@ -456,6 +488,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
                 wizardStore.setSelectedInspectTable(tbl);
                 wizardStore.setActiveVerificationTab('inspector');
               }}
+              onSelectProfileTable={handleProfileTableChange}
             />
           )}
 
@@ -517,6 +550,8 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
               onRollback={() => onBack()}
               onDownloadQuarantineCsv={handleDownloadQuarantineCsv}
               tablesWithDrift={tablesWithDrift}
+              executiveOverride={executiveOverride}
+              onExecutiveOverrideChange={setExecutiveOverride}
               tables={audit.tables}
               aggregates={audit.aggregates}
               orphans={audit.orphans}
@@ -547,6 +582,12 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
         </button>
 
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          {!canApprove && (
+            <span style={{ fontSize: '0.8125rem', color: '#DC2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              🔒 Quality Gate: {!auditorName.trim() ? 'Auditor Signature Required' : 'Discrepancy Override Required'}
+            </span>
+          )}
+
           <button
             type="button"
             className="btn-verify-secondary"
@@ -560,7 +601,8 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
             type="button"
             className="btn-verify-primary"
             onClick={handleApproveAndProceed}
-            disabled={isLoadingAudit}
+            disabled={isLoadingAudit || !canApprove}
+            title={!canApprove ? 'Complete sign-off and auditor signature in Tab 4 to proceed' : 'Proceed to Step 9'}
           >
             Approve &amp; Proceed to Completion (Step 9) →
           </button>

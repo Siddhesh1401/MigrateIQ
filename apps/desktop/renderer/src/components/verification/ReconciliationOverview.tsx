@@ -12,6 +12,7 @@ export interface ReconciliationOverviewProps {
   orphans: OrphanReconciliation[];
   columnStats?: ColumnProfileResult | null;
   onSelectTable?: (tableName: string) => void;
+  onSelectProfileTable?: (tableName: string) => void;
 }
 
 export const ReconciliationOverview: React.FC<ReconciliationOverviewProps> = ({
@@ -19,7 +20,8 @@ export const ReconciliationOverview: React.FC<ReconciliationOverviewProps> = ({
   aggregates,
   orphans,
   columnStats,
-  onSelectTable
+  onSelectTable,
+  onSelectProfileTable
 }) => {
   const [filterText, setFilterText] = useState('');
   const [selectedProfileTab, setSelectedProfileTab] = useState<string>(
@@ -308,7 +310,11 @@ export const ReconciliationOverview: React.FC<ReconciliationOverviewProps> = ({
               <span style={{ fontSize: '0.8125rem', color: '#475569', fontWeight: 600 }}>Table:</span>
               <select
                 value={selectedProfileTab}
-                onChange={(e) => setSelectedProfileTab(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedProfileTab(val);
+                  onSelectProfileTable?.(val);
+                }}
                 style={{
                   padding: '0.35rem 0.75rem',
                   borderRadius: '6px',
