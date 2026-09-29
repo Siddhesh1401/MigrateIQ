@@ -20,6 +20,7 @@ export interface CutoverSignOffProps {
   onInspectFailed: () => void;
   onReSyncTable: (tableName: string) => void;
   onRollback: () => void;
+  onCleanRollbackToSchema: () => void;
   onDownloadQuarantineCsv: () => void;
   executiveOverride: boolean;
   onExecutiveOverrideChange: (override: boolean) => void;
@@ -31,6 +32,7 @@ export interface CutoverSignOffProps {
   sourceDbName?: string;
   targetDbName?: string;
   auditTimestamp?: string;
+  onAlterColumnType?: (tableName: string, columnName: string, newType: string) => Promise<boolean>;
 }
 
 export const CutoverSignOff: React.FC<CutoverSignOffProps> = ({
@@ -51,6 +53,7 @@ export const CutoverSignOff: React.FC<CutoverSignOffProps> = ({
   onInspectFailed,
   onReSyncTable,
   onRollback,
+  onCleanRollbackToSchema,
   onDownloadQuarantineCsv,
   tablesWithDrift,
   executiveOverride,
@@ -62,10 +65,32 @@ export const CutoverSignOff: React.FC<CutoverSignOffProps> = ({
   sourceDbName,
   targetDbName,
   auditTimestamp,
+  onAlterColumnType,
 }) => {
   const [showCertificateModal, setShowCertificateModal] = useState(false);
+  const [showRollbackModal, setShowRollbackModal] = useState(false);
+  const [showAlterModal, setShowAlterModal] = useState(false);
+  const [selectedTableToReSync, setSelectedTableToReSync] = useState(tablesWithDrift[0] || '');
+  const [alterColName, setAlterColName] = useState('');
+  const [alterNewType, setAlterNewType] = useState('VARCHAR(255)');
+  const [isAltering, setIsAltering] = useState(false);
+  const [alterMessage, setAlterMessage] = useState<string | null>(null);
 
   const canApprove = (auditorName.trim().length > 0) && (!hasDiscrepancies || executiveOverride);
+
+  const handleExecuteAlter = async () => {
+    if (!onAlterColumnType || !selectedTableToReSync || !alterColName.trim()) return;
+    setIsAltering(true);
+    setAlterMessage(null);
+    try {
+      const ok = await onAlterColumnType(selectedTableToReSync, alterColName.trim(), alterNewType);
+      if (ok) {
+        setAlterMessage(`✓ Column "${alterColName}" widened to ${alterNewType}. Ready for 1-Click Re-Sync.`);
+      }
+    } finally {
+      setIsAltering(false);
+    }
+  };
 
   return (
     <div className="signoff-container">
@@ -81,21 +106,272 @@ export const CutoverSignOff: React.FC<CutoverSignOffProps> = ({
             </p>
           </div>
 
-          <div className="remediation-actions">
+          <div className="remediation-actions" style={{ alignItems: 'center' }}>
             <button type="button" className="remediation-btn" onClick={onInspectFailed}>
               🔍 Inspect Failed Rows
             </button>
-            {tablesWithDrift[0] && (
-              <button type="button" className="remediation-btn" onClick={() => onReSyncTable(tablesWithDrift[0])}>
-                ⚡ 1-Click Re-Sync Table
-              </button>
+
+            {tablesWithDrift.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                {tablesWithDrift.length > 1 && (
+                  <select
+                    value={selectedTableToReSync || tablesWithDrift[0]}
+                    onChange={(e) => setSelectedTableToReSync(e.target.value)}
+                    style={{
+                      padding: '0.35rem 0.5rem',
+                      borderRadius: '4px',
+                      border: '1px solid #D97706',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      backgroundColor: '#FFFFFF',
+                    }}
+                  >
+                    {tablesWithDrift.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  type="button"
+                  className="remediation-btn"
+                  onClick={() => onReSyncTable(selectedTableToReSync || tablesWithDrift[0])}
+                  style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', color: '#92400E' }}
+                >
+                  ⚡ 1-Click Re-Sync {tablesWithDrift.length > 1 ? selectedTableToReSync || tablesWithDrift[0] : 'Table'}
+                </button>
+              </div>
             )}
-            <button type="button" className="remediation-btn" onClick={onRollback}>
-              ↩️ Rollback & Adjust Schema
+
+            <button
+              type="button"
+              className="remediation-btn"
+              onClick={() => setShowAlterModal(true)}
+              style={{ backgroundColor: '#F0FDF4', borderColor: '#86EFAC', color: '#166534' }}
+            >
+              🔧 Live Column Patch
             </button>
+
+            <button
+              type="button"
+              className="remediation-btn"
+              onClick={() => setShowRollbackModal(true)}
+              style={{ backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }}
+            >
+              🔄 Reset &amp; Adjust Schema
+            </button>
+
             <button type="button" className="remediation-btn" onClick={onDownloadQuarantineCsv}>
               📥 Download Quarantine Log (.csv)
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Smart Rollback & Recovery Decision Modal ── */}
+      {showRollbackModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '1rem',
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '12px',
+            maxWidth: '560px',
+            width: '100%',
+            padding: '1.75rem',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+            border: '1px solid #E2E8F0',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+              <span style={{ fontSize: '1.5rem' }}>🔄</span>
+              <h3 style={{ margin: 0, color: '#0F172A', fontSize: '1.25rem' }}>
+                Restart Migration with Adjusted Schema?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '0.875rem', color: '#475569', lineHeight: 1.6, margin: '0 0 1rem 0' }}>
+              Target PostgreSQL tables currently contain migrated data from Step 7. How would you like to proceed?
+            </p>
+
+            <div style={{
+              backgroundColor: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1rem',
+            }}>
+              <strong style={{ color: '#1E40AF', fontSize: '0.875rem' }}>💡 Recommendation for DBAs:</strong>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8125rem', color: '#1E3A8A', lineHeight: 1.5 }}>
+                If you only have missing rows due to a network timeout, <strong>do not restart!</strong> Simply use <strong>1-Click Re-Sync Table</strong> on this screen to repair only the affected table in 2 seconds.
+              </p>
+            </div>
+
+            <div style={{
+              backgroundColor: '#FEF2F2',
+              border: '1px solid #FECACA',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1.5rem',
+            }}>
+              <strong style={{ color: '#991B1B', fontSize: '0.875rem' }}>If Column Types Need Changing:</strong>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8125rem', color: '#7F1D1D', lineHeight: 1.5 }}>
+                1. Target tables will be wiped cleanly (<code style={{ backgroundColor: '#FEE2E2', padding: '0.1rem 0.25rem' }}>DROP CASCADE</code>) so re-running migration won't cause duplicate primary key crashes.<br />
+                2. You will be taken back to <strong>Step 4 (Schema Mapper)</strong>.<br />
+                3. All your mapping drafts are preserved (you only edit the column that needs adjustment).<br />
+                4. Steps 5 and 6 remain pre-validated for fast-tracked execution.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-verify-secondary"
+                onClick={() => setShowRollbackModal(false)}
+              >
+                Cancel (Stay on Step 8)
+              </button>
+              <button
+                type="button"
+                className="btn-verify-secondary"
+                onClick={() => {
+                  setShowRollbackModal(false);
+                  onRollback();
+                }}
+              >
+                ↩️ Step Back to Step 7 (Keep Data)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRollbackModal(false);
+                  onCleanRollbackToSchema();
+                }}
+                style={{
+                  backgroundColor: '#DC2626',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '0.65rem 1.25rem',
+                  fontWeight: 700,
+                  fontSize: '0.875rem',
+                  cursor: 'pointer',
+                }}
+              >
+                🗑️ Clean Target &amp; Go to Schema Mapper (Step 4)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Live In-Place Column Widening Modal ── */}
+      {showAlterModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '1rem',
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '12px',
+            maxWidth: '500px',
+            width: '100%',
+            padding: '1.5rem',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+            border: '1px solid #CBD5E1',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <span style={{ fontSize: '1.5rem' }}>🔧</span>
+              <h3 style={{ margin: 0, color: '#0F172A', fontSize: '1.125rem' }}>
+                Live In-Place Column Widening (DDL Patch)
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '0.8125rem', color: '#64748B', lineHeight: 1.5, margin: '0 0 1rem 0' }}>
+              Widen a narrow column (e.g. <code style={{ backgroundColor: '#F1F5F9', padding: '0.1rem 0.25rem' }}>VARCHAR(50) ➔ VARCHAR(255)</code>) directly on target table <strong>"{selectedTableToReSync || tablesWithDrift[0]}"</strong> without restarting migration.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Target Table:</label>
+                <input
+                  type="text"
+                  value={selectedTableToReSync || tablesWithDrift[0] || 'orders'}
+                  disabled
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #CBD5E1', backgroundColor: '#F8FAFC', fontWeight: 600 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Column Name to Widen:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. notes, address, email"
+                  value={alterColName}
+                  onChange={(e) => setAlterColName(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #CBD5E1', fontWeight: 600 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>New Target Data Type:</label>
+                <select
+                  value={alterNewType}
+                  onChange={(e) => setAlterNewType(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid #CBD5E1', fontWeight: 600, backgroundColor: '#FFFFFF' }}
+                >
+                  <option value="VARCHAR(255)">VARCHAR(255)</option>
+                  <option value="TEXT">TEXT (Unlimited length)</option>
+                  <option value="BIGINT">BIGINT (64-bit integer)</option>
+                  <option value="NUMERIC(18,4)">NUMERIC(18,4)</option>
+                  <option value="JSONB">JSONB (Arbitrary structured data)</option>
+                </select>
+              </div>
+            </div>
+
+            {alterMessage && (
+              <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '6px', padding: '0.6rem 0.75rem', color: '#166534', fontSize: '0.8125rem', marginBottom: '1rem' }}>
+                {alterMessage}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn-verify-secondary"
+                onClick={() => {
+                  setShowAlterModal(false);
+                  setAlterMessage(null);
+                }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn-verify-primary"
+                onClick={handleExecuteAlter}
+                disabled={!alterColName.trim() || isAltering}
+              >
+                {isAltering ? '⏳ Applying DDL…' : '⚡ Apply DDL Patch'}
+              </button>
+            </div>
           </div>
         </div>
       )}

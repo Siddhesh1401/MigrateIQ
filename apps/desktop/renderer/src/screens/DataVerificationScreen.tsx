@@ -48,6 +48,10 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   const [auditorNotes, setAuditorNotes] = useState(wizardStore.auditorNotes || '');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [executiveOverride, setExecutiveOverride] = useState(false);
+  const [isReSyncingTable, setIsReSyncingTable] = useState<string | null>(null);
+  const [reSyncBanner, setReSyncBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
 
   const availableTables = React.useMemo(() => {
     if (wizardStore.verificationAudit?.tables) {
@@ -110,6 +114,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   // ── 2. Fetch Inspector Details for a specific table ──────────────────────
   const loadTableDetails = useCallback(async (table: string, recordId?: string) => {
     setIsLoadingRecord(true);
+    let targetId = recordId;
     try {
       const sourceDb = wizardStore.sourceConfig || { type: 'mongodb', database: 'ecommerce_db' };
       const targetDb = wizardStore.targetConfig || { type: 'postgresql', database: 'ecommerce_pg' };
@@ -142,7 +147,6 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
         limit: 20,
       });
 
-      let targetId = recordId;
       if (browseRes.success && browseRes.data) {
         setBrowseData(browseRes.data);
         if (!targetId && browseRes.data.records.length > 0) {
@@ -155,15 +159,31 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
         sourceDb,
         targetDb,
         tableName: table,
-        recordId: targetId || 'rec_1',
+        recordId: targetId || '',
         mappings: wizardStore.schemaMapping || [],
       });
 
       if (diffRes.success && diffRes.data) {
         setRecordDiff(diffRes.data);
+        if (!diffRes.data.sourceDoc && !diffRes.data.targetRow) {
+          setSearchError(`No document or row found with ID "${targetId || diffRes.data.recordId}" in collection "${table}" or target database.`);
+        } else if (!diffRes.data.sourceDoc) {
+          setSearchError(`Record "${targetId || diffRes.data.recordId}" exists in PostgreSQL table "${table}" but is missing from MongoDB.`);
+        } else if (!diffRes.data.targetRow) {
+          setSearchError(`Document "${targetId || diffRes.data.recordId}" exists in MongoDB collection "${table}" but is missing from PostgreSQL.`);
+        } else {
+          setSearchError(null);
+        }
+      } else {
+        setRecordDiff(null);
+        if (targetId) {
+          setSearchError(`No document found with ID "${targetId}" in collection "${table}".`);
+        }
       }
-    } catch {
-      // Ignored
+    } catch (err) {
+      if (targetId) {
+        setSearchError(`Search error for ID "${targetId}": ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
       setIsLoadingRecord(false);
     }
@@ -185,16 +205,26 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   const handleSelectTable = (tbl: string) => {
     wizardStore.setSelectedInspectTable(tbl);
     setCurrentRecordIdx(1);
+    setSearchError(null);
     loadTableDetails(tbl);
   };
 
   const handleSearchId = (id: string) => {
-    wizardStore.setSelectedInspectRecordId(id);
-    loadTableDetails(activeTable, id);
+    const cleanId = id.trim();
+    if (!cleanId) return;
+    wizardStore.setSelectedInspectRecordId(cleanId);
+    if (browseData?.records) {
+      const matchIdx = browseData.records.findIndex((r) => r.id === cleanId);
+      if (matchIdx !== -1) {
+        setCurrentRecordIdx(matchIdx + 1);
+      }
+    }
+    loadTableDetails(activeTable, cleanId);
   };
 
   const handleNextRecord = () => {
     if (!browseData || browseData.records.length === 0) return;
+    setSearchError(null);
     const nextIdx = Math.min(browseData.records.length, currentRecordIdx + 1);
     setCurrentRecordIdx(nextIdx);
     const nextId = browseData.records[nextIdx - 1]?.id;
@@ -203,6 +233,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
 
   const handlePrevRecord = () => {
     if (!browseData || browseData.records.length === 0) return;
+    setSearchError(null);
     const prevIdx = Math.max(1, currentRecordIdx - 1);
     setCurrentRecordIdx(prevIdx);
     const prevId = browseData.records[prevIdx - 1]?.id;
@@ -211,6 +242,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
 
   const handleRandomRecord = () => {
     if (!browseData || browseData.records.length === 0) return;
+    setSearchError(null);
     const randIdx = Math.floor(Math.random() * browseData.records.length) + 1;
     setCurrentRecordIdx(randIdx);
     const randId = browseData.records[randIdx - 1]?.id;
@@ -218,6 +250,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   };
 
   const handleFirstRecord = () => {
+    setSearchError(null);
     if (!browseData || browseData.records.length === 0) return;
     setCurrentRecordIdx(1);
     const firstId = browseData.records[0]?.id;
@@ -227,6 +260,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   // ── Benchmark Runner ──
   const handleRunBenchmark = async () => {
     setIsBenchmarking(true);
+    setBenchmarkError(null);
     try {
       const res = await window.electronAPI.invoke<BenchmarkResult>('verification:run-benchmark', {
         sourceDb: wizardStore.sourceConfig || { type: 'mongodb', database: 'ecommerce_db' },
@@ -236,9 +270,11 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
       });
       if (res.success && res.data) {
         setBenchmarkResult(res.data);
+      } else {
+        setBenchmarkError(res.error || 'Benchmark run failed on target database.');
       }
-    } catch {
-      // Ignored
+    } catch (err) {
+      setBenchmarkError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsBenchmarking(false);
     }
@@ -320,15 +356,71 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
 
   // ── Remediation Actions ──
   const handleReSyncTable = async (tableName: string) => {
-    const res = await window.electronAPI.invoke<{ rowsMigrated: number }>('verification:re-sync-table', {
-      sourceDb: wizardStore.sourceConfig || { type: 'mongodb', database: 'ecommerce_db' },
-      targetDb: wizardStore.targetConfig || { type: 'postgresql', database: 'ecommerce_pg' },
-      tableName,
-      mappings: wizardStore.schemaMapping || [],
-    });
-    if (res.success) {
-      alert(`✓ Table '${tableName}' re-synced successfully. Refreshing audit…`);
-      runFullAudit();
+    setIsReSyncingTable(tableName);
+    setReSyncBanner(null);
+    try {
+      const res = await window.electronAPI.invoke<{ rowsMigrated: number }>('verification:re-sync-table', {
+        sourceDb: wizardStore.sourceConfig || { type: 'mongodb', database: 'ecommerce_db' },
+        targetDb: wizardStore.targetConfig || { type: 'postgresql', database: 'ecommerce_pg' },
+        tableName,
+        mappings: wizardStore.schemaMapping || [],
+      });
+      if (res.success && res.data) {
+        setReSyncBanner({
+          type: 'success',
+          message: `✓ Table '${tableName}' and associated child tables re-synced successfully (${res.data.rowsMigrated} rows). Parity audit refreshed.`
+        });
+        await runFullAudit();
+      } else {
+        setReSyncBanner({
+          type: 'error',
+          message: res.error || `Failed to re-sync table '${tableName}'.`
+        });
+      }
+    } catch (err) {
+      setReSyncBanner({
+        type: 'error',
+        message: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      setIsReSyncingTable(null);
+    }
+  };
+
+  const handleCleanRollbackToSchema = async () => {
+    setIsLoadingAudit(true);
+    try {
+      await window.electronAPI.invoke('verification:rescue-action', {
+        action: 'wipe_target',
+        targetConfig: wizardStore.targetConfig || undefined,
+      });
+      wizardStore.setVerificationAudit(null);
+      wizardStore.setWizardStep(4);
+    } catch (err) {
+      alert(`Rollback failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsLoadingAudit(false);
+    }
+  };
+
+  const handleAlterColumnType = async (tableName: string, columnName: string, newType: string): Promise<boolean> => {
+    try {
+      const res = await window.electronAPI.invoke<{ success: boolean; message: string }>('verification:rescue-action', {
+        action: 'alter_column_type',
+        targetConfig: wizardStore.targetConfig || undefined,
+        tableName,
+        columnName,
+        newDataType: newType,
+      });
+      if (res.success && res.data) {
+        setReSyncBanner({ type: 'success', message: `✓ ${res.data.message}` });
+        return true;
+      }
+      setReSyncBanner({ type: 'error', message: res.error || 'Failed to alter column type.' });
+      return false;
+    } catch (err) {
+      setReSyncBanner({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      return false;
     }
   };
 
@@ -429,6 +521,45 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
         </div>
       )}
 
+      {/* ── Re-Sync & Remediation Banner Feedback ── */}
+      {reSyncBanner && (
+        <div style={{
+          backgroundColor: reSyncBanner.type === 'success' ? '#F0FDF4' : '#FEF2F2',
+          border: `1px solid ${reSyncBanner.type === 'success' ? '#BBF7D0' : '#FECACA'}`,
+          borderRadius: '8px',
+          padding: '0.85rem 1.25rem',
+          color: reSyncBanner.type === 'success' ? '#166534' : '#DC2626',
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <span>{reSyncBanner.message}</span>
+          <button
+            type="button"
+            onClick={() => setReSyncBanner(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, color: 'inherit' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {isReSyncingTable && (
+        <div style={{
+          backgroundColor: '#EFF6FF',
+          border: '1px solid #BFDBFE',
+          borderRadius: '8px',
+          padding: '0.75rem 1.25rem',
+          color: '#1E40AF',
+          fontSize: '0.875rem',
+          fontWeight: 600,
+        }}>
+          ⏳ Streaming fresh records &amp; synchronizing table '{isReSyncingTable}' and its child tables…
+        </div>
+      )}
+
       {/* ── Sub-Tab Navigation Bar ── */}
       <div className="verification-tabs">
         <button
@@ -507,6 +638,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
               onFirstRecord={handleFirstRecord}
               currentRecordIndex={currentRecordIdx}
               totalRecords={browseData?.totalRows || 100}
+              searchError={searchError}
             />
           )}
 
@@ -515,6 +647,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
               tables={availableTables}
               benchmarkResult={benchmarkResult}
               isBenchmarking={isBenchmarking}
+              benchmarkError={benchmarkError}
               onRunBenchmark={handleRunBenchmark}
               onExecuteSandbox={handleExecuteSandbox}
             />
@@ -548,6 +681,8 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
               onInspectFailed={() => wizardStore.setActiveVerificationTab('inspector')}
               onReSyncTable={handleReSyncTable}
               onRollback={() => onBack()}
+              onCleanRollbackToSchema={handleCleanRollbackToSchema}
+              onAlterColumnType={handleAlterColumnType}
               onDownloadQuarantineCsv={handleDownloadQuarantineCsv}
               tablesWithDrift={tablesWithDrift}
               executiveOverride={executiveOverride}

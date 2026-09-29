@@ -40,7 +40,9 @@ import type {
   ComplianceReportPayload,
   RescueActionRequest,
   RescueActionResult,
-  ConnectionConfig
+  ConnectionConfig,
+  CollectionMapping,
+  FieldMapping
 } from '@migrateiq/shared';
 import {
   runReconciliationAudit,
@@ -441,6 +443,115 @@ export function setupVerificationHandlers(): void {
     }
   );
 
+async function processReSyncBatch(
+  pg: PgClient,
+  tbl: string,
+  pkCol: string,
+  tableCols: string[],
+  mapping: CollectionMapping | undefined,
+  childTables: CollectionMapping[],
+  batchDocs: Record<string, unknown>[]
+): Promise<void> {
+  for (const docRecord of batchDocs) {
+    const insertCols: string[] = [];
+    const insertVals: unknown[] = [];
+    const placeholders: string[] = [];
+
+    for (const col of tableCols) {
+      let val: unknown = undefined;
+      if (col === 'id' || col === '_id') {
+        val = docRecord._id ? String(docRecord._id) : undefined;
+      } else if (mapping) {
+        const fMatch = mapping.fields.find((f: FieldMapping) => f.targetColumn === col);
+        if (fMatch?.sourceField) {
+          val = fMatch.sourceField.includes('.')
+            ? fMatch.sourceField.split('.').reduce((acc: unknown, part: string) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[part] : undefined), docRecord)
+            : docRecord[fMatch.sourceField];
+        }
+      }
+
+      if (val === undefined) {
+        if (docRecord[col] !== undefined) {
+          val = docRecord[col];
+        } else {
+          const camel = col.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
+          if (docRecord[camel] !== undefined) {
+            val = docRecord[camel];
+          }
+        }
+      }
+
+      if (val !== undefined) {
+        insertCols.push(`"${sanitizeIdentifier(col)}"`);
+        insertVals.push(typeof val === 'object' && val !== null && !(val instanceof Date) ? JSON.stringify(val) : val);
+        placeholders.push(`$${insertVals.length}`);
+      }
+    }
+
+    if (insertCols.length > 0) {
+      const sql = `INSERT INTO "${tbl}" (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')}) ON CONFLICT ("${sanitizeIdentifier(pkCol)}") DO UPDATE SET ${insertCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}`;
+      await pg.query(sql, insertVals);
+    }
+
+    // Process array subdocuments for child tables
+    if (childTables && childTables.length > 0) {
+      for (const child of childTables) {
+        const childTbl = sanitizeIdentifier(child.targetTableName || child.collectionName);
+        const arrayFieldPrefix = child.fields.find((f: FieldMapping) => f.sourceField?.includes('.'))?.sourceField.split('.')[0] || 'items';
+        const rawArray = docRecord[arrayFieldPrefix];
+        if (Array.isArray(rawArray)) {
+          const childColsRes = await pg.query<{ column_name: string }>(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
+            [childTbl]
+          );
+          const childCols = childColsRes.rows.map(r => r.column_name);
+
+          for (let idx = 0; idx < rawArray.length; idx++) {
+            const item = rawArray[idx];
+            if (!item || typeof item !== 'object') continue;
+            const itemRecord = item as Record<string, unknown>;
+
+            const cInsertCols: string[] = [];
+            const cInsertVals: unknown[] = [];
+            const cPlaceholders: string[] = [];
+
+            for (const cCol of childCols) {
+              let cVal: unknown = undefined;
+              if (cCol === 'sort_order') {
+                cVal = idx;
+              } else if (cCol.endsWith('_id') && (cCol.startsWith(tbl) || cCol === `${tbl}_id` || cCol === 'parent_id' || cCol === 'order_id' || cCol === 'user_id')) {
+                cVal = docRecord._id ? String(docRecord._id) : undefined;
+              } else {
+                const childFieldMatch = child.fields.find((f: FieldMapping) => f.targetColumn === cCol);
+                if (childFieldMatch?.sourceField) {
+                  const subProp = childFieldMatch.sourceField.includes('.')
+                    ? childFieldMatch.sourceField.split('.').slice(1).join('.')
+                    : childFieldMatch.sourceField;
+                  cVal = itemRecord[subProp];
+                }
+                if (cVal === undefined && itemRecord[cCol] !== undefined) {
+                  cVal = itemRecord[cCol];
+                }
+              }
+
+              if (cVal !== undefined) {
+                cInsertCols.push(`"${sanitizeIdentifier(cCol)}"`);
+                cInsertVals.push(typeof cVal === 'object' && cVal !== null && !(cVal instanceof Date) ? JSON.stringify(cVal) : cVal);
+                cPlaceholders.push(`$${cInsertVals.length}`);
+              }
+            }
+
+            if (cInsertCols.length > 0) {
+              const childSql = `INSERT INTO "${childTbl}" (${cInsertCols.join(', ')}) VALUES (${cPlaceholders.join(', ')})`;
+              await pg.query(childSql, cInsertVals).catch(() => {});
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
   // ── 10. Table-Level Re-Sync (1-Click Remediation) ─────────────────────────
   ipcMain.handle(
     'verification:re-sync-table',
@@ -483,8 +594,6 @@ export function setupVerificationHandlers(): void {
           if (found) sourceColName = found.name;
         }
 
-        const docs = await mongoDb.collection(sourceColName).find().toArray();
-
         // Query column information and primary key from PostgreSQL
         const colsRes = await pg.query<{ column_name: string; data_type: string }>(
           `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
@@ -510,56 +619,47 @@ export function setupVerificationHandlers(): void {
           pkCol = tableCols.includes('id') ? 'id' : (tableCols[0] || 'id');
         }
 
-        // Wipe existing table data for clean re-sync
-        await pg.query(`DELETE FROM "${tbl}"`);
+        // Identify child tables from mapping
+        const childTables = mapping?.childTables || [];
 
-        if (docs.length > 0 && tableCols.length > 0) {
-          for (const d of docs) {
-            const docRecord = d as Record<string, unknown>;
-            const insertCols: string[] = [];
-            const insertVals: unknown[] = [];
-            const placeholders: string[] = [];
+        // Begin Transaction for ACID safety
+        await pg.query('BEGIN');
+        try {
+          // 1. Wipe child tables first to avoid FK constraint violations
+          for (const child of childTables) {
+            const childTbl = sanitizeIdentifier(child.targetTableName || child.collectionName);
+            await pg.query(`DELETE FROM "${childTbl}"`).catch(() => {});
+          }
 
-            for (const col of tableCols) {
-              let val: unknown = undefined;
-              if (col === 'id' || col === '_id') {
-                val = d._id ? d._id.toString() : undefined;
-              } else if (mapping) {
-                const fMatch = mapping.fields.find(f => f.targetColumn === col);
-                if (fMatch?.sourceField) {
-                  val = fMatch.sourceField.includes('.')
-                    ? fMatch.sourceField.split('.').reduce((acc: unknown, part: string) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[part] : undefined), docRecord)
-                    : docRecord[fMatch.sourceField];
-                }
-              }
+          // 2. Wipe parent table
+          await pg.query(`DELETE FROM "${tbl}"`);
 
-              if (val === undefined) {
-                if (docRecord[col] !== undefined) {
-                  val = docRecord[col];
-                } else {
-                  const camel = col.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
-                  if (docRecord[camel] !== undefined) {
-                    val = docRecord[camel];
-                  }
-                }
-              }
+          // 3. Stream MongoDB documents with batch cursor (prevents heap memory exhaustion)
+          const cursor = mongoDb.collection(sourceColName).find().batchSize(500);
 
-              if (val !== undefined) {
-                insertCols.push(`"${sanitizeIdentifier(col)}"`);
-                insertVals.push(typeof val === 'object' && val !== null && !(val instanceof Date) ? JSON.stringify(val) : val);
-                placeholders.push(`$${insertVals.length}`);
-              }
-            }
+          let batchDocs: Record<string, unknown>[] = [];
+          while (await cursor.hasNext()) {
+            const d = await cursor.next();
+            if (!d) break;
+            batchDocs.push(d as Record<string, unknown>);
 
-            if (insertCols.length > 0) {
-              const sql = `INSERT INTO "${tbl}" (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')}) ON CONFLICT ("${sanitizeIdentifier(pkCol)}") DO NOTHING`;
-              await pg.query(sql, insertVals);
+            if (batchDocs.length >= 250) {
+              await processReSyncBatch(pg, tbl, pkCol, tableCols, mapping, childTables, batchDocs);
+              rowsMigrated += batchDocs.length;
+              batchDocs = [];
             }
           }
-          rowsMigrated = docs.length;
-        } else {
-          const res = await pg.query<{ count: string }>(`SELECT COUNT(*)::INTEGER AS count FROM "${tbl}"`);
-          rowsMigrated = parseInt(res.rows[0]?.count || '0', 10);
+
+          if (batchDocs.length > 0) {
+            await processReSyncBatch(pg, tbl, pkCol, tableCols, mapping, childTables, batchDocs);
+            rowsMigrated += batchDocs.length;
+            batchDocs = [];
+          }
+
+          await pg.query('COMMIT');
+        } catch (txError) {
+          await pg.query('ROLLBACK').catch(() => {});
+          throw txError;
         }
 
         return {
@@ -766,6 +866,46 @@ This bundle contains everything required to deploy the migrated database schema 
                 message: 'Session hard reset requested.'
               }
             };
+          }
+
+          case 'alter_column_type': {
+            if (!payload.targetConfig) {
+              return { success: false, error: 'Target connection configuration is required.' };
+            }
+            if (!payload.tableName || !payload.columnName || !payload.newDataType) {
+              return { success: false, error: 'tableName, columnName, and newDataType are required for alter.' };
+            }
+            const tbl = sanitizeIdentifier(payload.tableName);
+            const col = sanitizeIdentifier(payload.columnName);
+            const validTypes = ['VARCHAR', 'TEXT', 'INTEGER', 'BIGINT', 'NUMERIC', 'BOOLEAN', 'TIMESTAMPTZ', 'TIMESTAMP', 'JSONB', 'DOUBLE PRECISION', 'DATE'];
+            const cleanType = payload.newDataType.trim();
+            const typeMatches = validTypes.some(vt => cleanType.toUpperCase().startsWith(vt));
+            if (!typeMatches) {
+              return { success: false, error: `Invalid or unsupported target data type: ${cleanType}` };
+            }
+            const norm = normalizeConnectionConfig(payload.targetConfig);
+            const pg = new PgClient({
+              connectionString: norm.connectionString || undefined,
+              host: norm.host || 'localhost',
+              port: norm.port || 5432,
+              database: norm.database,
+              user: norm.user || 'postgres',
+              password: norm.password,
+              ssl: norm.ssl ? { rejectUnauthorized: false } : undefined,
+            });
+            try {
+              await pg.connect();
+              await pg.query(`ALTER TABLE "${tbl}" ALTER COLUMN "${col}" TYPE ${cleanType};`);
+              return {
+                success: true,
+                data: {
+                  success: true,
+                  message: `Successfully altered column "${col}" in table "${tbl}" to ${cleanType}.`
+                }
+              };
+            } finally {
+              await pg.end().catch(() => {});
+            }
           }
 
           default:

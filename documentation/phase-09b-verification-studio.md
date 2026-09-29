@@ -101,14 +101,21 @@ In enterprise database migrations, a progress bar reaching 100% is never accepte
   $$\text{ReadinessScore} = (0.25 \cdot S_{\text{vol}}) + (0.25 \cdot S_{\text{fin}}) + (0.20 \cdot S_{\text{ref}}) + (0.15 \cdot S_{\text{stat}}) + (0.15 \cdot S_{\text{lat}})$$
 - **PostgreSQL `setval()` Auto-Alignment:**
   Automatically aligns sequence counters to `MAX(id)` on all serial primary key columns, eliminating post-cutover `INSERT` collision crashes.
-- **Source Immutability Invariant:**
-  MongoDB is strictly read-only (`find`, `aggregate`, `countDocuments`). No modifications or deletes are ever executed on source databases.
+### 3.3 Enterprise UX Safety, Recoverability & No-Dead-End Audit Enhancements
+- **Typed `"WIPE"` Confirmation Modal**: In [`RescueCenterModal.tsx`](file:///c:/Users/SIDDHESH/Desktop/Int_DB_Migration/apps/desktop/renderer/src/components/RescueCenterModal.tsx), destructive table drops require explicit uppercase typing of `"WIPE"` with clear row-count impact preview, eliminating accidental data destruction.
+- **Smart Rollback Decision Matrix**: In [`CutoverSignOff.tsx`](file:///c:/Users/SIDDHESH/Desktop/Int_DB_Migration/apps/desktop/renderer/src/components/verification/CutoverSignOff.tsx), `[↩️ Rollback & Adjust Schema]` provides a non-destructive 3-option modal:
+  1. *Smart Truncate & Jump (Recommended)*: Wipes PostgreSQL table rows while preserving tables/indexes, resetting progress directly to Step 4 (Schema Mapper).
+  2. *Total Clean Slate*: Drops all migrated tables, wiping database clean for complete start over.
+  3. *In-Place DDL Patching*: Fixes column type mismatches (e.g. `VARCHAR(100)` $\to$ `TEXT`) live within Step 8 without wiping or discarding migration progress.
+- **Streaming 1-Click Re-Sync with Child Cascade**: In [`verification.ts`](file:///c:/Users/SIDDHESH/Desktop/Int_DB_Migration/apps/desktop/main/handlers/verification.ts), isolated table re-sync uses a 500-record streaming cursor, cascades cleanup to child tables, and preserves 0-based `sort_order` array element sequences.
+- **Non-Destructive Live Search & "Record Not Found" State**: In [`verificationEngine.ts`](file:///c:/Users/SIDDHESH/Desktop/Int_DB_Migration/apps/desktop/main/engine/verificationEngine.ts) and [`RecordDiffInspector.tsx`](file:///c:/Users/SIDDHESH/Desktop/Int_DB_Migration/apps/desktop/renderer/src/components/verification/RecordDiffInspector.tsx), searching for non-existent IDs strictly returns a dedicated `🔍 Record Not Found` card with a `[⏮️ Return to First Record]` button instead of silently falling back to Row #1. Header badges are strictly synchronized with rendered JSON.
+- **Complete Takeaway DDL Generation**: Pass real database connection config in `handleExportTakeaway`, ensuring offline takeaway kits contain all real PostgreSQL tables and constraints.
 
 ---
 
 ## 4. Verification & Test Results
 
-The verification test suite [`scripts/run-verify-phase9b.js`](file:///c:/Users/SIDDHESH/Desktop/Int_DB_Migration/scripts/run-verify-phase9b.js) executed and verified 100% of Phase 9B test assertions:
+The verification test suite [`scripts/run-verify-phase9b.js`](file:///c:/Users/SIDDHESH/Desktop/Int_DB_Migration/scripts/run-verify-phase9b.js) executed and verified 100% of Phase 9B test assertions (27/27 passed):
 
 ```
 ====================================================
@@ -156,8 +163,16 @@ The verification test suite [`scripts/run-verify-phase9b.js`](file:///c:/Users/S
   [PASS] Security Guard blocks DROP TABLE execution attempt
   [PASS] Security Guard blocks TRUNCATE TABLE execution attempt
 
+10. Testing Live Column Widening Type Validation Guard...
+  [PASS] Approved safe SQL data type for in-place column widening
+  [PASS] Blocked invalid or injected SQL data type in column widening guard
+
+11. Testing Array Child Table Cascade Integrity...
+  [PASS] order_items mapping contains explicit sort_order column
+  [PASS] sort_order is configured strictly as INTEGER NOT NULL
+
 ====================================================
- Verification Summary: 23/23 Tests Passed (100%)
+ Verification Summary: 27/27 Tests Passed (100%)
 ====================================================
 ```
 
@@ -176,8 +191,10 @@ The verification test suite [`scripts/run-verify-phase9b.js`](file:///c:/Users/S
    Decomposing embedded arrays into relational child tables requires preserving visual array indices. The window function check (`ROW_NUMBER() OVER (...) - 1`) mathematically proves that no items were inverted or omitted during concurrent ingestion.
 3. **Auto-Increment Sequence Crash Prevention (`setval`):**
    In applications with auto-increment IDs (`SERIAL`), importing existing IDs leaves the internal PostgreSQL sequence counter at 1. The first subsequent application `INSERT` will crash with a unique constraint violation (`Key (id)=(1) already exists`). MigrateIQ automatically runs `setval(..., MAX(id))` on all tables during verification.
-4. **Persistent Top Header Rescue Center:**
-   Positioning the rescue trigger outside the wizard render hierarchy guarantees that even if a React screen encounters a render error or the background thread locks up, the user can always trigger an offline takeaway kit export, a clean slate rollback, or a diagnostic bundle.
+4. **Persistent Top Header Rescue Center & Safe WIPE Modal:**
+   Positioning the rescue trigger outside the wizard render hierarchy guarantees that even if a React screen encounters a render error or the background thread locks up, the user can always trigger an offline takeaway kit export, a clean slate rollback, or a diagnostic bundle. Wipes strictly demand typing "WIPE".
+5. **Strict ID Search Non-Regression:**
+   When searching a record by `_id`, engines must never fall back to `LIMIT 1` row if the searched ID is absent. Missing IDs render dedicated "Not Found" cards with return paths, preventing deceptive 100% parity badges on wrong rows.
 
 ---
 

@@ -15,6 +15,7 @@ export interface RecordDiffInspectorProps {
   onFirstRecord: () => void;
   currentRecordIndex: number;
   totalRecords: number;
+  searchError?: string | null;
 }
 
 export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
@@ -31,6 +32,7 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
   onFirstRecord,
   currentRecordIndex,
   totalRecords,
+  searchError,
 }) => {
   const [searchInput, setSearchInput] = useState('');
   const [selectedChunk, setSelectedChunk] = useState<number | null>(null);
@@ -87,7 +89,9 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
         {/* Record Navigator Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.8125rem', color: '#64748B', fontWeight: 600, marginRight: '0.25rem' }}>
-            Record {currentRecordIndex} of {totalRecords || 1}
+            {!recordDiff?.sourceDoc && !recordDiff?.targetRow
+              ? 'Record: Not Found'
+              : `Record ${currentRecordIndex} of ${totalRecords || 1}`}
           </span>
           <button
             type="button"
@@ -128,15 +132,53 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
         </div>
       </div>
 
+      {/* ── Search Error Feedback ── */}
+      {searchError && (
+        <div style={{
+          backgroundColor: '#FEF2F2',
+          border: '1px solid #FECACA',
+          borderRadius: '8px',
+          padding: '0.75rem 1rem',
+          color: '#991B1B',
+          fontSize: '0.8125rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginBottom: '1rem',
+        }}>
+          <span>⚠️</span>
+          <span>{searchError}</span>
+        </div>
+      )}
+
       {/* ── Side-by-Side Split View ── */}
       {isLoading ? (
         <div className="v-card" style={{ padding: '3rem', textAlign: 'center', color: '#64748B' }}>
           <span style={{ fontSize: '2rem' }}>⚡</span>
           <p style={{ marginTop: '0.5rem', fontWeight: 600 }}>Fetching live document across port 27017 and 5432…</p>
         </div>
-      ) : !recordDiff ? (
-        <div className="v-card" style={{ padding: '2rem', textAlign: 'center', color: '#64748B' }}>
-          No record selected. Use the search bar or navigator above to inspect records.
+      ) : !recordDiff || (!recordDiff.sourceDoc && !recordDiff.targetRow) ? (
+        <div className="v-card" style={{ padding: '2.5rem', textAlign: 'center', backgroundColor: '#FFFFFF', border: '1px dashed #CBD5E1', borderRadius: '10px' }}>
+          <div style={{ fontSize: '2.25rem', marginBottom: '0.75rem' }}>🔍</div>
+          <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color: '#0F172A', margin: '0 0 0.5rem 0' }}>
+            Record Not Found
+          </h3>
+          <p style={{ color: '#64748B', fontSize: '0.875rem', maxWidth: '520px', margin: '0 auto 1.5rem auto', lineHeight: '1.5' }}>
+            No document or row matching identifier <code style={{ backgroundColor: '#F1F5F9', padding: '0.15rem 0.4rem', borderRadius: '4px', color: '#0F172A', fontWeight: 600 }}>{searchInput || recordDiff?.recordId || ''}</code> was found in MongoDB collection <strong>"{selectedTable}"</strong> or the target PostgreSQL table.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn-verify-primary"
+              onClick={() => {
+                setSearchInput('');
+                onFirstRecord();
+              }}
+            >
+              ⏮️ Return to First Record
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -146,13 +188,22 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
               <div className="diff-panel-header">
                 <span>🍃 Source: MongoDB Document ({selectedTable})</span>
                 <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#2563EB' }}>
-                  _id: {recordDiff.recordId}
+                  _id: {String(recordDiff.sourceDoc?._id ?? recordDiff.targetRow?.id ?? recordDiff.recordId)}
                 </span>
               </div>
               <div className="diff-code-body">
-                <pre style={{ margin: 0 }}>
-                  {JSON.stringify(recordDiff.sourceDoc, null, 2)}
-                </pre>
+                {recordDiff.sourceDoc ? (
+                  <pre style={{ margin: 0 }}>
+                    {JSON.stringify(recordDiff.sourceDoc, null, 2)}
+                  </pre>
+                ) : (
+                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#DC2626' }}>
+                    <p style={{ fontWeight: 600, fontSize: '0.9375rem', margin: '0 0 0.5rem 0' }}>❌ Document not found in MongoDB</p>
+                    <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0 }}>
+                      This row exists in PostgreSQL, but no corresponding document was found in MongoDB collection "{selectedTable}".
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -160,56 +211,65 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
             <div className="diff-panel">
               <div className="diff-panel-header">
                 <span>🐘 Target: PostgreSQL Row ({selectedTable})</span>
-                <span className={recordDiff.isIdentical ? 'v-badge-success' : 'v-badge-danger'}>
-                  {recordDiff.isIdentical ? '✓ 100% Identical' : '⚠ Discrepancy Found'}
+                <span className={!recordDiff.targetRow ? 'v-badge-danger' : recordDiff.isIdentical ? 'v-badge-success' : 'v-badge-danger'}>
+                  {!recordDiff.targetRow ? '❌ Missing in Target' : recordDiff.isIdentical ? '✓ 100% Identical' : '⚠ Discrepancy Found'}
                 </span>
               </div>
               <div className="diff-code-body">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  {recordDiff.fields.map((f) => (
-                    <div
-                      key={f.fieldName}
-                      className={`diff-field-row ${
-                        f.matchStatus === 'exact_match'
-                          ? 'matched'
-                          : f.matchStatus === 'type_coerced'
-                          ? 'coerced'
-                          : 'mismatch'
-                      }`}
-                    >
-                      <div>
-                        <strong>{f.targetColumnName}: </strong>
-                        <span style={{ color: '#1E293B' }}>
-                          {f.targetValue === null || f.targetValue === undefined
-                            ? '<NULL>'
-                            : typeof f.targetValue === 'object'
-                            ? JSON.stringify(f.targetValue)
-                            : String(f.targetValue)}
-                        </span>
-                        <span style={{ fontSize: '0.6875rem', color: '#64748B', marginLeft: '0.5rem' }}>
-                          ({f.targetSqlType})
-                        </span>
-                      </div>
-
-                      <div>
-                        {f.matchStatus === 'exact_match' && (
-                          <span style={{ color: '#15803D', fontWeight: 700, fontSize: '0.75rem' }}>✓ Match</span>
-                        )}
-                        {f.matchStatus === 'type_coerced' && (
-                          <span style={{ color: '#2563EB', fontWeight: 700, fontSize: '0.75rem' }} title="Safely coerced data type (e.g. ISO string to TIMESTAMPTZ)">
-                            ⚡ Coerced
+                {recordDiff.targetRow ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    {recordDiff.fields.map((f) => (
+                      <div
+                        key={f.fieldName}
+                        className={`diff-field-row ${
+                          f.matchStatus === 'exact_match'
+                            ? 'matched'
+                            : f.matchStatus === 'type_coerced'
+                            ? 'coerced'
+                            : 'mismatch'
+                        }`}
+                      >
+                        <div>
+                          <strong>{f.targetColumnName}: </strong>
+                          <span style={{ color: '#1E293B' }}>
+                            {f.targetValue === null || f.targetValue === undefined
+                              ? '<NULL>'
+                              : typeof f.targetValue === 'object'
+                              ? JSON.stringify(f.targetValue)
+                              : String(f.targetValue)}
                           </span>
-                        )}
-                        {f.matchStatus === 'mismatch' && (
-                          <span style={{ color: '#DC2626', fontWeight: 700, fontSize: '0.75rem' }}>⚠ Mismatch</span>
-                        )}
-                        {f.matchStatus === 'missing' && (
-                          <span style={{ color: '#D97706', fontWeight: 700, fontSize: '0.75rem' }}>× Missing</span>
-                        )}
+                          <span style={{ fontSize: '0.6875rem', color: '#64748B', marginLeft: '0.5rem' }}>
+                            ({f.targetSqlType})
+                          </span>
+                        </div>
+
+                        <div>
+                          {f.matchStatus === 'exact_match' && (
+                            <span style={{ color: '#15803D', fontWeight: 700, fontSize: '0.75rem' }}>✓ Match</span>
+                          )}
+                          {f.matchStatus === 'type_coerced' && (
+                            <span style={{ color: '#2563EB', fontWeight: 700, fontSize: '0.75rem' }} title="Safely coerced data type (e.g. ISO string to TIMESTAMPTZ)">
+                              ⚡ Coerced
+                            </span>
+                          )}
+                          {f.matchStatus === 'mismatch' && (
+                            <span style={{ color: '#DC2626', fontWeight: 700, fontSize: '0.75rem' }}>⚠ Mismatch</span>
+                          )}
+                          {f.matchStatus === 'missing' && (
+                            <span style={{ color: '#D97706', fontWeight: 700, fontSize: '0.75rem' }}>× Missing</span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#DC2626' }}>
+                    <p style={{ fontWeight: 600, fontSize: '0.9375rem', margin: '0 0 0.5rem 0' }}>❌ Row not found in PostgreSQL</p>
+                    <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0 }}>
+                      This document exists in MongoDB, but has not migrated into table "{selectedTable}".
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

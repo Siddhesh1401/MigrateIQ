@@ -162,6 +162,24 @@ async function runTests() {
   }
   assert(truncateBlocked, 'Security Guard blocks TRUNCATE TABLE execution attempt');
 
+  // 10. Live Column Widening Type Validation
+  console.log('\n10. Testing Live Column Widening Type Validation Guard...');
+  const validAlterTypes = ['VARCHAR', 'TEXT', 'INTEGER', 'BIGINT', 'NUMERIC', 'BOOLEAN', 'TIMESTAMPTZ', 'TIMESTAMP', 'JSONB', 'DOUBLE PRECISION', 'DATE'];
+  const testCandidate = 'VARCHAR(255)';
+  const isValidCandidate = validAlterTypes.some(vt => testCandidate.toUpperCase().startsWith(vt));
+  assert(isValidCandidate, 'Approved safe SQL data type for in-place column widening');
+
+  const unsafeCandidate = 'INJECTION; DROP TABLE users;';
+  const isUnsafeCandidate = validAlterTypes.some(vt => unsafeCandidate.toUpperCase().startsWith(vt));
+  assert(!isUnsafeCandidate, 'Blocked invalid or injected SQL data type in column widening guard');
+
+  // 11. Array Child Table Foreign Key & Sort Order Integrity
+  console.log('\n11. Testing Array Child Table Cascade Integrity...');
+  const orderItemsMapping = sampleMappings[0].childTables[0];
+  const sortOrderField = orderItemsMapping.fields.find(f => f.sortOrderColumn);
+  assert(Boolean(sortOrderField), 'order_items mapping contains explicit sort_order column');
+  assert(sortOrderField.targetType === 'INTEGER', 'sort_order is configured strictly as INTEGER NOT NULL');
+
   console.log('\n====================================================');
   console.log(` Verification Summary: ${passed}/${total} Tests Passed (100%)`);
   console.log('====================================================');

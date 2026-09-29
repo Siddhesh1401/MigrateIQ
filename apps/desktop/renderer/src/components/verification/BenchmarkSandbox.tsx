@@ -9,6 +9,7 @@ export interface BenchmarkSandboxProps {
   tables: string[];
   benchmarkResult: BenchmarkResult | null;
   isBenchmarking: boolean;
+  benchmarkError?: string | null;
   onRunBenchmark: () => void;
   onExecuteSandbox: (req: SandboxQueryRequest) => Promise<SandboxQueryResult>;
 }
@@ -17,6 +18,7 @@ export const BenchmarkSandbox: React.FC<BenchmarkSandboxProps> = ({
   tables,
   benchmarkResult,
   isBenchmarking,
+  benchmarkError,
   onRunBenchmark,
   onExecuteSandbox,
 }) => {
@@ -77,6 +79,37 @@ export const BenchmarkSandbox: React.FC<BenchmarkSandboxProps> = ({
             {isBenchmarking ? '⏳ Running 100 Queries…' : '▶ Run 100 Query Benchmark'}
           </button>
         </div>
+
+        {benchmarkError && (
+          <div style={{
+            backgroundColor: '#FEF2F2',
+            border: '1px solid #FECACA',
+            borderRadius: '8px',
+            padding: '0.85rem 1.25rem',
+            margin: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            flexWrap: 'wrap',
+          }}>
+            <div>
+              <strong style={{ color: '#991B1B', fontSize: '0.875rem' }}>⚠️ Benchmark Run Encountered An Error:</strong>
+              <p style={{ margin: '0.2rem 0 0 0', color: '#DC2626', fontSize: '0.8125rem' }}>
+                {benchmarkError}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-verify-secondary"
+              onClick={onRunBenchmark}
+              disabled={isBenchmarking}
+              style={{ fontSize: '0.8125rem', padding: '0.35rem 0.75rem', borderColor: '#FCA5A5', color: '#991B1B' }}
+            >
+              🔄 Retry Benchmark
+            </button>
+          </div>
+        )}
 
         {benchmarkResult && (
           <>

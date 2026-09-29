@@ -17,16 +17,24 @@ export const RescueCenterModal: React.FC<RescueCenterModalProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showWipeModal, setShowWipeModal] = useState(false);
+  const [wipeConfirmText, setWipeConfirmText] = useState('');
 
   if (!isOpen) return null;
 
-  const handleWipeTarget = async () => {
-    if (!window.confirm('Are you sure you want to drop all target PostgreSQL tables created in this session? This action cannot be undone.')) {
-      return;
-    }
+  const handleOpenWipeModal = () => {
+    setWipeConfirmText('');
+    setFeedbackMessage(null);
+    setErrorMessage(null);
+    setShowWipeModal(true);
+  };
+
+  const handleExecuteWipeTarget = async () => {
+    if (wipeConfirmText.trim().toUpperCase() !== 'WIPE') return;
     setIsProcessing(true);
     setFeedbackMessage(null);
     setErrorMessage(null);
+    setShowWipeModal(false);
     try {
       const res = await window.electronAPI.invoke<{ success: boolean; message: string; droppedTables?: string[] }>(
         'verification:rescue-action',
@@ -56,6 +64,7 @@ export const RescueCenterModal: React.FC<RescueCenterModalProps> = ({
         'verification:rescue-action',
         {
           action: 'export_takeaway',
+          targetConfig: wizardStore.targetConfig || undefined,
         }
       );
       if (res.success && res.data) {
@@ -183,7 +192,7 @@ export const RescueCenterModal: React.FC<RescueCenterModalProps> = ({
             <button
               type="button"
               className="btn-verify-secondary"
-              onClick={handleWipeTarget}
+              onClick={handleOpenWipeModal}
               disabled={isProcessing}
               style={{ color: '#DC2626', borderColor: '#FECACA', whiteSpace: 'nowrap' }}
             >
@@ -252,6 +261,108 @@ export const RescueCenterModal: React.FC<RescueCenterModalProps> = ({
             Close Rescue Center
           </button>
         </div>
+
+        {/* ── Typed WIPE Enterprise Safety Modal ── */}
+        {showWipeModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: '1rem',
+          }}>
+            <div style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '12px',
+              maxWidth: '480px',
+              width: '100%',
+              padding: '1.5rem',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+              border: '1px solid #FECACA',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+                <h3 style={{ margin: 0, color: '#991B1B', fontSize: '1.125rem' }}>
+                  Confirm Destructive Target Database Wipe
+                </h3>
+              </div>
+
+              <p style={{ fontSize: '0.875rem', color: '#475569', lineHeight: 1.5, margin: '0 0 1rem 0' }}>
+                This action will execute <code style={{ backgroundColor: '#F1F5F9', padding: '0.1rem 0.3rem', color: '#DC2626' }}>DROP TABLE ... CASCADE</code> on all tables in target database:
+              </p>
+
+              <div style={{
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #FCA5A5',
+                borderRadius: '6px',
+                padding: '0.75rem',
+                marginBottom: '1rem',
+                fontSize: '0.875rem',
+                fontWeight: 700,
+                color: '#991B1B',
+                textAlign: 'center',
+              }}>
+                Target Database: {wizardStore.targetConfig?.database || 'PostgreSQL Target'}
+              </div>
+
+              <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: '0 0 0.5rem 0' }}>
+                To prevent accidental destruction, please type <strong>WIPE</strong> in the box below:
+              </p>
+
+              <input
+                type="text"
+                placeholder="Type WIPE to confirm"
+                value={wipeConfirmText}
+                onChange={(e) => setWipeConfirmText(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.65rem 0.75rem',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '0.9375rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.05em',
+                  marginBottom: '1.25rem',
+                  outline: 'none',
+                }}
+                autoFocus
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="btn-verify-secondary"
+                  onClick={() => setShowWipeModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteWipeTarget}
+                  disabled={wipeConfirmText.trim().toUpperCase() !== 'WIPE' || isProcessing}
+                  style={{
+                    backgroundColor: wipeConfirmText.trim().toUpperCase() === 'WIPE' ? '#DC2626' : '#FCA5A5',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '0.6rem 1.25rem',
+                    fontWeight: 700,
+                    cursor: wipeConfirmText.trim().toUpperCase() === 'WIPE' ? 'pointer' : 'not-allowed',
+                    fontSize: '0.875rem',
+                  }}
+                >
+                  {isProcessing ? '⏳ Wiping Target…' : '🗑️ Drop All Tables (CASCADE)'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

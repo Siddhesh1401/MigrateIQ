@@ -1081,10 +1081,13 @@ export interface ComplianceReportPayload {
 }
 
 export interface RescueActionRequest {
-  action: 'wipe_target' | 'export_takeaway' | 'export_diagnostics' | 'force_reset';
+  action: 'wipe_target' | 'export_takeaway' | 'export_diagnostics' | 'force_reset' | 'alter_column_type';
   targetConfig?: ConnectionConfig;
   tables?: string[];
   sessionId?: string;
+  tableName?: string;
+  columnName?: string;
+  newDataType?: string;
 }
 
 export interface RescueActionResult {
