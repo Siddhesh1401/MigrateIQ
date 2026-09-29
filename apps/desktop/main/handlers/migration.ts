@@ -157,6 +157,7 @@ export function setupMigrationHandlers(): void {
           targetConfig,
           mappings,
           tableOrder: sortResult.orderedTables,
+          deferredConstraintSqls: sortResult.deferredConstraintSqls,
           batchSize,
           onProgress: (progress: MigrationProgressEvent) => {
             try {

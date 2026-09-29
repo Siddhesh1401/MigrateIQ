@@ -981,3 +981,24 @@ Phase 9 remains the core live migration engine with excellent streaming architec
 
 All fixes maintain backward compatibility and don't alter the fundamental Phase 9 migration architecture. The phase is now **production-ready** with enterprise-grade reliability.
 
+---
+
+## 10. Deep Audit & Production Recovery (Phase 9 & 9B Quality Gate)
+
+### 10.1 Deferred Foreign Key Constraint Execution
+- **Root Cause:** DDL generation (`dryRun.ts`) intentionally omits inline foreign key constraints to prevent dependency deadlocks during table creation. While Kahn's topological sort calculated cyclic edge cuts, non-cyclic foreign keys, child table parent FKs, and synthetic references were not collected into deferred constraints. Furthermore, `migration.ts` never passed `deferredConstraintSqls` into `executeMigration()`.
+- **Implementation Fix:**
+  - Implemented `extractAllForeignKeys(mappings)` in `apps/desktop/main/engine/topologicalSort.ts` to discover direct foreign keys, child table explicit FKs, and synthetic parent references.
+  - Hardened `generateDeferredConstraintsSql()` using quoted identifiers (`"${sanitizeIdentifier(...)}"`) and two-phase constraint validation (`ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT`) for zero-downtime transactional safety.
+  - Added `deferredConstraintSqls?: string[]` to `TopologicalSortResult` in `@migrateiq/shared`.
+  - Wired `deferredConstraintSqls: sortResult.deferredConstraintSqls` into `executeMigration()` inside `apps/desktop/main/handlers/migration.ts`.
+
+### 10.2 Child Table `sort_order` NOT NULL Null-Defense
+- **Root Cause:** In `apps/desktop/main/engine/etlEngine.ts`, `getChildItemsFromParentDoc()` evaluated `sort_order: itemObj.sort_order ?? idx`. If a MongoDB sub-document contained an explicit `null` value for `sort_order`, the null coalescing operator returned `null`, triggering a fatal PostgreSQL `NOT NULL` constraint violation.
+- **Implementation Fix:** Hardened expression to `typeof itemObj.sort_order === 'number' ? itemObj.sort_order : idx`, guaranteeing a valid 0-based integer index across all child rows.
+
+### 10.3 Crash Recovery & 1-Click Rollback on Home Dashboard
+- **Root Cause:** `apps/desktop/renderer/src/screens/HomeDashboard.tsx` hardcoded the wizard total step count to "paused at Step X of 8" (instead of 9), and the rollback banner only offered a `.sql` file download without 1-click execution capability.
+- **Implementation Fix:** Updated the step count to "of 9" and added a direct `[Clean Up →]` execution button invoking `migration:execute-rollback` against the saved target database configuration with user confirmation dialogs and error boundaries.
+
+

@@ -670,6 +670,34 @@ async function processReSyncBatch(
           }
 
           await pg.query('COMMIT');
+
+          // Re-align sequences for this table and its child tables to prevent INSERT collisions
+          const tablesToAlign = [tbl, ...childTables.map(c => sanitizeIdentifier(c.targetTableName || c.collectionName))];
+          for (const tName of tablesToAlign) {
+            try {
+              const seqRes = await pg.query<{ column_name: string }>(
+                `SELECT column_name 
+                 FROM information_schema.columns 
+                 WHERE table_schema = 'public' 
+                   AND table_name = $1
+                   AND (column_default LIKE 'nextval%' OR is_identity = 'YES')`,
+                [tName]
+              );
+              for (const sRow of seqRes.rows) {
+                const col = sanitizeIdentifier(sRow.column_name);
+                try {
+                  await pg.query(
+                    `SELECT setval(pg_get_serial_sequence($1, $2), COALESCE(MAX("${col}"), 1)) FROM "${tName}"`,
+                    [tName, col]
+                  );
+                } catch {
+                  // Non-critical sequence edge case
+                }
+              }
+            } catch {
+              // Ignore sequence inspection error
+            }
+          }
         } catch (txError) {
           await pg.query('ROLLBACK').catch(() => {});
           throw txError;

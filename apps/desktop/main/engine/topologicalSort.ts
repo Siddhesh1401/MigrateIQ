@@ -9,6 +9,7 @@
  */
 
 import { CollectionMapping, TopologicalSortResult } from '@migrateiq/shared';
+import { sanitizeIdentifier } from '../utils';
 
 interface TableNode {
   tableName: string;
@@ -74,6 +75,10 @@ export function topologicalSort(mappings: CollectionMapping[]): TopologicalSortR
         error: `Topological sort failed: ${allTables.length - orderedTables.length} tables have unresolved dependencies`
       };
     }
+
+    // Step 6: Generate deferred SQL statements for all foreign key constraints
+    const allConstraints = extractAllForeignKeys(mappings);
+    const deferredConstraintSqls = generateDeferredConstraintsSql(allConstraints);
     
     return {
       success: true,
@@ -83,7 +88,8 @@ export function topologicalSort(mappings: CollectionMapping[]): TopologicalSortR
         foreignKeys: deferredConstraints
           .filter(fk => cycle.includes(fk.tableName))
           .map(fk => `${fk.tableName}.${fk.columnName} → ${fk.referencedTable}.${fk.referencedColumn}`)
-      })) : undefined
+      })) : undefined,
+      deferredConstraintSqls
     };
   } catch (error) {
     return {
@@ -379,13 +385,130 @@ function kahnsAlgorithm(graph: Map<string, TableNode>): string[] {
 }
 
 /**
+ * Extracts all foreign key constraints from mappings (including child tables)
+ * so they can be applied safely post-data load.
+ */
+export function extractAllForeignKeys(mappings: CollectionMapping[]): ForeignKeyConstraint[] {
+  const constraints: ForeignKeyConstraint[] = [];
+  const seenConstraints = new Set<string>();
+
+  const knownTables = new Set<string>();
+  for (const c of mappings) {
+    const parentTable = c.targetTableName || c.collectionName;
+    knownTables.add(parentTable);
+    if (c.childTables) {
+      for (const child of c.childTables) {
+        knownTables.add(child.targetTableName || child.collectionName);
+      }
+    }
+    for (const f of c.fields) {
+      if (f.isChildTable && f.childTableName) {
+        knownTables.add(f.childTableName);
+      }
+    }
+  }
+
+  for (const collection of mappings) {
+    const tableName = collection.targetTableName || collection.collectionName;
+
+    // Direct FK fields on parent collection
+    for (const field of collection.fields) {
+      if (field.isChildTable) continue;
+      if (field.foreignKeyToParent) {
+        const referencedTable = field.foreignKeyToParent.split('.')[0];
+        const referencedColumn = field.foreignKeyToParent.split('.')[1] || 'id';
+
+        if (referencedTable && referencedTable !== tableName && knownTables.has(referencedTable)) {
+          const constraintName = `fk_${tableName}_${field.targetColumn}`;
+          if (!seenConstraints.has(constraintName)) {
+            seenConstraints.add(constraintName);
+            constraints.push({
+              tableName,
+              constraintName,
+              columnName: field.targetColumn,
+              referencedTable,
+              referencedColumn,
+              onDelete: 'CASCADE',
+              onUpdate: 'CASCADE'
+            });
+          }
+        }
+      }
+    }
+
+    // Process child tables declared in collection.childTables
+    if (collection.childTables) {
+      for (const child of collection.childTables) {
+        const childTableName = child.targetTableName || child.collectionName;
+        for (const field of child.fields) {
+          if (field.foreignKeyToParent) {
+            const referencedTable = field.foreignKeyToParent.split('.')[0];
+            const referencedColumn = field.foreignKeyToParent.split('.')[1] || 'id';
+
+            if (referencedTable && referencedTable !== childTableName && knownTables.has(referencedTable)) {
+              const constraintName = `fk_${childTableName}_${field.targetColumn}`;
+              if (!seenConstraints.has(constraintName)) {
+                seenConstraints.add(constraintName);
+                constraints.push({
+                  tableName: childTableName,
+                  constraintName,
+                  columnName: field.targetColumn,
+                  referencedTable,
+                  referencedColumn,
+                  onDelete: 'CASCADE',
+                  onUpdate: 'CASCADE'
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Process child tables declared on collection.fields with isChildTable
+    for (const field of collection.fields) {
+      if (field.isChildTable && field.childTableName) {
+        const childTableName = field.childTableName;
+        const fkCol = field.foreignKeyToParent && !field.foreignKeyToParent.includes('.')
+          ? field.foreignKeyToParent
+          : `${tableName}_id`;
+        const constraintName = `fk_${childTableName}_${fkCol}`;
+        if (!seenConstraints.has(constraintName) && knownTables.has(tableName)) {
+          seenConstraints.add(constraintName);
+          constraints.push({
+            tableName: childTableName,
+            constraintName,
+            columnName: fkCol,
+            referencedTable: tableName,
+            referencedColumn: 'id',
+            onDelete: 'CASCADE',
+            onUpdate: 'CASCADE'
+          });
+        }
+      }
+    }
+  }
+
+  return constraints;
+}
+
+/**
  * Generates SQL statements to add deferred foreign key constraints.
- * Used for circular FK dependencies.
+ * Used for circular FK dependencies and post-data integrity.
+ * Strictly sanitizes and quotes identifiers to prevent syntax errors on reserved words.
  */
 export function generateDeferredConstraintsSql(constraints: ForeignKeyConstraint[]): string[] {
   return constraints.map(fk => {
+    const safeTable = sanitizeIdentifier(fk.tableName);
+    const safeConstraint = sanitizeIdentifier(fk.constraintName);
+    const safeCol = sanitizeIdentifier(fk.columnName);
+    const safeRefTable = sanitizeIdentifier(fk.referencedTable);
+    const safeRefCol = sanitizeIdentifier(fk.referencedColumn);
+    const onDelete = ['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION'].includes(fk.onDelete?.toUpperCase()) ? fk.onDelete.toUpperCase() : 'CASCADE';
+    const onUpdate = ['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION'].includes(fk.onUpdate?.toUpperCase()) ? fk.onUpdate.toUpperCase() : 'CASCADE';
+
     // Use NOT VALID to add constraint without locking table for full scan
     // Then VALIDATE CONSTRAINT to check data integrity
-    return `ALTER TABLE ${fk.tableName} ADD CONSTRAINT ${fk.constraintName} FOREIGN KEY (${fk.columnName}) REFERENCES ${fk.referencedTable}(${fk.referencedColumn}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate} NOT VALID;\nALTER TABLE ${fk.tableName} VALIDATE CONSTRAINT ${fk.constraintName};`;
+    return `ALTER TABLE "${safeTable}" ADD CONSTRAINT "${safeConstraint}" FOREIGN KEY ("${safeCol}") REFERENCES "${safeRefTable}"("${safeRefCol}") ON DELETE ${onDelete} ON UPDATE ${onUpdate} NOT VALID;\nALTER TABLE "${safeTable}" VALIDATE CONSTRAINT "${safeConstraint}";`;
   });
 }

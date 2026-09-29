@@ -879,6 +879,7 @@ export interface TopologicalSortResult {
     tables: string[];
     foreignKeys: string[];
   }>;
+  deferredConstraintSqls?: string[];
   error?: string;
 }
 

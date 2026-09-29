@@ -939,7 +939,7 @@ function getChildItemsFromParentDoc(
           _sortOrder: idx,
           // Inject FK using the mapping-defined column name (not hardcoded names)
           [effectiveFkColumn]: itemObj[effectiveFkColumn] ?? parentId,
-          sort_order: itemObj.sort_order ?? idx,
+          sort_order: typeof itemObj.sort_order === 'number' ? itemObj.sort_order : idx,
           data: JSON.stringify(itemObj)
         });
       }

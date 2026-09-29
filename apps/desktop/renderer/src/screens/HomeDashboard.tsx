@@ -127,9 +127,40 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
     }
   };
 
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
+
   const handleDismissRollback = (): void => {
     setRollbackDismissed(true);
     setRollbackInfo(null);
+  };
+
+  const handleExecuteRollback = async (): Promise<void> => {
+    if (!rollbackInfo?.script || !inProgressState?.targetConfig) return;
+    const confirmed = window.confirm(
+      `⚠️ CLEAN UP TARGET DATABASE\n\n` +
+      `This will execute the rollback script to remove partially migrated rows (${rollbackInfo.rowCount.toLocaleString()} rows across ${rollbackInfo.tables.length} tables) from target database "${inProgressState.targetConfig.database || 'target'}".\n\n` +
+      `Are you sure you want to proceed with this cleanup?`
+    );
+    if (!confirmed) return;
+
+    setIsCleaningUp(true);
+    try {
+      const res = await window.electronAPI.invoke<{ rowsDeleted: number }>('migration:execute-rollback', {
+        targetConfig: inProgressState.targetConfig,
+        script: rollbackInfo.script
+      });
+      if (res.success) {
+        alert(`✅ Target cleanup complete. Cleaned up ${res.data?.rowsDeleted ?? 0} rows.`);
+        setRollbackInfo(null);
+        setRollbackDismissed(true);
+      } else {
+        alert(`❌ Cleanup failed: ${res.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      alert(`❌ Cleanup error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsCleaningUp(false);
+    }
   };
 
   const handleStartNewMigration = (): void => {
@@ -183,9 +214,20 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
             <button className="rollback-discard-btn" onClick={handleDismissRollback} title="Dismiss this notification">
               Dismiss ×
             </button>
-            <button className="rollback-button" onClick={handleViewRollback}>
-              Download Script →
+            <button className="rollback-button" onClick={handleViewRollback} title="Download the generated rollback SQL script">
+              View Script
             </button>
+            {inProgressState?.targetConfig && (
+              <button
+                className="rollback-button"
+                onClick={handleExecuteRollback}
+                disabled={isCleaningUp}
+                style={{ backgroundColor: '#DC2626', borderColor: '#DC2626', color: '#FFFFFF' }}
+                title="Execute rollback script directly to clean up target database"
+              >
+                {isCleaningUp ? 'Cleaning Up...' : 'Clean Up →'}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -199,7 +241,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = () => {
               <strong>Unfinished migration detected</strong>
               {directionLabel && (
                 <span style={{ display: 'block', marginTop: '0.125rem', color: 'var(--text-muted)', fontSize: '0.8125rem', fontWeight: 400 }}>
-                  {directionLabel} — paused at Step {inProgressState?.wizardStep ?? 1} of 8
+                  {directionLabel} — paused at Step {inProgressState?.wizardStep ?? 1} of 9
                 </span>
               )}
             </div>

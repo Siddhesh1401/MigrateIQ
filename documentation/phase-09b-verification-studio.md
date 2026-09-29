@@ -415,3 +415,28 @@ Phase 9B Data Parity & Verification Studio is now **production-ready enterprise-
 
 All Priority 2 fixes have been implemented and verified. Phase 9B integrates seamlessly with Phase 9, providing the complete data migration and verification pipeline for enterprise database migrations.
 
+---
+
+## 9. Deep Audit & Cryptographic Verification Hardening
+
+### 9.1 Cryptographic Chunk Hashing Key Projection Fix
+- **Root Cause:** In `apps/desktop/main/engine/verificationEngine.ts:computeChunkHashes()`, `canonicalMongo` constructed JSON objects using raw MongoDB document property names (e.g., camelCase `totalAmount`), whereas `canonicalPg` constructed objects using PostgreSQL column names (e.g., snake_case `total_amount`). Because cryptographic hashes depend on exact JSON key names, this caused guaranteed false-positive chunk hash mismatches on real schemas.
+- **Implementation Fix:** Built a `sourceToTargetCol` lookup map from `mappingForTable.fields`. When extracting MongoDB documents, every source field is projected to its sanitized target column name before computing SHA-256. BSON `ObjectId`s, dates, numbers, booleans, and JSON objects are normalized identically across engines.
+
+### 9.2 Elimination of Fabricated 100/100 Scores on Database Connection Failure
+- **Root Cause:** If neither MongoDB nor PostgreSQL could be reached, `runReconciliationAudit()` and `computeChunkHashes()` fell back to hardcoded 1000 rows, 0% drift, and a 100/100 readiness score. This created a false sense of security where an outage could be mistaken for a flawless migration.
+- **Implementation Fix:** Implemented explicit connection validation via `isOfflineOrTest`. If databases are unreachable during real operations, the engine throws a descriptive connection failure error. Deterministic simulation fallbacks are strictly reserved for test harnesses (`nonexistent_test_*`, mock/demo mode).
+
+### 9.3 Child Table Referential Foreign Key Discovery
+- **Root Cause:** In the referential orphan scanner, `mapping.fields` loop inspected `f.foreignKeyToParent` on parent table fields where the foreign key definition does not live.
+- **Implementation Fix:** Added cross-lookup in `mappings` to find the dedicated child collection mapping and resolve the true child foreign key column name before executing `LEFT JOIN ... WHERE parent.id IS NULL`.
+
+### 9.4 Dual-Engine Benchmark Latency Filtering
+- **Root Cause:** In `runBenchmark()`, if a query failed immediately (throwing an error in < 0.1ms), the latency was still pushed to `mongoLatencies` or `pgLatencies`, artificially skewing latency averages downward.
+- **Implementation Fix:** Pushed query latency metrics strictly within successful `try` blocks.
+
+### 9.5 Serial Sequence Re-Alignment on 1-Click Re-Sync
+- **Root Cause:** In `verification:re-sync-table`, after re-syncing rows in PostgreSQL with explicit IDs, PostgreSQL `SERIAL` / `IDENTITY` sequences were not updated with `setval()`, leaving the table vulnerable to future primary key collisions during application inserts.
+- **Implementation Fix:** Immediately following transaction `COMMIT`, the handler queries `information_schema.columns` for `nextval()` defaults or identity columns and executes `SELECT setval(pg_get_serial_sequence($1, $2), COALESCE(MAX($2), 1))` for the re-synced table and all associated child tables.
+
+
