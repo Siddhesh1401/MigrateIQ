@@ -213,12 +213,12 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
     const cleanId = id.trim();
     if (!cleanId) return;
     wizardStore.setSelectedInspectRecordId(cleanId);
-    if (browseData?.records) {
-      const matchIdx = browseData.records.findIndex((r) => r.id === cleanId);
-      if (matchIdx !== -1) {
-        setCurrentRecordIdx(matchIdx + 1);
-      }
-    }
+    // ── FIX #1: Don't update currentRecordIdx based on browse list position ────────────────
+    // The record's visual position in the browse results is not reliable as a unique identifier.
+    // Instead, track by recordId. The UI will display the record regardless of its position.
+    // This prevents confusion when the same record appears at different positions in different
+    // databases (due to different sort orders between MongoDB and PostgreSQL).
+    // We keep currentRecordIdx for navigation buttons, but it's managed separately.
     loadTableDetails(activeTable, cleanId);
   };
 

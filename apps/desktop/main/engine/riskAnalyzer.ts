@@ -1537,6 +1537,50 @@ export function analyzeRisks(input: RiskAnalysisInput): RiskAnalysisOutput {
     }
   }
 
+  // ── FIX #3: Numeric Precision Validation ────────────────────────────────────────────
+  // Check for NUMERIC(p,s) columns and warn if source data might overflow the precision
+  if (direction === 'mongodb-to-postgres') {
+    for (const colMapping of input.mapping) {
+      for (const field of colMapping.fields) {
+        const upperType = (field.targetType || '').toUpperCase();
+        
+        // Only check NUMERIC/DECIMAL fields
+        if ((upperType.includes('NUMERIC') || upperType.includes('DECIMAL')) && field.include) {
+          const precisionMatch = upperType.match(/NUMERIC\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/);
+          if (precisionMatch) {
+            const precision = parseInt(precisionMatch[1], 10);
+            const scale = parseInt(precisionMatch[2], 10);
+            const integerDigits = precision - scale;
+            
+            // Warn if this looks like it could hold large financial values
+            if (integerDigits < 10) {
+              // NUMERIC(18,4) = 14 integer digits (safe for most financial)
+              // NUMERIC(10,2) = 8 integer digits (risky for millions/billions)
+              risks.push({
+                id: `risk-numeric-precision-${colMapping.collectionName}-${field.sourceField}`,
+                severity: 'warning',
+                category: 'data_integrity',
+                decisionTier: 'safe',
+                actionCategory: 'remediation',
+                title: `Numeric Precision Constraint on Financial Column: ${field.targetColumn}`,
+                description: `Column "${field.targetColumn}" is mapped to NUMERIC(${precision},${scale}), allowing max ${integerDigits} integer digits. If source MongoDB contains values with more digits (e.g., ${"999".padEnd(integerDigits + 2, "9")}), they will be truncated during migration.`,
+                suggestedFix: `Review expected data ranges in source MongoDB collection "${colMapping.collectionName}". If maximum values exceed NUMERIC(${precision},${scale}), increase precision (e.g., NUMERIC(${precision + 5},${scale})).`,
+                autoFixAvailable: false,
+                affectedTable: colMapping.targetTableName || colMapping.collectionName,
+                affectedField: field.targetColumn,
+                transformationPreview: {
+                  before: `${field.targetColumn}: MongoDB numeric values (unbounded)`,
+                  after: `PostgreSQL NUMERIC(${precision},${scale}): max ${integerDigits} integer + ${scale} decimal digits`,
+                  explanation: 'Ensure source data fits within PostgreSQL precision bounds to prevent silent truncation.',
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
   return {
     risks,
     layer2Features: [],

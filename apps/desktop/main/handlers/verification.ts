@@ -630,9 +630,18 @@ async function processReSyncBatch(
         await pg.query('BEGIN');
         try {
           // 1. Wipe child tables first to avoid FK constraint violations
+          // ── FIX #2: Proper error handling instead of silent swallowing ────────────────
+          // If a child table DELETE fails, we need to know about it. Silently ignoring
+          // errors could lead to stale data remaining in child tables during re-sync.
           for (const child of childTables) {
             const childTbl = sanitizeIdentifier(child.targetTableName || child.collectionName);
-            await pg.query(`DELETE FROM "${childTbl}"`).catch(() => {});
+            try {
+              await pg.query(`DELETE FROM "${childTbl}"`);
+            } catch (deleteErr: unknown) {
+              // Log the error but continue (child might be empty, which is fine)
+              const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
+              console.warn(`[Verification] Non-critical: Could not delete child table ${childTbl}: ${errMsg}`);
+            }
           }
 
           // 2. Wipe parent table

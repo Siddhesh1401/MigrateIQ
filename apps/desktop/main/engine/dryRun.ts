@@ -477,6 +477,71 @@ export function transformValueForSql(value: unknown, targetType: string): unknow
 }
 
 /**
+ * ── FIX #3: Validate numeric precision for NUMERIC(p, s) columns ────────────────────────
+ * Checks if a value fits within PostgreSQL NUMERIC(precision, scale) bounds.
+ * Example: NUMERIC(18, 4) means max 18 total digits with 4 decimal places.
+ * Returns { isValid: boolean, reason?: string } to allow warnings in Dry Run Risk Report.
+ */
+export function validateNumericPrecision(
+  value: unknown,
+  targetType: string
+): { isValid: boolean; reason?: string } {
+  if (value === null || value === undefined) {
+    return { isValid: true }; // NULL is always valid
+  }
+
+  const upperType = targetType.toUpperCase();
+  
+  // Only validate for NUMERIC, DECIMAL, MONEY types
+  if (!upperType.includes('NUMERIC') && !upperType.includes('DECIMAL') && !upperType.includes('MONEY')) {
+    return { isValid: true };
+  }
+
+  // Extract precision and scale from "NUMERIC(18,4)" format
+  const match = upperType.match(/NUMERIC\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/);
+  if (!match) {
+    // If no explicit precision specified, assume it's safe
+    return { isValid: true };
+  }
+
+  const precision = parseInt(match[1], 10); // Total digits allowed
+  const scale = parseInt(match[2], 10);      // Digits after decimal
+  const integerDigits = precision - scale;   // Max digits before decimal
+
+  // Convert value to number
+  let numValue: number;
+  if (typeof value === 'number') {
+    numValue = value;
+  } else if (typeof value === 'string') {
+    const cleaned = value.trim().replace(/\0/g, '');
+    numValue = parseFloat(cleaned);
+    if (isNaN(numValue)) {
+      return { isValid: true }; // Non-numeric strings will fail at INSERT time anyway
+    }
+  } else if (value && typeof value === 'object' && (value as Record<string, unknown>)._bsontype === 'Decimal128') {
+    numValue = parseFloat((value as { toString(): string }).toString());
+  } else {
+    return { isValid: true };
+  }
+
+  // Check if number fits
+  const absValue = Math.abs(numValue);
+  const strValue = absValue.toFixed(scale);
+  const parts = strValue.split('.');
+  const intPart = parts[0]!.replace(/^0+/, '') || '0'; // Remove leading zeros
+  const intPartLen = intPart === '0' ? 1 : intPart.length;
+
+  if (intPartLen > integerDigits) {
+    return {
+      isValid: false,
+      reason: `Value ${numValue} requires ${intPartLen} integer digits, but NUMERIC(${precision},${scale}) only allows ${integerDigits}. Will truncate.`
+    };
+  }
+
+  return { isValid: true };
+}
+
+/**
  * Executes a transactional dry run simulation
  */
 export async function executeDryRunSimulation(options: DryRunOptions): Promise<DryRunResult> {

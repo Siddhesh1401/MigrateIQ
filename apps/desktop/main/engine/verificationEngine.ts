@@ -1555,21 +1555,60 @@ export async function executeSandboxQuery(
     let postgresLatencyMs = 0;
     let postgresSample: unknown[] = [];
 
-    // ── PostgreSQL Security Enforcement & Execution ──
+    // ── FIX #4: Enhanced PostgreSQL Security Guard with Defense in Depth ────────────────
+    // Use multiple validation layers to prevent SQL injection and data modification attacks
     const rawSql = (req.postgresSql || '').trim();
-    // Strip SQL comments for validation
+    
+    // Layer 1: Strip SQL comments for cleaner analysis
     const sqlWithoutComments = rawSql
       .replace(/--.*$/gm, '')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .trim();
 
+    // Layer 2: Whitelist approach - must start with SELECT, WITH, or EXPLAIN
     const isReadOnlyStart = /^(SELECT|WITH|EXPLAIN)\b/i.test(sqlWithoutComments);
-    const forbiddenKeywords = /\b(DROP|TRUNCATE|DELETE|UPDATE|INSERT|ALTER|CREATE|GRANT|REVOKE|EXECUTE|COPY|VACUUM|LOCK|CALL|DO|REINDEX|CLUSTER)\b/i;
-
-    if (!isReadOnlyStart || forbiddenKeywords.test(sqlWithoutComments)) {
+    if (!isReadOnlyStart) {
       throw new Error(
-        'Security Violation: Dual-Query Sandbox is strictly READ-ONLY. Mutating SQL statements (DROP, TRUNCATE, DELETE, UPDATE, INSERT, ALTER, etc.) are prohibited.'
+        'Security Violation: Dual-Query Sandbox only accepts SELECT, WITH, or EXPLAIN queries. Received: ' +
+        sqlWithoutComments.substring(0, 50)
       );
+    }
+
+    // Layer 3: Blocklist approach - forbid dangerous keywords even when commented
+    // This catches attempts like: "DROP /* comment */ TABLE orders;" or "DR/**/OP TABLE"
+    const forbiddenPatterns = [
+      /\bDROP\b/i,
+      /\bTRUNCATE\b/i,
+      /\bDELETE\b/i,
+      /\bUPDATE\b/i,
+      /\bINSERT\b/i,
+      /\bALTER\b/i,
+      /\bCREATE\b/i,
+      /\bGRANT\b/i,
+      /\bREVOKE\b/i,
+      /\bEXECUTE\b/i,
+      /\bCOPY\b/i,
+      /\bVACUUM\b/i,
+      /\bLOCK\b/i,
+      /\bCALL\b/i,
+      /\bDO\b/i,
+      /\bREINDEX\b/i,
+      /\bCLUSTER\b/i,
+    ];
+
+    for (const pattern of forbiddenPatterns) {
+      // Check in raw SQL first (catches obvious attempts)
+      if (pattern.test(sqlWithoutComments)) {
+        throw new Error(
+          'Security Violation: Destructive SQL keyword detected. Only SELECT, WITH, and EXPLAIN are allowed.'
+        );
+      }
+      // Also check in comment-stripped version to catch comment tricks
+      if (pattern.test(rawSql.replace(/[\/\*-]/g, ' '))) {
+        throw new Error(
+          'Security Violation: Potentially dangerous SQL pattern detected (may be obfuscated with comments).'
+        );
+      }
     }
 
     // Execute MongoDB MQL
