@@ -222,7 +222,7 @@ export function setupVerificationHandlers(): void {
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error)
+          error: maskSensitiveFields(error instanceof Error ? error.message : String(error))
         };
       }
     }
@@ -303,7 +303,7 @@ export function setupVerificationHandlers(): void {
       <h1 class="title">MigrateIQ Data Parity & Compliance Attestation</h1>
       <p style="margin: 4px 0 0 0; color: #64748B;">Official SOC-2 / PCI-DSS Pre-Cutover Verification Certificate</p>
     </div>
-    <span class="badge">100% Verified Production Ready</span>
+    <span class="badge" style="${audit.readinessScore >= 98 ? 'background:#DCFCE7;color:#16A34A' : audit.readinessScore >= 80 ? 'background:#FEF3C7;color:#D97706' : 'background:#FEE2E2;color:#DC2626'}">${audit.readinessScore >= 98 ? '\u2713' : audit.readinessScore >= 80 ? '\u26a0' : '\u2717'} ${audit.readinessScore}/100 \u2014 ${audit.readinessScore >= 98 ? 'Production Ready' : audit.readinessScore >= 80 ? 'Needs Review' : 'Critical Issues Detected'}</span>
   </div>
 
   <div class="scorecard">
@@ -543,7 +543,11 @@ async function processReSyncBatch(
 
             if (cInsertCols.length > 0) {
               const childSql = `INSERT INTO "${childTbl}" (${cInsertCols.join(', ')}) VALUES (${cPlaceholders.join(', ')})`;
-              await pg.query(childSql, cInsertVals).catch(() => {});
+              // ── Fix: Do NOT silently swallow child insert errors ────────────────────────
+              // The original `.catch(() => {})` allowed the re-sync to report
+              // "success" while child data was silently lost. Now we throw and
+              // let the transaction ROLLBACK handle cleanup.
+              await pg.query(childSql, cInsertVals);
             }
           }
         }
@@ -690,6 +694,13 @@ async function processReSyncBatch(
           case 'wipe_target': {
             if (!payload.targetConfig) {
               return { success: false, error: 'Target connection configuration is required for wipe.' };
+            }
+            // ── Security: Require a server-side confirmation token ─────────────────────
+            // The UI asks the user to type "WIPE", but that alone is not enough.
+            // The IPC handler must also receive a server-side token to prevent
+            // accidental or scripted wipes without explicit user intent.
+            if ((payload as RescueActionRequest & { confirmationToken?: string }).confirmationToken !== 'WIPE_CONFIRMED') {
+              return { success: false, error: 'Safety check failed: wipe_target requires confirmationToken = "WIPE_CONFIRMED". Action aborted.' };
             }
             const pg = new PgClient({
               connectionString: payload.targetConfig.connectionString || undefined,
@@ -878,10 +889,14 @@ This bundle contains everything required to deploy the migrated database schema 
             const tbl = sanitizeIdentifier(payload.tableName);
             const col = sanitizeIdentifier(payload.columnName);
             const validTypes = ['VARCHAR', 'TEXT', 'INTEGER', 'BIGINT', 'NUMERIC', 'BOOLEAN', 'TIMESTAMPTZ', 'TIMESTAMP', 'JSONB', 'DOUBLE PRECISION', 'DATE'];
-            const cleanType = payload.newDataType.trim();
-            const typeMatches = validTypes.some(vt => cleanType.toUpperCase().startsWith(vt));
+            const cleanType = payload.newDataType.trim().toUpperCase();
+            // ── Security Fix: Use exact match + strict pattern, not prefix-only startsWith ──
+            // "VARCHAR(255) USING id::integer; DROP TABLE users;--" starts with VARCHAR
+            // but is not a valid type. We now require an exact match or a valid VARCHAR(N) pattern.
+            const VARCHAR_PATTERN = /^VARCHAR\(\d+\)$/;
+            const typeMatches = validTypes.includes(cleanType) || VARCHAR_PATTERN.test(cleanType);
             if (!typeMatches) {
-              return { success: false, error: `Invalid or unsupported target data type: ${cleanType}` };
+              return { success: false, error: `Invalid or unsupported target data type: ${payload.newDataType.trim()}` };
             }
             const norm = normalizeConnectionConfig(payload.targetConfig);
             const pg = new PgClient({

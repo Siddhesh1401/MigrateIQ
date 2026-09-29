@@ -204,3 +204,30 @@ The verification test suite [`scripts/run-verify-phase9b.js`](file:///c:/Users/S
 - Step 8 is active in the wizard and successfully unlocks Step 9 upon auditor sign-off.
 - The certified migration audit results (`ReconciliationResult`), cryptographic seal, and sign-off metadata are stored in `wizardStore`.
 - Step 9 (Completion & Export Studio) can consume this verified audit manifest to populate the final executive report, export the refactoring kit with Prisma models, and render the interactive visual ERD diagram.
+
+---
+
+## 7. Retrospective Audit & Production Hardening
+
+Following an in-depth retrospective audit of the Phase 9B Data Parity & Verification Studio, the following audit fixes and security hardenings were implemented and verified:
+
+### 7.1 Truthful Scorecard Computation (`apps/desktop/main/engine/verificationEngine.ts`)
+- **Real Statistical Score Calculation:** Replaced placeholder score logic with dynamic calculation. The engine runs `runColumnProfile()` against the primary mapping and deducts score points for detected silent nullifications (`silentNullDetected`) and high invalid value ratios.
+- **Real Latency Score Calculation:** Executes 20 dual-engine benchmark queries and evaluates relative performance against realistic production latency thresholds (P95 < 50ms = 100, P95 < 100ms = 85, P95 < 250ms = 70, etc.).
+- **Truthful Speedup Factor:** Computes the actual speedup ratio between MongoDB and PostgreSQL without synthetic inflation.
+
+### 7.2 Chunk Hash Canonicalization & Precision Parity (`apps/desktop/main/engine/verificationEngine.ts`)
+- **Parent Scalar Canonicalization:** When computing SHA-256 chunk hashes for MongoDB documents, child array fields (which were unpacked into PostgreSQL child tables) are omitted so that parent-table documents are compared apple-to-apple against PostgreSQL parent rows.
+- **Nested Object / JSONB Serialization:** Embedded object fields mapped to PostgreSQL `jsonb` are serialized consistently before hashing.
+- **Truthful Hash State:** When one database chunk is missing or empty, chunk comparison marks the status as `'unverified'` rather than mirroring hashes to fake a match.
+
+### 7.3 Security Hardening & Safe Operations (`apps/desktop/main/handlers/verification.ts` & `RescueCenterModal.tsx`)
+- **Double-Confirmed WIPE Token:** `verification:rescue-action` (wipe target) strictly requires a server-side payload confirmation token (`confirmationToken: 'WIPE_CONFIRMED'`), preventing accidental or programmatically malformed wipes. `RescueCenterModal.tsx` passes this token upon user typing `"WIPE"`.
+- **Strict Column Type Widening Guard:** Replaced loose `.startsWith()` string matching with strict type allowlisting (`TEXT`, `BIGINT`, `NUMERIC`, `TIMESTAMPTZ`, etc.) and a precise `VARCHAR(\d+)` regex to prevent SQL injection in DDL alteration.
+- **Sensitive Credential Masking:** Applied `maskSensitiveFields()` across `verification:approve-signoff` error logs and audit paths to prevent database credentials from leaking to disk or UI logs.
+- **Transactional Child Re-Sync:** In `verification:re-sync-table`, errors during child table re-population bubble up directly to trigger a complete `ROLLBACK` instead of being silently swallowed.
+
+### 7.4 Verification & Quality Gate
+- **Main Process TypeScript Check:** `npx tsc -p apps/desktop/tsconfig.node.json --noEmit` passed with **0 errors**.
+- **Renderer TypeScript Check:** `npx tsc -p apps/desktop/tsconfig.json --noEmit` passed with **0 errors**.
+

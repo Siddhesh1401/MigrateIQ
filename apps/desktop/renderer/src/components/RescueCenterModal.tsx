@@ -41,6 +41,7 @@ export const RescueCenterModal: React.FC<RescueCenterModalProps> = ({
         {
           action: 'wipe_target',
           targetConfig: wizardStore.targetConfig || undefined,
+          confirmationToken: 'WIPE_CONFIRMED', // Required by server-side safety check
         }
       );
       if (res.success && res.data) {

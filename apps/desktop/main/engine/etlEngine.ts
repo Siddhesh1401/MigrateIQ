@@ -44,7 +44,9 @@ export interface MigrationOptions {
   onProgress?: (progress: MigrationProgressEvent) => void;
   onLog?: (log: MigrationLogEntry) => void;
   checkCancellation?: () => boolean;
-  onRollbackScriptReady?: (script: string) => Promise<void>; // Called before first INSERT
+  onRollbackScriptReady?: (script: string, filePath?: string) => Promise<void>; // Called before first INSERT
+  /** Called after each table completes — use for per-table crash-recovery checkpoints */
+  onTableComplete?: (tableName: string, completedCount: number, totalCount: number) => Promise<void>;
 }
 
 interface TableStats {
@@ -71,7 +73,8 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
     onProgress,
     onLog,
     checkCancellation,
-    onRollbackScriptReady
+    onRollbackScriptReady,
+    onTableComplete
   } = options;
 
   const effectiveSourceConfig = normalizeConnectionConfig(sourceConfig);
@@ -332,7 +335,16 @@ export async function executeMigration(options: MigrationOptions): Promise<Migra
         currentTableProgress: 100
       });
 
-      // (Rollback script was already generated as DROP TABLE before data load)
+      // ── Per-table crash-recovery checkpoint (Phase 9 §9.5) ──────────────────
+      // Notify the migration handler so it can update electron-store with
+      // { lastCompletedTable, status: 'in-progress' } after EACH table.
+      if (onTableComplete) {
+        try {
+          await onTableComplete(tableName, i + 1, tableOrder.length);
+        } catch {
+          // Non-critical: checkpoint failure must never abort the migration
+        }
+      }
     }
 
     // ── Step 6: Apply deferred FK constraints (for circular FK deps) ─────
@@ -442,28 +454,38 @@ async function processBatch(options: ProcessBatchOptions): Promise<ETLBatchResul
   let rowsProcessed = 0;
 
   try {
-    // Attempt batch insert
-    const insertSql = buildBatchInsertSql(tableName, mapping, batch, isChildTable, batchStartRowIndex);
-    
-    if (insertSql) {
-      await pgClient.query(insertSql.sql, insertSql.values);
-      rowsProcessed = batch.length;
-    } else {
-      // buildBatchInsertSql returned null — no active fields or empty batch
-      // Emit a warning so this is visible rather than silently lost
-      emitLog(onLog, 'warn',
-        `⚠️ [${tableName}] Batch ${batchNumber}: no insertable fields found (${batch.length} rows skipped). Check mapping config.`,
-        tableName
-      );
-      for (let i = 0; i < batch.length; i++) {
-        const doc = batch[i] as Record<string, unknown>;
-        const docId = doc._id ? String(doc._id) : `batch-${batchNumber}-row-${i}`;
-        skippedRows.push({
-          documentId: docId,
-          reason: 'No insertable fields — mapping produced null SQL (check field includes and types)',
-          sourceDocument: JSON.stringify(doc).slice(0, 500)
-        });
+    // Attempt batch insert wrapped in a transaction for atomicity.
+    // If the batch-level INSERT fails partway (e.g. mid-statement network error),
+    // the ROLLBACK ensures no partial rows are committed before the row-by-row retry.
+    await pgClient.query('BEGIN');
+    try {
+      const insertSql = buildBatchInsertSql(tableName, mapping, batch, isChildTable, batchStartRowIndex);
+
+      if (insertSql) {
+        await pgClient.query(insertSql.sql, insertSql.values);
+        rowsProcessed = batch.length;
+        await pgClient.query('COMMIT');
+      } else {
+        await pgClient.query('ROLLBACK');
+        // buildBatchInsertSql returned null — no active fields or empty batch
+        // Emit a warning so this is visible rather than silently lost
+        emitLog(onLog, 'warn',
+          `⚠️ [${tableName}] Batch ${batchNumber}: no insertable fields found (${batch.length} rows skipped). Check mapping config.`,
+          tableName
+        );
+        for (let i = 0; i < batch.length; i++) {
+          const doc = batch[i] as Record<string, unknown>;
+          const docId = doc._id ? String(doc._id) : `batch-${batchNumber}-row-${i}`;
+          skippedRows.push({
+            documentId: docId,
+            reason: 'No insertable fields — mapping produced null SQL (check field includes and types)',
+            sourceDocument: JSON.stringify(doc).slice(0, 500)
+          });
+        }
       }
+    } catch (batchTxError) {
+      await pgClient.query('ROLLBACK').catch(() => {});
+      throw batchTxError; // Re-throw to outer catch for row-by-row retry
     }
 
   } catch (batchError) {
@@ -884,6 +906,25 @@ function getChildItemsFromParentDoc(
     return [];
   }
 
+  // Resolve the actual FK column name from the child mapping (dynamic, not hardcoded)
+  const parentTable = parentMapping?.targetTableName || parentMapping?.collectionName || '';
+  let fkColumnName: string | undefined;
+  if (parentMapping?.childTables) {
+    const ct = parentMapping.childTables.find(c => {
+      const cName = c.targetTableName || c.collectionName;
+      return cName === childTableName;
+    });
+    fkColumnName = ct?.fields.find(f => f.foreignKeyToParent)?.targetColumn;
+  }
+  if (!fkColumnName && parentMapping?.fields) {
+    const fld = parentMapping.fields.find(f =>
+      f.isChildTable && (f.childTableName === childTableName || f.sourceField === arrayField)
+    );
+    fkColumnName = fld?.foreignKeyToParent?.split('.')[0];
+  }
+  // Fallback: derive from parent table name
+  const effectiveFkColumn = fkColumnName || `${sanitizeIdentifier(parentTable)}_id`;
+
   const rawArr = pDoc[arrayField];
   const items: Record<string, unknown>[] = [];
 
@@ -896,9 +937,8 @@ function getChildItemsFromParentDoc(
           ...itemObj,
           _parentId: parentId,
           _sortOrder: idx,
-          order_id: itemObj.order_id ?? parentId,
-          orders_id: itemObj.orders_id ?? parentId,
-          parent_id: itemObj.parent_id ?? parentId,
+          // Inject FK using the mapping-defined column name (not hardcoded names)
+          [effectiveFkColumn]: itemObj[effectiveFkColumn] ?? parentId,
           sort_order: itemObj.sort_order ?? idx,
           data: JSON.stringify(itemObj)
         });

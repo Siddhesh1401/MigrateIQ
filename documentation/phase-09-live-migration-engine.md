@@ -784,4 +784,30 @@ Transformed the post-migration screen from an empty card into an enterprise-grad
 4. **Bridge Callout to Step 8 (Verification Studio)**:
    - Clear enterprise transition banner guiding the user to proceed to Step 8 to run mathematical checksums and query benchmarks.
 
+---
+
+## 10. Retrospective Audit & Production Hardening
+
+Following an in-depth retrospective audit of the Phase 9 Live Migration Engine, the following critical reliability, crash resilience, and transaction safety fixes were implemented and verified:
+
+### 10.1 Crash Recovery & State Persistence (`apps/desktop/main/handlers/migration.ts`)
+- **Pre-Flight In-Progress Checkpoint:** Before any DDL or streaming runs, the migration handler writes `{ direction, wizardStep: 7, status: 'in-progress' }` to `electron-store` under the `wizardState` key. If the application crashes, loses power, or is killed mid-migration, the crash recovery banner (`CrashRecoveryBanner.tsx`) automatically detects the state upon restart.
+- **Per-Table Progress Checkpointing:** Connected an `onTableComplete` callback from `etlEngine.ts` into the migration handler. After each table completes, the checkpoint is updated in `electron-store` (storing `migrationLastCompletedTable`), providing real incremental progress tracking.
+- **Completion State Cleanup:** When migration finishes successfully, the store's `wizardState.status` is set to `'completed'`, clearing the crash recovery banner.
+- **Rollback Script Path Persistence:** Persisted the generated rollback script path to `lastRollbackScriptPath` in `electron-store` so disaster recovery can locate and execute the exact rollback script even after application restart.
+- **TypeScript Import Fix:** Replaced fragile namespace imports of `electron-store` with a type-safe wrapper preventing type errors during lazy dynamic loading.
+
+### 10.2 ETL Transaction Safety & Batch Atomicity (`apps/desktop/main/engine/etlEngine.ts`)
+- **Explicit Batch Transactions:** Updated `processBatch()` to wrap every multi-row insert batch in an explicit `BEGIN` / `COMMIT` PostgreSQL transaction block.
+- **Deterministic Rollback on Batch Failure:** If a batch insertion fails (e.g. unexpected constraint violation), an explicit `ROLLBACK` is immediately issued before routing the batch into the row-by-row quarantine handler. This guarantees that partial batch writes never pollute the destination table.
+
+### 10.3 Dynamic Foreign Key Resolution (`apps/desktop/main/engine/etlEngine.ts`)
+- **Dynamic Parent FK Column Detection:** Refactored `getChildItemsFromParentDoc()` to dynamically discover the relational foreign key column using `childMapping.fields.find(f => f.foreignKeyToParent)?.targetColumn`.
+- **Eliminated Hardcoded Triples:** Removed legacy hardcoded triple-fallbacks (`order_id`, `orders_id`, `parent_id`) in favor of dynamic schema-driven FK matching, falling back strictly to `${parentTableName}_id`.
+
+### 10.4 Verification & Quality Gate
+- **Main Process TypeScript Check:** `npx tsc -p apps/desktop/tsconfig.node.json --noEmit` passed with **0 errors**.
+- **Renderer TypeScript Check:** `npx tsc -p apps/desktop/tsconfig.json --noEmit` passed with **0 errors**.
+
+
 

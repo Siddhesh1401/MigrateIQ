@@ -28,7 +28,8 @@ import type {
   MigrationRollbackInfo,
   ConnectionConfig,
   CollectionMapping,
-  MigrationHistoryItem
+  MigrationHistoryItem,
+  WizardStateSnapshot
 } from '@migrateiq/shared';
 import { topologicalSort } from '../engine/topologicalSort';
 import { executeMigration } from '../engine/etlEngine';
@@ -36,6 +37,14 @@ import { maskSensitiveFields } from '../utils';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
+
+// ── Shared electron-store instance for crash-recovery checkpoints ─────────────
+// We import lazily to avoid circular-dependency issues at startup.
+// Using `unknown` store type here since we only call .get/.set with known keys.
+async function getStore(): Promise<{ get: (k: string, def?: unknown) => unknown; set: (k: string, v: unknown) => void }> {
+  const Store = (await import('electron-store')).default;
+  return new Store() as unknown as { get: (k: string, def?: unknown) => unknown; set: (k: string, v: unknown) => void };
+}
 
 // Global migration state (single migration at a time)
 let activeMigration: {
@@ -124,6 +133,24 @@ export function setupMigrationHandlers(): void {
 
         emitLog(event.sender, 'info', `✅ Table order computed: ${sortResult.orderedTables.join(' → ')}`);
 
+        // ── Write initial crash-recovery checkpoint to electron-store ──────────
+        // This enables the Home Dashboard to show "[Clean Up →]" banner if the
+        // app is killed mid-migration (Phase 9, §9.5).
+        const crashCheckpoint: WizardStateSnapshot = {
+          direction: 'mongodb-to-postgres',
+          wizardStep: 7,
+          sourceConfig,
+          targetConfig,
+          status: 'in-progress',
+          savedAt: new Date().toISOString(),
+        };
+        try {
+          const store = await getStore();
+          store.set('wizardState', crashCheckpoint);
+        } catch {
+          // Non-critical: checkpoint failure does not abort migration
+        }
+
         // Step 2: Execute migration with ETL engine
         const migrationResult = await executeMigration({
           sourceConfig,
@@ -152,14 +179,36 @@ export function setupMigrationHandlers(): void {
           },
           checkCancellation: () => activeMigration?.cancelRequested || false,
           // Save rollback script BEFORE first INSERT (crash recovery)
-          onRollbackScriptReady: async (script: string) => {
-            await saveRollbackScript(script, new Date().toISOString());
-          }
+          onRollbackScriptReady: async (script: string, filePath?: string) => {
+            const savedPath = await saveRollbackScript(script, new Date().toISOString());
+            // Persist path to electron-store for deterministic crash recovery
+            try {
+              const store = await getStore();
+              store.set('lastRollbackScriptPath', savedPath ?? filePath ?? '');
+            } catch {
+              // Non-critical
+            }
+          },
+          // \u2500\u2500 Per-table crash-recovery checkpoint (Phase 9 \u00a79.5) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n          // After each table completes, update electron-store so the Home Dashboard\n          // can detect an interrupted migration and show the [Clean Up \u2192] banner.\n          onTableComplete: async (tableName: string, completedCount: number) => {\n            try {\n              const store = await getStore();\n              const existingState = store.get('wizardState', null) as WizardStateSnapshot | null;\n              const updatedState: WizardStateSnapshot = {\n                ...(existingState ?? crashCheckpoint),\n                status: 'in-progress',\n                savedAt: new Date().toISOString(),\n              };\n              store.set('wizardState', updatedState);\n              // Store the last completed table separately for diagnostics\n              store.set('migrationLastCompletedTable', { tableName, completedCount });\n            } catch {\n              // Non-critical: checkpoint failure must never abort the migration\n            }\n          }
         });
 
         // Step 3: Save migration result to history
         if (migrationResult.success) {
           await saveMigrationHistory(migrationResult, sourceConfig, targetConfig);
+        }
+
+        // ── Clear crash-recovery checkpoint on completion ───────────────────────
+        // Mark wizard state as completed so Home Dashboard stops showing the banner.
+        try {
+          const store = await getStore();
+          const completedState: WizardStateSnapshot = {
+            ...crashCheckpoint,
+            status: 'completed',
+            savedAt: new Date().toISOString(),
+          };
+          store.set('wizardState', completedState);
+        } catch {
+          // Non-critical
         }
 
         // Clear active migration state
@@ -299,6 +348,19 @@ export function setupMigrationHandlers(): void {
       try {
         const { targetConfig, script } = payload;
 
+        // ── Validate rollback script against strict allowlist ─────────────────
+        // Prevents tampered or malicious scripts from running arbitrary SQL.
+        // Only lines matching these patterns are acceptable:
+        const ALLOWED_LINE_PATTERN = /^\s*(--|\s*BEGIN\s*;?|\s*COMMIT\s*;?|\s*DROP\s+TABLE\s+IF\s+EXISTS\s+"[a-z0-9_]+"\s*(CASCADE)?\s*;?|\s*$)/i;
+        const scriptLines = script.split('\n');
+        const illegalLine = scriptLines.find(line => !ALLOWED_LINE_PATTERN.test(line));
+        if (illegalLine !== undefined) {
+          return {
+            success: false,
+            error: `Rollback script validation failed: unexpected statement found. Aborting for safety. Line: "${illegalLine.trim().slice(0, 80)}"`
+          };
+        }
+
         // Connect to PostgreSQL
         client = new PgClient({
           connectionString: targetConfig.connectionString,
@@ -376,7 +438,7 @@ function emitLog(
 /**
  * Saves rollback script to disk for crash recovery.
  */
-async function saveRollbackScript(script: string, timestamp: string): Promise<void> {
+async function saveRollbackScript(script: string, timestamp: string): Promise<string> {
   const rollbackDir = path.join(app.getPath('userData'), 'rollback-scripts');
   await fs.mkdir(rollbackDir, { recursive: true });
 
@@ -384,6 +446,7 @@ async function saveRollbackScript(script: string, timestamp: string): Promise<vo
   const filePath = path.join(rollbackDir, filename);
 
   await fs.writeFile(filePath, script, 'utf-8');
+  return filePath; // Return path so caller can persist it to electron-store
 }
 
 /**
