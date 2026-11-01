@@ -788,7 +788,12 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     });
   },
 
-  setIsDemoMode: (isDemoMode) => set({ isDemoMode }),
+  setIsDemoMode: (isDemoMode) =>
+    set((state) =>
+        state.isDemoMode === isDemoMode
+            ? state
+            : { isDemoMode }
+    ),
 
   setVerificationAudit: (data) => set({ verificationAudit: data }),
   setActiveVerificationTab: (tab) => set({ activeVerificationTab: tab }),

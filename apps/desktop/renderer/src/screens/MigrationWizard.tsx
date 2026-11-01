@@ -419,19 +419,28 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const navigate = useNavigate();
   const wizardStore = useWizardStore();
 
+const setIsDemoMode = useWizardStore(
+    (state) => state.setIsDemoMode
+);
+
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [showRescueModal, setShowRescueModal] = useState(false);
 
   // Sync demoMode flag and resumeNotice from router navigation state if present
   useEffect(() => {
-    const navState = location.state as { demoMode?: boolean; resumeNotice?: string } | null;
-    if (navState && navState.demoMode) {
-      wizardStore.setIsDemoMode(true);
+    const navState = location.state as {
+        demoMode?: boolean;
+        resumeNotice?: string;
+    } | null;
+
+    if (navState?.demoMode) {
+        setIsDemoMode(true);
     }
-    if (navState && navState.resumeNotice) {
-      setResumeNotice(navState.resumeNotice);
+
+    if (navState?.resumeNotice) {
+        setResumeNotice(navState.resumeNotice);
     }
-  }, [location.state, wizardStore]);
+}, [location.state, setIsDemoMode]);
 
   // Clear any legacy localStorage config caches so Step 2 and Step 3 always start fresh/blank
   useEffect(() => {
