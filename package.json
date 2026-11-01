@@ -19,6 +19,10 @@
     "seed:phase8": "node scripts/seed-phase8-testbed.js",
     "seed:phase9b": "node scripts/seed-phase9b-testbed.js",
     "seed:phase11": "node scripts/seed-phase11-testbed.js",
+    "seed:final-a": "node scripts/seed-final-workflow-a.js",
+    "seed:final-b": "node scripts/seed-final-workflow-b.js",
+    "seed:final-c": "node scripts/seed-final-workflow-c.js",
+    "seed:final-all": "node scripts/seed-final-workflow-a.js && node scripts/seed-final-workflow-b.js && node scripts/seed-final-workflow-c.js",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
