@@ -38,6 +38,8 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
   const [currentRecordIdx, setCurrentRecordIdx] = useState(1);
   const [isLoadingRecord, setIsLoadingRecord] = useState(false);
 
+  const isReverse = wizardStore.direction === 'postgres-to-mongo' || wizardStore.sourceConfig?.type === 'postgresql' || wizardStore.targetConfig?.type === 'mongodb';
+
   // Benchmark states
   const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | null>(null);
   const [isBenchmarking, setIsBenchmarking] = useState(false);
@@ -442,7 +444,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
         <div className="verification-title-area">
           <h2>Step 8 of 9 — Post-Migration Quality Gate &amp; Data Parity Studio</h2>
           <p>
-            Verify mathematical, cryptographic, referential, and statistical parity between MongoDB and PostgreSQL before cutting over production DNS.
+            Verify mathematical, cryptographic, referential, and statistical parity between {isReverse ? "PostgreSQL and MongoDB" : "MongoDB and PostgreSQL"} before cutting over production DNS.
           </p>
         </div>
 

@@ -1,0 +1,1 @@
+db.getCollection("orders_denormalized_in_mongo").drop();

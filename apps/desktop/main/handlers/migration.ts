@@ -33,6 +33,8 @@ import type {
 } from '@migrateiq/shared';
 import { topologicalSort } from '../engine/topologicalSort';
 import { executeMigration } from '../engine/etlEngine';
+import { executeReverseMigration } from '../engine/reverseEtlEngine';
+import { MongoClient } from 'mongodb';
 import { maskSensitiveFields } from '../utils';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -84,6 +86,80 @@ export function setupMigrationHandlers(): void {
         }
 
         const { sourceConfig, targetConfig, mappings, batchSize = 500 } = payload;
+        const isReverse = (payload as { direction?: string }).direction === 'postgres-to-mongo' ||
+          (sourceConfig.type === 'postgresql' && targetConfig.type === 'mongodb');
+
+        if (isReverse) {
+          emitLog(event.sender, 'info', '🔄 Starting Reverse ETL Pipeline (PostgreSQL → MongoDB)...');
+
+          const crashCheckpoint: WizardStateSnapshot = {
+            direction: 'postgres-to-mongo',
+            wizardStep: 7,
+            sourceConfig,
+            targetConfig,
+            status: 'in-progress',
+            savedAt: new Date().toISOString(),
+          };
+          try {
+            const store = await getStore();
+            store.set('wizardState', crashCheckpoint);
+          } catch {
+            // Non-critical
+          }
+
+          const migrationResult = await executeReverseMigration({
+            sourceConfig,
+            targetConfig,
+            mappings,
+            batchSize,
+            onProgress: (progress: MigrationProgressEvent) => {
+              try {
+                if (activeMigration?.cancelRequested) {
+                  progress.type = 'cancel';
+                }
+                event.sender.send('migration:progress', progress);
+              } catch {
+                // Ignore
+              }
+            },
+            isCancelled: () => activeMigration?.cancelRequested || false
+          });
+
+          // Save rollback script
+          if (migrationResult.rollbackScript) {
+            const savedPath = await saveRollbackScript(migrationResult.rollbackScript, new Date().toISOString());
+            try {
+              const store = await getStore();
+              store.set('lastRollbackScriptPath', savedPath ?? '');
+            } catch {
+              // Non-critical
+            }
+          }
+
+          // Save history
+          if (migrationResult.success) {
+            await saveMigrationHistory(migrationResult, sourceConfig, targetConfig);
+          }
+
+          try {
+            const store = await getStore();
+            const completedState: WizardStateSnapshot = {
+              ...crashCheckpoint,
+              status: 'completed',
+              savedAt: new Date().toISOString(),
+            };
+            store.set('wizardState', completedState);
+          } catch {
+            // Non-critical
+          }
+
+          activeMigration = null;
+
+          return {
+            success: true,
+            data: migrationResult
+          };
+        }
 
         // Validate inputs
         if (!mappings || mappings.length === 0) {
@@ -348,6 +424,26 @@ export function setupMigrationHandlers(): void {
 
       try {
         const { targetConfig, script } = payload;
+
+        if (targetConfig.type === 'mongodb' || script.includes('db.getCollection')) {
+          const mongoUri = targetConfig.connectionString ||
+            `mongodb://${targetConfig.host || 'localhost'}:${targetConfig.port || 27017}/${targetConfig.database}`;
+          const mClient = new MongoClient(mongoUri);
+          await mClient.connect();
+          const mDb = mClient.db(targetConfig.database);
+          const colMatches = [...script.matchAll(/db\.getCollection\(["']([^"']+)["']\)\.drop\(\)/g)];
+          let droppedCount = 0;
+          for (const m of colMatches) {
+            const colName = m[1];
+            await mDb.collection(colName).drop().catch(() => {});
+            droppedCount++;
+          }
+          await mClient.close();
+          return {
+            success: true,
+            data: { rowsDeleted: droppedCount }
+          };
+        }
 
         // ── Validate rollback script against strict allowlist ─────────────────
         // Prevents tampered or malicious scripts from running arbitrary SQL.

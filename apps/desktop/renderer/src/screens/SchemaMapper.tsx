@@ -1023,14 +1023,14 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                 onClick={() => toggleCollection(collection.collectionName)}
                 className="collection-header"
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', width: '100%', flexWrap: 'wrap' }}>
                   <span className="expand-icon">{isExpanded ? '▾' : '▸'}</span>
                   <strong style={{ fontFamily: 'monospace', fontSize: '1rem', color: 'var(--text-primary)' }}>
                     {collection.collectionName}
                   </strong>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>→</span>
                   <strong style={{ fontFamily: 'monospace', fontSize: '1rem', color: 'var(--brand-primary, #2563EB)' }}>
-                    {collection.targetTableName}
+                    {collection.isEmbeddedChild ? `${collection.parentTable}.${collection.embeddedFieldName || 'items'}[]` : collection.targetTableName}
                   </strong>
                   <span
                     style={{
@@ -1045,6 +1045,83 @@ export const SchemaMapper: React.FC<SchemaMapperProps> = ({
                   >
                     {collection.fields.length} fields · {(collection.indexes || []).length} indexes
                   </span>
+
+                  {isPgToMongo && (
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={(e) => e.stopPropagation()}>
+                      {collection.isEmbeddedChild && (
+                        <span
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            padding: '0.125rem 0.5rem',
+                            borderRadius: '4px',
+                            backgroundColor: '#EFF6FF',
+                            color: '#2563EB',
+                            border: '1px solid #BFDBFE'
+                          }}
+                        >
+                          📦 Embedded in {collection.parentTable}.{collection.embeddedFieldName || 'items'}[]
+                        </span>
+                      )}
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                        Mode:
+                      </label>
+                      <select
+                        value={collection.isEmbeddedChild ? 'embed' : 'collection'}
+                        onChange={(e) => {
+                          const shouldEmbed = e.target.value === 'embed';
+                          setMappings((prev) =>
+                            prev.map((c) =>
+                              c.collectionName === collection.collectionName
+                                ? { ...c, isEmbeddedChild: shouldEmbed }
+                                : c
+                            )
+                          );
+                        }}
+                        style={{
+                          fontSize: '0.75rem',
+                          padding: '0.2rem 0.5rem',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle, #E2E8F0)',
+                          backgroundColor: '#FFFFFF',
+                          color: '#0F172A',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="collection">Separate Collection</option>
+                        <option value="embed">Embed as Array ({collection.parentTable || 'Parent'})</option>
+                      </select>
+
+                      {collection.isEmbeddedChild && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Field:</span>
+                          <input
+                            type="text"
+                            value={collection.embeddedFieldName || 'items'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setMappings((prev) =>
+                                prev.map((c) =>
+                                  c.collectionName === collection.collectionName
+                                    ? { ...c, embeddedFieldName: val }
+                                    : c
+                                )
+                              );
+                            }}
+                            style={{
+                              fontSize: '0.75rem',
+                              padding: '0.15rem 0.4rem',
+                              width: '80px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-subtle, #E2E8F0)',
+                              backgroundColor: '#FFFFFF',
+                              color: '#0F172A'
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </button>
 

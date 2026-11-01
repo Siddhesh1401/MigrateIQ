@@ -372,6 +372,25 @@ export function setupPostgresqlHandler(): void {
         WHERE schemaname = $1
       `, [targetSchema]);
 
+      // Read foreign keys for target schema (Workflow B denormalization)
+      const fkResult = await client.query(`
+        SELECT
+          tc.constraint_name,
+          tc.table_name AS source_table,
+          kcu.column_name AS source_column,
+          ccu.table_name AS target_table,
+          ccu.column_name AS target_column
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+          AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema = $1;
+      `, [targetSchema]);
+
       // Scan for Layer 2 features (stored procedures, functions, triggers, views, etc.) in target schema
       const layer2Result = await client.query(`
         SELECT
@@ -399,6 +418,13 @@ export function setupPostgresqlHandler(): void {
             tablename: r.tablename,
             indexname: r.indexname,
             indexdef: r.indexdef,
+          })),
+          foreignKeys: fkResult.rows.map(r => ({
+            constraintName: r.constraint_name,
+            sourceTable: r.source_table,
+            sourceColumn: r.source_column,
+            targetTable: r.target_table,
+            targetColumn: r.target_column,
           })),
           layer2Features: {
             functions: Number(layer2.function_count) || 0,

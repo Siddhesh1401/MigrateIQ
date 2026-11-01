@@ -5,6 +5,7 @@ import type {
   SourceSchema,
   IndexDefinition,
   PostgresIntrospectionResult,
+  PostgresForeignKeyInfo,
   AIGenerateMappingResponse,
   AIHealthScoreResponse,
   MappingBadge,
@@ -47,7 +48,7 @@ interface PgIndexRow {
  * Convert PostgreSQL table structure to SourceSchema format (for Schema Mapping)
  * Maps SQL types to BSON-like types for schema mapping engine compatibility.
  */
-function convertPostgresTableToSourceSchema(pgTables: PgTableRow[], pgIndexes: PgIndexRow[] = []): SourceSchema[] {
+function convertPostgresTableToSourceSchema(pgTables: PgTableRow[], pgIndexes: PgIndexRow[] = [], pgForeignKeys: PostgresForeignKeyInfo[] = []): SourceSchema[] {
   return pgTables.map((table) => {
     const fields = (table.columns || []).map((colName: string, idx: number) => {
       const sqlType = (table.column_types || [])[idx] || 'text';
@@ -56,12 +57,17 @@ function convertPostgresTableToSourceSchema(pgTables: PgTableRow[], pgIndexes: P
       const isNullable = isNullableStr ? isNullableStr.toUpperCase() !== 'NO' : true;
       const bsonType = postgresTypeToBsonType(sqlType);
 
+      const fk = (pgForeignKeys || []).find(
+        (f) => f.sourceTable === table.table_name && f.sourceColumn === colName
+      );
+
       return {
         name: colName,
         bsonType,
         sqlType: sqlType.toUpperCase(),
         isNullable,
         isArray: sqlType.includes('[]'),
+        foreignKeyToParent: fk ? `${fk.targetTable}.${fk.targetColumn}` : undefined,
       };
     });
 
@@ -789,7 +795,7 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
         setSourceConnectedSuccessfully(true);
 
         // Convert PostgreSQL tables to SourceSchema for schema mapping
-        const sourceSchemas = convertPostgresTableToSourceSchema(response.data.tables, response.data.indexes || []);
+        const sourceSchemas = convertPostgresTableToSourceSchema(response.data.tables, response.data.indexes || [], response.data.foreignKeys || []);
         wizardStore.setSourceSchema(sourceSchemas);
 
         if (response.data.layer2Features) {

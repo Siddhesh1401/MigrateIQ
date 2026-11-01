@@ -21,7 +21,7 @@ This folder contains the complete, phase-by-phase technical documentation genera
 | **Phase 9** | [`phase-09-live-migration-engine.md`](./phase-09-live-migration-engine.md) <br> [`phase-09-part3-stress-test.md`](./phase-09-part3-stress-test.md) | Kahn's topological sort, streaming ETL engine, crash recovery, & 1M record 31-table ultra stress test with 100% parity | ✅ Completed |
 | **Phase 10** | [`phase-10-completion-downloads-erd.md`](./phase-10-completion-downloads-erd.md) | Summary screen, ERD diagram generation, audit report PDF & HTML, 1,000-query live benchmark, and Refactoring Kit (.zip) | ✅ Completed |
 | **Phase 11** | [`phase-11-schema-update-assistant.md`](./phase-11-schema-update-assistant.md) | Workflow C: 7-stage Database Schema Evolution Workbench, 100% PG + Mongo parity, in-database SHA-256 ledger, Expand & Contract advisor, production shield | ✅ Completed |
-| **Phase 12** | [`phase-12-pg-to-mongo-workflow.md`](./phase-12-pg-to-mongo-workflow.md) | Workflow B: Reverse schema introspection & denormalization | ⏳ Pending |
+| **Phase 12** | [`phase-12-pg-to-mongo-workflow.md`](./phase-12-pg-to-mongo-workflow.md) | Workflow B: Reverse schema introspection, 1:N denormalization heuristics, reverse ETL streaming, & MongoDB rollback | ✅ Completed |
 | **Phase 13** | [`phase-13-demo-mode.md`](./phase-13-demo-mode.md) | In-memory demo mode with bundled sample e-commerce data | ⏳ Pending |
 | **Phase 14** | [`phase-14-auxiliary-screens.md`](./phase-14-auxiliary-screens.md) | History, Schema Version History, Saved Connections, Settings | ⏳ Pending |
 | **Phase 15** | [`phase-15-partial-migration.md`](./phase-15-partial-migration.md) | Advanced partial migration selector & date range filters | ⏳ Pending |

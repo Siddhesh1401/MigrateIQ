@@ -79,6 +79,7 @@ export interface CollectionMapping {
   isEmbeddedChild?: boolean;
   parentTable?: string;
   foreignKeyColumn?: string;
+  parentKeyColumn?: string;
   embeddedFieldName?: string;
   embeddingType?: 'embed_array' | 'embed_object';
 }

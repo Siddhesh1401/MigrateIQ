@@ -251,6 +251,101 @@ export function generateMappingByRules(schemas: SourceSchema[], direction?: 'mon
     }
   }
 
+  // ── Workflow B Denormalization Suggestion Engine (Phase 12) ──
+  // For PostgreSQL → MongoDB migrations, suggest embedding 1:N child tables into their parent collection.
+  if (direction === 'postgres-to-mongo') {
+    for (const childM of mappings) {
+      const fkFields = childM.fields.filter(
+        (f) => f.foreignKeyToParent && !f.foreignKeyToParent.toLowerCase().startsWith(childM.collectionName.toLowerCase() + '.')
+      );
+
+      if (fkFields.length === 0) continue;
+
+      let chosenFk = fkFields[0];
+      const childNameLower = childM.collectionName.toLowerCase();
+
+      // If multiple FKs, prefer the one matching the table prefix (e.g. order_items -> orders)
+      if (fkFields.length > 1) {
+        const prefixMatch = fkFields.find((f) => {
+          if (!f.foreignKeyToParent) return false;
+          const parentT = f.foreignKeyToParent.split('.')[0].toLowerCase();
+          const singularParent = parentT.endsWith('s') ? parentT.slice(0, -1) : parentT;
+          return childNameLower.startsWith(singularParent) || childNameLower.startsWith(parentT);
+        });
+        if (prefixMatch) {
+          chosenFk = prefixMatch;
+        }
+      }
+
+      if (!chosenFk || !chosenFk.foreignKeyToParent) continue;
+
+      // Independent domain entities should NOT be auto-embedded into other entities
+      // (e.g. orders shouldn't embed into customers, products shouldn't embed into categories)
+      const independentEntityNames = [
+        'orders', 'products', 'customers', 'categories', 'users',
+        'payments', 'reviews', 'invoices', 'accounts'
+      ];
+      if (independentEntityNames.includes(childNameLower)) {
+        continue;
+      }
+
+      const [parentTable, parentCol = 'id'] = chosenFk.foreignKeyToParent.split('.');
+      const parentM = mappings.find(
+        (m) =>
+          m.collectionName.toLowerCase() === parentTable.toLowerCase() ||
+          m.targetTableName.toLowerCase() === parentTable.toLowerCase()
+      );
+
+      if (parentM && parentM.collectionName.toLowerCase() !== childNameLower) {
+        const singularParent = parentTable.toLowerCase().endsWith('s')
+          ? parentTable.toLowerCase().slice(0, -1)
+          : parentTable.toLowerCase();
+
+        // Must be a genuine composite child: name starts with parent or has dependent child suffix
+        const isNameRelated =
+          childNameLower.startsWith(parentTable.toLowerCase()) ||
+          childNameLower.startsWith(singularParent) ||
+          childNameLower.endsWith('_items') ||
+          childNameLower.endsWith('_lines') ||
+          childNameLower.endsWith('_details') ||
+          childNameLower.endsWith('_components') ||
+          childNameLower.endsWith('_addresses');
+
+        if (!isNameRelated) {
+          continue;
+        }
+
+        let embeddedField = childNameLower;
+        if (embeddedField.startsWith(parentTable.toLowerCase())) {
+          embeddedField = embeddedField.slice(parentTable.length).replace(/^_+/, '');
+        } else if (embeddedField.startsWith(singularParent)) {
+          embeddedField = embeddedField.slice(singularParent.length).replace(/^_+/, '');
+        }
+
+        if (!embeddedField || embeddedField === childNameLower) {
+          if (childNameLower.endsWith('_items')) embeddedField = 'items';
+          else if (childNameLower.endsWith('_details')) embeddedField = 'details';
+          else if (childNameLower.endsWith('_lines')) embeddedField = 'lines';
+          else embeddedField = childNameLower;
+        }
+
+        childM.isEmbeddedChild = true;
+        childM.parentTable = parentM.collectionName;
+        childM.foreignKeyColumn = chosenFk.sourceField;
+        childM.parentKeyColumn = parentCol;
+        childM.embeddedFieldName = embeddedField;
+        childM.embeddingType = 'embed_array';
+
+        if (!parentM.childTables) {
+          parentM.childTables = [];
+        }
+        if (!parentM.childTables.some((c) => c.collectionName === childM.collectionName)) {
+          parentM.childTables.push(childM);
+        }
+      }
+    }
+  }
+
   return mappings;
 }
 

@@ -1,3 +1,4 @@
+import { useWizardStore } from '../../store/wizardStore';
 import React, { useState } from 'react';
 import type {
   TableReconciliation,
@@ -23,6 +24,8 @@ export const ReconciliationOverview: React.FC<ReconciliationOverviewProps> = ({
   onSelectTable,
   onSelectProfileTable
 }) => {
+  const wizardStore = useWizardStore();
+  const isReverse = wizardStore.direction === 'postgres-to-mongo' || wizardStore.sourceConfig?.type === 'postgresql' || wizardStore.targetConfig?.type === 'mongodb';
   const [filterText, setFilterText] = useState('');
   const [selectedProfileTab, setSelectedProfileTab] = useState<string>(
     tables[0]?.tableName || ''
@@ -51,7 +54,7 @@ export const ReconciliationOverview: React.FC<ReconciliationOverviewProps> = ({
               )}
             </h3>
             <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8125rem', color: '#64748B' }}>
-              Verifies 1:1 row counts between source MongoDB collections and target PostgreSQL relational tables ($\Delta = 0$).
+              {isReverse ? "Verifies 1:1 row counts between source PostgreSQL relational tables and target MongoDB document collections" : "Verifies 1:1 row counts between source MongoDB collections and target PostgreSQL relational tables"} ($\Delta = 0$).
             </p>
           </div>
 
@@ -76,10 +79,10 @@ export const ReconciliationOverview: React.FC<ReconciliationOverviewProps> = ({
           <table className="v-table">
             <thead>
               <tr>
-                <th>Target Table</th>
+                <th>{isReverse ? 'Target Collection' : 'Target Table'}</th>
                 <th>Type</th>
-                <th>Source (Mongo)</th>
-                <th>Target (Postgres)</th>
+                <th>{isReverse ? 'Source (Postgres)' : 'Source (Mongo)'}</th>
+                <th>{isReverse ? 'Target (Mongo)' : 'Target (Postgres)'}</th>
                 <th>Delta (Δ)</th>
                 <th>Parity Status</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
@@ -182,8 +185,8 @@ export const ReconciliationOverview: React.FC<ReconciliationOverviewProps> = ({
                   <th>Table</th>
                   <th>Numeric Column</th>
                   <th>Metric</th>
-                  <th>MongoDB Total</th>
-                  <th>PostgreSQL Total</th>
+                  <th>{isReverse ? 'Source (PostgreSQL)' : 'Source (MongoDB)'}</th>
+                  <th>{isReverse ? 'Target (MongoDB)' : 'Target (PostgreSQL)'}</th>
                   <th>Mathematical Drift</th>
                   <th>Precision Proof</th>
                 </tr>

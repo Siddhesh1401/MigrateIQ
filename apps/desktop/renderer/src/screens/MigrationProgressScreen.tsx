@@ -46,6 +46,8 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
     appendMigrationLog 
   } = wizardStore;
 
+  const isReverse = wizardStore.direction === 'postgres-to-mongo' || sourceConfig?.type === 'postgresql' || targetConfig?.type === 'mongodb';
+
   const [status, setStatus] = useState<'idle' | 'confirming' | 'running' | 'completed' | 'error' | 'cancelled'>(
     migrationResult ? 'completed' : 'idle'
   );
@@ -177,7 +179,8 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
         sourceConfig,
         targetConfig,
         mappings: schemaMapping,
-        batchSize: 500
+        batchSize: 500,
+        direction: wizardStore.direction || 'mongodb-to-postgres'
       });
 
       if (response.success && response.data) {
@@ -267,7 +270,9 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
           <div className="migration-header-title-group">
             <h1>Step 7: Live Migration</h1>
             <p className="migration-header-subtitle">
-              Ready to migrate data from MongoDB to PostgreSQL
+              {isReverse
+                ? 'Ready to migrate data from PostgreSQL to MongoDB'
+                : 'Ready to migrate data from MongoDB to PostgreSQL'}
             </p>
           </div>
         </div>
@@ -277,12 +282,12 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
           <div className="migration-ready-content">
             <h2>Ready to Start Migration</h2>
             <p>
-              This will execute the live migration for {schemaMapping?.length || 0} collection(s).
+              This will execute the live migration for {schemaMapping?.length || 0} {isReverse ? 'table(s)' : 'collection(s)'}.
               The process streams data in batches, isolates errors, and generates rollback scripts.
             </p>
             <div className="migration-ready-stats">
               <div className="migration-ready-stat">
-                <span className="migration-ready-stat-label">Collections</span>
+                <span className="migration-ready-stat-label">{isReverse ? 'Tables' : 'Collections'}</span>
                 <span className="migration-ready-stat-value">{schemaMapping?.length || 0}</span>
               </div>
               <div className="migration-ready-stat">
@@ -324,13 +329,13 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
 
             <div className="migration-confirm-modal-body">
               <p>
-                This will <strong>create tables and insert data</strong> into your PostgreSQL database.
+                This will <strong>create {isReverse ? 'collections and insert documents' : 'tables and insert data'}</strong> into your {isReverse ? 'MongoDB' : 'PostgreSQL'} database.
                 Make sure you have a backup of your existing data before continuing.
               </p>
 
               <div className="migration-confirm-snapshot-warning">
                 <div className="migration-confirm-snapshot-title">⚠️ IMPORTANT: This is a snapshot migration.</div>
-                <p>New data written to MongoDB <strong>AFTER you click "Start"</strong> will NOT be included.</p>
+                <p>New data written to {isReverse ? 'PostgreSQL' : 'MongoDB'} <strong>AFTER you click "Start"</strong> will NOT be included.</p>
                 <p>Recommendation: Put your application in <strong>maintenance mode</strong> (stop new writes) before running for best accuracy.</p>
               </div>
             </div>
@@ -373,7 +378,7 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
           <div className="migration-header-title-group">
             <h1>Migration in Progress</h1>
             <p className="migration-header-subtitle">
-              Migrating data from MongoDB to PostgreSQL...
+              Migrating data from {isReverse ? 'PostgreSQL to MongoDB' : 'MongoDB to PostgreSQL'}...
             </p>
           </div>
           <div className="migration-header-badges">
@@ -602,13 +607,13 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
         <div className="migration-pipeline-banner">
           <div className="migration-pipeline-endpoints">
             <div className="migration-db-pill">
-              <span className="migration-db-pill-icon">🍃</span>
-              <span>Source: <strong>MongoDB</strong> ({sourceConfig?.host || 'localhost'}:{sourceConfig?.port || '27017'}/{sourceConfig?.database || 'migrateiq_phase7_test'})</span>
+              <span className="migration-db-pill-icon">{isReverse ? '🐘' : '🍃'}</span>
+              <span>Source: <strong>{isReverse ? 'PostgreSQL' : 'MongoDB'}</strong> ({sourceConfig?.host || 'localhost'}:{sourceConfig?.port || (isReverse ? '5432' : '27017')}/{sourceConfig?.database || (isReverse ? 'postgres' : 'mongodb')})</span>
             </div>
             <div className="migration-pipeline-arrow">➔</div>
             <div className="migration-db-pill">
-              <span className="migration-db-pill-icon">🐘</span>
-              <span>Target: <strong>PostgreSQL</strong> ({targetConfig?.host || 'localhost'}:{targetConfig?.port || '5432'}/{targetConfig?.database || 'postgres'})</span>
+              <span className="migration-db-pill-icon">{isReverse ? '🍃' : '🐘'}</span>
+              <span>Target: <strong>{isReverse ? 'MongoDB' : 'PostgreSQL'}</strong> ({targetConfig?.host || 'localhost'}:{targetConfig?.port || (isReverse ? '27017' : '5432')}/{targetConfig?.database || (isReverse ? 'mongodb' : 'postgres')})</span>
             </div>
           </div>
           <div className="migration-pipeline-meta">
@@ -727,8 +732,8 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
                     <tr>
                       <th>Table Name</th>
                       <th>Category</th>
-                      <th>Source Docs</th>
-                      <th>Target Rows</th>
+                      <th>{isReverse ? 'Source Rows' : 'Source Docs'}</th>
+                      <th>{isReverse ? 'Target Docs' : 'Target Rows'}</th>
                       <th>Throughput</th>
                       <th>Duration</th>
                       <th>Status</th>
@@ -745,9 +750,9 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
                             {tbl.role === 'child' ? 'Child 1:N' : 'Parent Table'}
                           </span>
                         </td>
-                        <td>{(tbl.sourceDocs ?? 0).toLocaleString()} docs</td>
+                        <td>{(tbl.sourceDocs ?? 0).toLocaleString()} {isReverse ? 'rows' : 'docs'}</td>
                         <td>
-                          <strong style={{ color: '#0F172A' }}>{(tbl.targetRows ?? 0).toLocaleString()} rows</strong>
+                          <strong style={{ color: '#0F172A' }}>{(tbl.targetRows ?? 0).toLocaleString()} {isReverse ? 'docs' : 'rows'}</strong>
                         </td>
                         <td>{(tbl.throughput ?? 0).toLocaleString()} r/s</td>
                         <td>{tbl.durationMs ?? 0}ms</td>
@@ -942,7 +947,7 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
                   <div className="migration-diag-card-body">
                     <div className="migration-diag-item">
                       <span className="migration-diag-label">Embedded Array Normalization:</span>
-                      <span className="migration-diag-val">orders.items ➔ orders_items</span>
+                      <span className="migration-diag-val">{isReverse ? '1:N Relational ➔ Embedded Document Arrays' : 'orders.items ➔ orders_items'}</span>
                     </div>
                     <div className="migration-diag-item">
                       <span className="migration-diag-label">Parent Reference Linking:</span>
@@ -967,7 +972,7 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
             <div className="migration-tab-pane">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div style={{ fontSize: '0.875rem', color: '#64748B' }}>
-                  The migration engine pre-generated this clean transactional rollback script. Running this will safely drop all created tables and return PostgreSQL to its pre-migration baseline.
+                  The migration engine pre-generated this clean transactional rollback script. Running this will safely drop all created {isReverse ? 'collections and return MongoDB' : 'tables and return PostgreSQL'} to its pre-migration baseline.
                 </div>
                 <button
                   type="button"
@@ -1002,7 +1007,7 @@ const MigrationProgressScreen: React.FC<MigrationProgressScreenProps> = ({
             <div className="migration-bridge-text">
               <h3>Ready for Post-Migration Quality Gate</h3>
               <p>
-                All 130 records have been committed to PostgreSQL. Click <strong>Continue to Step 8 →</strong> to enter the <strong>Data Parity & Verification Studio</strong> to run automated cross-database checksum reconciliations, inspect raw record hashes, and benchmark query latencies.
+                All {totalMigrated} records have been committed to {isReverse ? 'MongoDB' : 'PostgreSQL'}. Click <strong>Continue to Step 8 →</strong> to enter the <strong>Data Parity & Verification Studio</strong> to run automated cross-database checksum reconciliations, inspect raw record hashes, and benchmark query latencies.
               </p>
             </div>
           </div>

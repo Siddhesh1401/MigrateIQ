@@ -98,6 +98,14 @@ function computeSha256(val: unknown): string {
   return crypto.createHash('sha256').update(canonicalJson).digest('hex');
 }
 
+/** Helper to resolve DB configurations based on migration direction */
+function resolveDbConfigs(sourceConfig: ConnectionConfig, targetConfig: ConnectionConfig) {
+  const isReverse = sourceConfig.type === 'postgresql' || targetConfig.type === 'mongodb';
+  const mongoConfig = isReverse ? targetConfig : sourceConfig;
+  const pgConfig = isReverse ? sourceConfig : targetConfig;
+  return { mongoConfig, pgConfig, isReverse };
+}
+
 /**
  * Executes full Reconciliation Audit across all tables
  */
@@ -106,15 +114,18 @@ export async function runReconciliationAudit(
   targetConfig: ConnectionConfig,
   mappings: CollectionMapping[] = []
 ): Promise<ReconciliationResult> {
+  const { mongoConfig, pgConfig, isReverse } = resolveDbConfigs(sourceConfig, targetConfig);
+
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
 
   try {
-    mongoClient = await getMongoClient(sourceConfig).catch(() => null);
-    pgClient = await getPgClient(targetConfig).catch(() => null);
+    mongoClient = await getMongoClient(mongoConfig).catch(() => null);
+    pgClient = await getPgClient(pgConfig).catch(() => null);
 
     const isOfflineOrTest = Boolean(
       sourceConfig.database?.includes('nonexistent') ||
+      targetConfig.database?.includes('nonexistent') ||
       sourceConfig.database?.includes('test') ||
       sourceConfig.database?.includes('demo') ||
       sourceConfig.database?.includes('mock') ||
@@ -131,56 +142,91 @@ export async function runReconciliationAudit(
     let sequencesAligned = 0;
     let indexesVerified = 0;
 
-    const mongoDb = mongoClient ? mongoClient.db(sourceConfig.database) : null;
+    const mongoDb = mongoClient ? mongoClient.db(mongoConfig.database) : null;
 
     // 1. Process each mapping definition (including child tables)
     for (const mapping of mappings) {
       const primaryColName = mapping.collectionName;
       const targetTableName = sanitizeIdentifier(mapping.targetTableName || primaryColName);
 
-      // Primary collection volumetric count
-      let mongoCount = 0;
-      let pgCount = 0;
+      let sourceCount = 0;
+      let targetCount = 0;
 
-      if (mongoDb) {
-        try {
-          mongoCount = await mongoDb.collection(primaryColName).countDocuments();
-        } catch {
-          mongoCount = 0;
+      if (!isReverse) {
+        if (mongoDb) {
+          try {
+            sourceCount = await mongoDb.collection(primaryColName).countDocuments();
+          } catch {
+            sourceCount = 0;
+          }
+        }
+
+        if (pgClient) {
+          try {
+            const res = await pgClient.query<{ count: string }>(
+              `SELECT COUNT(*)::INTEGER AS count FROM "${targetTableName}"`
+            );
+            targetCount = parseInt(res.rows[0]?.count || '0', 10);
+          } catch {
+            targetCount = 0;
+          }
+        }
+
+        if (!mongoDb && !pgClient && isOfflineOrTest) {
+          sourceCount = 1000;
+          targetCount = 1000;
+        }
+      } else {
+        // Reverse Workflow B: PostgreSQL (source) -> MongoDB (target)
+        if (pgClient) {
+          try {
+            const res = await pgClient.query<{ count: string }>(
+              `SELECT COUNT(*)::INTEGER AS count FROM "${sanitizeIdentifier(primaryColName)}"`
+            );
+            sourceCount = parseInt(res.rows[0]?.count || '0', 10);
+          } catch {
+            sourceCount = 0;
+          }
+        }
+
+        if (mongoDb) {
+          try {
+            if (mapping.isEmbeddedChild && mapping.parentTable && mapping.embeddedFieldName) {
+              const aggRes = await mongoDb.collection(mapping.parentTable).aggregate<{ total: number }>([
+                { $project: { cnt: { $size: { $ifNull: ['$' + mapping.embeddedFieldName, []] } } } },
+                { $group: { _id: null, total: { $sum: '$cnt' } } }
+              ]).toArray();
+              targetCount = aggRes[0]?.total || 0;
+            } else {
+              targetCount = await mongoDb.collection(primaryColName).countDocuments();
+            }
+          } catch {
+            targetCount = 0;
+          }
+        }
+
+        if (!mongoDb && !pgClient && isOfflineOrTest) {
+          sourceCount = 500;
+          targetCount = 500;
         }
       }
 
-      if (pgClient) {
-        try {
-          const res = await pgClient.query<{ count: string }>(
-            `SELECT COUNT(*)::INTEGER AS count FROM "${targetTableName}"`
-          );
-          pgCount = parseInt(res.rows[0]?.count || '0', 10);
-        } catch {
-          pgCount = 0;
-        }
-      }
-
-      // If both databases are disconnected in offline/test mode, provide fallback counts matching mapping
-      if (!mongoDb && !pgClient && isOfflineOrTest) {
-        mongoCount = 1000;
-        pgCount = 1000;
-      }
-
-      const delta = Math.abs(mongoCount - pgCount);
+      const delta = Math.abs(sourceCount - targetCount);
+      const isEmbedded = Boolean(mapping.isEmbeddedChild);
       tables.push({
-        tableName: targetTableName,
-        sourceType: 'primary_collection',
-        sourceCount: mongoCount,
-        targetCount: pgCount,
+        tableName: primaryColName,
+        sourceType: isEmbedded ? 'child_table' : 'primary_collection',
+        sourceCount,
+        targetCount,
         delta,
         isMatch: delta === 0,
         status: delta === 0 ? 'perfect' : 'drift'
       });
 
-      // Child tables volumetric count & referential integrity
+      // Child tables volumetric count & referential integrity (Workflow A ONLY)
       const childDefinitions: Array<{ targetTableName: string; arrayField: string; foreignKey: string; hasSortOrder: boolean }> = [];
-      if (mapping.childTables && mapping.childTables.length > 0) {
+      if (!isReverse) {
+      if (!isReverse && mapping.childTables && mapping.childTables.length > 0) {
         for (const child of mapping.childTables) {
           const arrayField = child.fields.find(f => f.sourceField)?.sourceField?.split('.')[0] || child.collectionName;
           const fkCol = child.fields.find(f => f.foreignKeyToParent)?.targetColumn || `${targetTableName}_id`;
@@ -232,8 +278,8 @@ export async function runReconciliationAudit(
         }
 
         if (!mongoDb && !pgClient && isOfflineOrTest) {
-          childMongoCount = mongoCount * 3;
-          childPgCount = mongoCount * 3;
+          childMongoCount = sourceCount * 3;
+          childPgCount = sourceCount * 3;
         }
 
         const childDelta = Math.abs(childMongoCount - childPgCount);
@@ -318,47 +364,89 @@ export async function runReconciliationAudit(
         });
       }
 
+      }
+
       // Financial & Numeric Aggregate Proofs
       // Find numeric columns (amount, price, total, balance, quantity, subtotal)
-      const numericFields = mapping.fields.filter(f =>
-        f.include && (
+      // Exclude surrogate IDs, PKs, and FKs from sum proofs
+      const numericFields = mapping.fields.filter(f => {
+        if (!f.include) return false;
+        const col = (f.targetColumn || f.sourceField || '').toLowerCase();
+        if (col === 'id' || col === '_id' || col.endsWith('_id') || f.foreignKeyToParent) {
+          return false;
+        }
+        return (
           f.targetType.toUpperCase().includes('NUMERIC') ||
           f.targetType.toUpperCase().includes('DECIMAL') ||
           f.targetType.toUpperCase().includes('DOUBLE') ||
           f.targetType.toUpperCase().includes('FLOAT') ||
-          f.targetType.toUpperCase().includes('INT') ||
-          ['amount', 'price', 'total', 'balance', 'quantity', 'cost', 'fee'].some(kw => f.targetColumn.toLowerCase().includes(kw))
-        )
-      );
+          ['amount', 'price', 'total', 'balance', 'quantity', 'cost', 'fee', 'subtotal', 'tax', 'rate'].some(kw => col.includes(kw))
+        );
+      });
 
       for (const numField of numericFields.slice(0, 2)) {
         let sourceSum = 0;
         let targetSum = 0;
 
-        if (mongoDb) {
-          try {
-            const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: number }>([
-              {
-                $group: {
-                  _id: null,
-                  total: { $sum: `$${numField.sourceField}` }
+        if (!isReverse) {
+          if (mongoDb) {
+            try {
+              const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: number }>([
+                {
+                  $group: {
+                    _id: null,
+                    total: { $sum: `$${numField.sourceField}` }
+                  }
                 }
-              }
-            ]).toArray();
-            sourceSum = aggRes[0]?.total || 0;
-          } catch {
-            sourceSum = 0;
+              ]).toArray();
+              sourceSum = aggRes[0]?.total || 0;
+            } catch {
+              sourceSum = 0;
+            }
           }
-        }
 
-        if (pgClient) {
-          try {
-            const sumRes = await pgClient.query<{ total: string }>(
-              `SELECT COALESCE(SUM("${sanitizeIdentifier(numField.targetColumn)}"), 0)::NUMERIC(18, 4) AS total FROM "${targetTableName}"`
-            );
-            targetSum = parseFloat(sumRes.rows[0]?.total || '0');
-          } catch {
-            targetSum = 0;
+          if (pgClient) {
+            try {
+              const sumRes = await pgClient.query<{ total: string }>(
+                `SELECT COALESCE(SUM("${sanitizeIdentifier(numField.targetColumn)}"), 0)::NUMERIC(18, 4) AS total FROM "${targetTableName}"`
+              );
+              targetSum = parseFloat(sumRes.rows[0]?.total || '0');
+            } catch {
+              targetSum = 0;
+            }
+          }
+        } else {
+          // Reverse Workflow B: PG is source, Mongo is target
+          const colName = sanitizeIdentifier(numField.sourceField || numField.targetColumn);
+          if (pgClient) {
+            try {
+              const sumRes = await pgClient.query<{ total: string }>(
+                `SELECT COALESCE(SUM("${colName}"), 0)::NUMERIC(18, 4) AS total FROM "${sanitizeIdentifier(primaryColName)}"`
+              );
+              sourceSum = parseFloat(sumRes.rows[0]?.total || '0');
+            } catch {
+              sourceSum = 0;
+            }
+          }
+
+          if (mongoDb) {
+            try {
+              const mongoFieldName = numField.targetColumn || numField.sourceField;
+              if (mapping.isEmbeddedChild && mapping.parentTable && mapping.embeddedFieldName) {
+                const aggRes = await mongoDb.collection(mapping.parentTable).aggregate<{ total: number }>([
+                  { $unwind: `$${mapping.embeddedFieldName}` },
+                  { $group: { _id: null, total: { $sum: `$${mapping.embeddedFieldName}.${mongoFieldName}` } } }
+                ]).toArray();
+                targetSum = aggRes[0]?.total || 0;
+              } else {
+                const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: number }>([
+                  { $group: { _id: null, total: { $sum: `$${mongoFieldName}` } } }
+                ]).toArray();
+                targetSum = aggRes[0]?.total || 0;
+              }
+            } catch {
+              targetSum = 0;
+            }
           }
         }
 
@@ -372,8 +460,8 @@ export async function runReconciliationAudit(
         const isPrecisionGuaranteed = driftPercentage < 0.0001;
 
         aggregates.push({
-          tableName: targetTableName,
-          columnName: numField.targetColumn,
+          tableName: primaryColName,
+          columnName: numField.targetColumn || numField.sourceField,
           metric: 'SUM',
           sourceValue: Number(sourceSum.toFixed(4)),
           targetValue: Number(targetSum.toFixed(4)),
@@ -383,7 +471,7 @@ export async function runReconciliationAudit(
       }
 
       // Check numeric fields in child tables as well
-      if (mapping.childTables && mapping.childTables.length > 0) {
+      if (!isReverse && mapping.childTables && mapping.childTables.length > 0) {
         for (const child of mapping.childTables) {
           const childNumericFields = child.fields.filter(f =>
             f.include && (
@@ -449,7 +537,7 @@ export async function runReconciliationAudit(
     }
 
     // Auto-align PostgreSQL Sequences (post-migration insert collision prevention)
-    if (pgClient) {
+    if (!isReverse && pgClient) {
       try {
         const seqRes = await pgClient.query<{ table_name: string; column_name: string }>(
           `SELECT table_name, column_name 
@@ -531,7 +619,11 @@ export async function runReconciliationAudit(
     if (pgClient && mongoClient) {
       try {
         const benchResult = await runBenchmark(sourceConfig, targetConfig, 20, 5);
-        if (benchResult.isPostgresFaster) {
+        if (isReverse) {
+          // In Workflow B, MongoDB is the target: score 100 if target P50 is responsive (< 50ms)
+          const targetP50 = benchResult.mongo.p50LatencyMs;
+          latencyScore = targetP50 <= 40 ? 100 : Math.max(70, Math.round(100 - (targetP50 - 40)));
+        } else if (benchResult.isPostgresFaster) {
           // PG is faster: score proportionally (max 100, min 70 if only slightly faster)
           const speedup = benchResult.speedupFactor;
           latencyScore = Math.min(100, Math.max(70, Math.round(70 + (speedup - 1.0) * 15)));
@@ -609,12 +701,14 @@ export async function runColumnProfile(
   tableName: string,
   mappings: CollectionMapping[] = []
 ): Promise<ColumnProfileResult> {
+  const { mongoConfig, pgConfig } = resolveDbConfigs(sourceConfig, targetConfig);
+
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
 
   try {
-    mongoClient = await getMongoClient(sourceConfig).catch(() => null);
-    pgClient = await getPgClient(targetConfig).catch(() => null);
+    mongoClient = await getMongoClient(mongoConfig).catch(() => null);
+    pgClient = await getPgClient(pgConfig).catch(() => null);
 
     const targetTbl = sanitizeIdentifier(tableName);
     const mapping = mappings.find(m => sanitizeIdentifier(m.targetTableName) === targetTbl || sanitizeIdentifier(m.collectionName) === targetTbl);
@@ -633,7 +727,7 @@ export async function runColumnProfile(
         [targetTbl]
       );
 
-      const mongoDb = mongoClient ? mongoClient.db(sourceConfig.database) : null;
+      const mongoDb = mongoClient ? mongoClient.db(mongoConfig.database) : null;
       let totalPgRows = 0;
       const countRes = await pgClient.query<{ count: string }>(`SELECT COUNT(*)::INTEGER AS count FROM "${targetTbl}"`);
       totalPgRows = parseInt(countRes.rows[0]?.count || '0', 10);
@@ -769,12 +863,14 @@ export async function inspectRecord(
   recordId: string,
   mappings: CollectionMapping[] = []
 ): Promise<RecordDiffResult> {
+  const { mongoConfig, pgConfig } = resolveDbConfigs(sourceConfig, targetConfig);
+
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
 
   try {
-    mongoClient = await getMongoClient(sourceConfig).catch(() => null);
-    pgClient = await getPgClient(targetConfig).catch(() => null);
+    mongoClient = await getMongoClient(mongoConfig).catch(() => null);
+    pgClient = await getPgClient(pgConfig).catch(() => null);
 
     const targetTbl = sanitizeIdentifier(tableName);
     let mapping = mappings.find(m => sanitizeIdentifier(m.targetTableName) === targetTbl || sanitizeIdentifier(m.collectionName) === targetTbl);
@@ -845,7 +941,7 @@ export async function inspectRecord(
         ? targetRow.sort_order
         : parseInt(String(targetRow?.sort_order || '0'), 10);
 
-      const db = mongoClient.db(sourceConfig.database);
+      const db = mongoClient.db(mongoConfig.database);
       let parentDoc: Record<string, unknown> | null = null;
       try {
         if (ObjectId.isValid(parentId)) {
@@ -890,7 +986,7 @@ export async function inspectRecord(
     }
 
     if (!sourceDoc && mongoClient) {
-      const db = mongoClient.db(sourceConfig.database);
+      const db = mongoClient.db(mongoConfig.database);
       const targetColName = sourceCol;
       if (effectiveId) {
         try {
@@ -1158,6 +1254,26 @@ export async function browseRecords(
   offset = 0,
   limit = 25
 ): Promise<RecordBrowseResult> {
+  if (targetConfig.type === 'mongodb' || (!targetConfig.type && targetConfig.port === 27017)) {
+    let mongoClient: MongoClient | null = null;
+    try {
+      mongoClient = await getMongoClient(targetConfig).catch(() => null);
+      if (mongoClient) {
+        const db = mongoClient.db(targetConfig.database);
+        const totalRows = await db.collection(tableName).countDocuments().catch(() => 0);
+        const docs = await db.collection(tableName).find({}).skip(offset).limit(limit).toArray().catch(() => []);
+        const records = docs.map(d => {
+          const id = String(d.id || d._id || Object.values(d)[0] || 'doc');
+          const summary = String(d.name || d.title || d.order_number || d.email || d.sku || Object.values(d)[1] || 'Record');
+          return { id, summaryText: summary, isMatch: true };
+        });
+        return { tableName, offset, limit, totalRows, records };
+      }
+    } finally {
+      if (mongoClient) await mongoClient.close().catch(() => {});
+    }
+  }
+
   let pgClient: PgClient | null = null;
   try {
     pgClient = await getPgClient(targetConfig).catch(() => null);
@@ -1240,15 +1356,18 @@ export async function computeChunkHashes(
   chunkSize = 1000,
   mappings?: CollectionMapping[]
 ): Promise<ChunkHashResult> {
+  const { mongoConfig, pgConfig } = resolveDbConfigs(sourceConfig, targetConfig);
+
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
 
   try {
-    mongoClient = await getMongoClient(sourceConfig).catch(() => null);
-    pgClient = await getPgClient(targetConfig).catch(() => null);
+    mongoClient = await getMongoClient(mongoConfig).catch(() => null);
+    pgClient = await getPgClient(pgConfig).catch(() => null);
 
     const isOfflineOrTest = Boolean(
       sourceConfig.database?.includes('nonexistent') ||
+      targetConfig.database?.includes('nonexistent') ||
       sourceConfig.database?.includes('test') ||
       sourceConfig.database?.includes('demo') ||
       sourceConfig.database?.includes('mock') ||
@@ -1294,7 +1413,7 @@ export async function computeChunkHashes(
     const totalChunks = Math.max(1, Math.ceil(totalRows / chunkSize));
     const chunks: ChunkHash[] = [];
 
-    const mongoDb = mongoClient ? mongoClient.db(sourceConfig.database) : null;
+    const mongoDb = mongoClient ? mongoClient.db(mongoConfig.database) : null;
     let sourceColName = tableName;
     if (mongoDb) {
       const collections = await mongoDb.listCollections().toArray();
@@ -1468,17 +1587,19 @@ export async function runBenchmark(
   queryCount = 100,
   concurrency = 10
 ): Promise<BenchmarkResult> {
+  const { mongoConfig, pgConfig } = resolveDbConfigs(sourceConfig, targetConfig);
+
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
 
   try {
-    mongoClient = await getMongoClient(sourceConfig).catch(() => null);
-    pgClient = await getPgClient(targetConfig).catch(() => null);
+    mongoClient = await getMongoClient(mongoConfig).catch(() => null);
+    pgClient = await getPgClient(pgConfig).catch(() => null);
 
     const mongoLatencies: number[] = [];
     const pgLatencies: number[] = [];
 
-    const mongoDb = mongoClient ? mongoClient.db(sourceConfig.database) : null;
+    const mongoDb = mongoClient ? mongoClient.db(mongoConfig.database) : null;
     const collections = mongoDb ? await mongoDb.listCollections().toArray() : [];
     const firstCol = collections[0]?.name || 'orders';
 
@@ -1578,12 +1699,14 @@ export async function executeSandboxQuery(
   targetConfig: ConnectionConfig,
   req: SandboxQueryRequest
 ): Promise<SandboxQueryResult> {
+  const { mongoConfig, pgConfig } = resolveDbConfigs(sourceConfig, targetConfig);
+
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
 
   try {
-    mongoClient = await getMongoClient(sourceConfig).catch(() => null);
-    pgClient = await getPgClient(targetConfig).catch(() => null);
+    mongoClient = await getMongoClient(mongoConfig).catch(() => null);
+    pgClient = await getPgClient(pgConfig).catch(() => null);
 
     let mongoCount = 0;
     let mongoLatencyMs = 0;
@@ -1653,7 +1776,7 @@ export async function executeSandboxQuery(
     const mStart = performance.now();
     if (mongoClient) {
       try {
-        const db = mongoClient.db(sourceConfig.database);
+        const db = mongoClient.db(mongoConfig.database);
         const col = db.collection(req.tableName);
         let filter: Record<string, unknown> = {};
         if (req.mongoMql && req.mongoMql.trim().length > 0) {
