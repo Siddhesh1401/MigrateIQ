@@ -1500,6 +1500,119 @@ Return ONLY the JSON array matching the structure above. No markdown, no convers
 /**
  * Register all AI handlers
  */
+/**
+ * Test AI API Key Handler (Phase 14)
+ */
+export function setupTestKeyHandler(): void {
+  ipcMain.handle(
+    'ai:test-key',
+    async (
+      _event,
+      payload: { provider: 'gemini' | 'groq' | 'rules_only'; apiKey?: string }
+    ): Promise<IPCResponse<{ ok: boolean; message: string; model?: string }>> => {
+      const { provider, apiKey } = payload;
+      if (provider === 'rules_only') {
+        return {
+          success: true,
+          data: {
+            ok: true,
+            message: 'Rule Engine Only mode is active. No external API key required.',
+          },
+        };
+      }
+
+      if (!apiKey || apiKey.trim().length === 0) {
+        return {
+          success: false,
+          error: 'API key is required. Please enter an API key to test.',
+        };
+      }
+
+      const trimmedKey = apiKey.trim();
+
+      if (provider === 'gemini') {
+        try {
+          if (!GoogleGenerativeAI) {
+            const { GoogleGenerativeAI: SDK } = await import('@google/generative-ai');
+            GoogleGenerativeAI = SDK;
+          }
+          const ai = new GoogleGenerativeAI(trimmedKey);
+          let testedModel = '';
+          let lastErr: Error | null = null;
+          const testCandidates = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-1.5-flash'];
+          for (const modelName of testCandidates) {
+            try {
+              const model = ai.getGenerativeModel({ model: modelName });
+              const res = await model.generateContent('ping');
+              if (res && res.response) {
+                testedModel = modelName;
+                break;
+              }
+            } catch (candErr) {
+              lastErr = candErr instanceof Error ? candErr : new Error(String(candErr));
+            }
+          }
+
+          if (testedModel) {
+            return {
+              success: true,
+              data: {
+                ok: true,
+                message: 'Google Gemini API key verified successfully! (Model: ' + testedModel + ')',
+                model: testedModel,
+              },
+            };
+          } else {
+            return {
+              success: false,
+              error: lastErr ? lastErr.message : 'Failed to verify Gemini API key.',
+            };
+          }
+        } catch (err) {
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Failed to verify Gemini API key',
+          };
+        }
+      }
+
+      if (provider === 'groq') {
+        try {
+          const resp = await fetch('https://api.groq.com/openai/v1/models', {
+            headers: { Authorization: 'Bearer ' + trimmedKey },
+          });
+          if (resp.ok) {
+            return {
+              success: true,
+              data: {
+                ok: true,
+                message: 'Groq API key verified successfully! Cloud models accessible.',
+              },
+            };
+          } else {
+            const errBody = await resp.text();
+            return {
+              success: false,
+              error: 'Groq verification failed (HTTP ' + resp.status + '): ' + errBody,
+            };
+          }
+        } catch (err) {
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Network error testing Groq key',
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: 'Unsupported AI provider: ' + provider,
+      };
+    }
+  );
+}
+
 export function setupAIHandlers(): void {
   setupAIHandler();
+  setupTestKeyHandler();
 }

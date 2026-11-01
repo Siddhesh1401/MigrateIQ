@@ -535,6 +535,14 @@ export interface MigrationHistoryItem {
   reportSummary?: string;
 }
 
+// ── Phase 14: Settings & Auxiliary Types ─────────────────────────────────────────
+export interface AppSettings {
+  aiProvider: 'gemini' | 'groq' | 'rules_only';
+  apiKey: string;
+  batchSize: number;
+  lockTimeoutSeconds: number;
+}
+
 export interface WizardStateSnapshot {
   direction: 'mongodb-to-postgres' | 'postgres-to-mongo' | null;
   wizardStep: number;

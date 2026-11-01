@@ -675,11 +675,105 @@ export function setupClearTargetHandler(): void {
 }
 
 /**
+ * Live Connection Ping & Latency Tester (Phase 14)
+ */
+export function setupTestConnectionHandler(): void {
+  ipcMain.handle(
+    'db:test-connection',
+    async (
+      _event,
+      rawConfig: ConnectionConfig
+    ): Promise<IPCResponse<{ ok: boolean; latencyMs: number; message: string; version?: string }>> => {
+      const config = normalizeConnectionConfig(rawConfig);
+      const isPg =
+        config.type === 'postgresql' ||
+        (config.connectionString && config.connectionString.startsWith('postgres')) ||
+        (!config.type && config.port === 5432);
+
+      const t0 = Date.now();
+
+      if (isPg) {
+        let pg: PgClient | null = null;
+        try {
+          pg = new PgClient({
+            connectionString: config.connectionString || undefined,
+            host: config.host || 'localhost',
+            port: config.port || 5432,
+            database: config.database || 'postgres',
+            user: config.user || 'postgres',
+            password: config.password,
+            ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+            connectionTimeoutMillis: 5000,
+            statement_timeout: 5000,
+          });
+          await pg.connect();
+          const res = await pg.query<{ version: string }>('SELECT version()');
+          const latencyMs = Date.now() - t0;
+          return {
+            success: true,
+            data: {
+              ok: true,
+              latencyMs,
+              message: `PostgreSQL connection verified (${latencyMs}ms)`,
+              version: res.rows[0]?.version?.split(' ')[0] || 'PostgreSQL'
+            }
+          };
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          return {
+            success: false,
+            error: maskSensitiveFields(`PostgreSQL connection failed: ${errorMsg}`)
+          };
+        } finally {
+          if (pg) await pg.end().catch(() => {});
+        }
+      } else {
+        let client: MongoClient | null = null;
+        try {
+          let connectionString = config.connectionString;
+          if (!connectionString) {
+            const auth = config.user ? `${encodeURIComponent(config.user)}:${encodeURIComponent(config.password || '')}@` : '';
+            connectionString = `mongodb://${auth}${config.host || 'localhost'}:${config.port || 27017}`;
+          }
+          client = new MongoClient(connectionString, {
+            serverSelectionTimeoutMS: 5000,
+            connectTimeoutMS: 5000,
+          });
+          await client.connect();
+          const dbName = (config.database && config.database.trim().length > 0 && config.database !== 'default')
+            ? config.database.trim()
+            : 'admin';
+          await client.db(dbName).command({ ping: 1 });
+          const latencyMs = Date.now() - t0;
+          return {
+            success: true,
+            data: {
+              ok: true,
+              latencyMs,
+              message: `MongoDB connection verified (${latencyMs}ms)`
+            }
+          };
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          return {
+            success: false,
+            error: maskSensitiveFields(`MongoDB connection failed: ${errorMsg}`)
+          };
+        } finally {
+          if (client) await client.close().catch(() => {});
+        }
+      }
+    }
+  );
+}
+
+/**
  * Register all database handlers
  */
 export function setupDatabaseHandlers(): void {
   setupMongoDBHandler();
   setupPostgresqlHandler();
   setupClearTargetHandler();
+  setupTestConnectionHandler();
 }
 

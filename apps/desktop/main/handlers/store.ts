@@ -1,9 +1,18 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog } from 'electron';
 import ElectronStore from 'electron-store';
-import type { ConnectionConfig, IPCResponse, MigrationHistoryItem, WizardStateSnapshot } from '@migrateiq/shared';
+import * as fs from 'fs/promises';
+import type {
+  ConnectionConfig,
+  IPCResponse,
+  MigrationHistoryItem,
+  WizardStateSnapshot,
+  AppSettings,
+  SchemaHistoryItem
+} from '@migrateiq/shared';
+import { maskSensitiveFields } from '../utils';
 
 // Re-export shared types for callers
-export type { MigrationHistoryItem, WizardStateSnapshot };
+export type { MigrationHistoryItem, WizardStateSnapshot, AppSettings, SchemaHistoryItem };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -21,7 +30,16 @@ interface StoreSchema {
   savedConnections: SavedConnection[];
   wizardState: WizardStateSnapshot | null;
   migrationHistory: MigrationHistoryItem[];
+  schemaHistory: SchemaHistoryItem[];
+  appSettings: AppSettings;
 }
+
+const defaultAppSettings: AppSettings = {
+  aiProvider: 'gemini',
+  apiKey: '',
+  batchSize: 500,
+  lockTimeoutSeconds: 5,
+};
 
 const store = new ElectronStore<StoreSchema>({
   name: 'migrateiq-data',
@@ -29,9 +47,21 @@ const store = new ElectronStore<StoreSchema>({
     savedConnections: [],
     wizardState: null,
     migrationHistory: [],
+    schemaHistory: [],
+    appSettings: defaultAppSettings,
   },
 });
 
+// Also reference secondary schema store if created by schemaUpdate.ts
+interface SchemaStoreData {
+  schemaHistory: SchemaHistoryItem[];
+}
+const secondarySchemaStore = new ElectronStore<SchemaStoreData>({
+  name: 'migrateiq-schema-store',
+  defaults: {
+    schemaHistory: [],
+  },
+});
 
 function isValidMigrationRecord(record: unknown): record is MigrationHistoryItem {
   if (!record || typeof record !== 'object') return false;
@@ -53,7 +83,7 @@ export function setupStoreHandlers(): void {
     'store:save-connection',
     async (
       _event,
-      payload: { name: string; config: ConnectionConfig }
+      payload: { id?: string; name: string; config: ConnectionConfig }
     ): Promise<IPCResponse<SavedConnection>> => {
       try {
         const existing: SavedConnection[] = store.get('savedConnections', []);
@@ -68,9 +98,10 @@ export function setupStoreHandlers(): void {
         }
 
         const connName = (payload.name || '').trim() || `Connection_${Date.now()}`;
+        const connId = payload.id || `conn_${Date.now()}`;
 
         const newConn: SavedConnection = {
-          id: `conn_${Date.now()}`,
+          id: connId,
           name: connName,
           type: connType,
           config: {
@@ -81,9 +112,9 @@ export function setupStoreHandlers(): void {
           savedAt: new Date().toISOString(),
         };
 
-        // Replace if a connection with the same name already exists
+        // Filter out if existing connection has same ID or same name
         const filtered = existing.filter(
-          (c) => c && typeof c.name === 'string' && c.name.toLowerCase() !== newConn.name.toLowerCase()
+          (c) => c && c.id !== connId && typeof c.name === 'string' && c.name.toLowerCase() !== newConn.name.toLowerCase()
         );
         store.set('savedConnections', [...filtered, newConn]);
 
@@ -92,6 +123,43 @@ export function setupStoreHandlers(): void {
         return {
           success: false,
           error: err instanceof Error ? err.message : 'Failed to save connection',
+        };
+      }
+    }
+  );
+
+  /** Update an existing connection */
+  ipcMain.handle(
+    'store:update-connection',
+    async (
+      _event,
+      payload: { id: string; name?: string; config: ConnectionConfig }
+    ): Promise<IPCResponse<SavedConnection>> => {
+      try {
+        const existing: SavedConnection[] = store.get('savedConnections', []);
+        const target = existing.find((c) => c.id === payload.id);
+        if (!target) {
+          return { success: false, error: `Connection with id ${payload.id} not found` };
+        }
+
+        const updated: SavedConnection = {
+          ...target,
+          name: payload.name ? payload.name.trim() : target.name,
+          config: {
+            ...target.config,
+            ...payload.config,
+            name: payload.name ? payload.name.trim() : target.name,
+          },
+          savedAt: new Date().toISOString(),
+        };
+
+        const updatedList = existing.map((c) => (c.id === payload.id ? updated : c));
+        store.set('savedConnections', updatedList);
+        return { success: true, data: updated };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to update connection',
         };
       }
     }
@@ -134,6 +202,22 @@ export function setupStoreHandlers(): void {
         return {
           success: false,
           error: err instanceof Error ? err.message : 'Failed to delete connection',
+        };
+      }
+    }
+  );
+
+  /** Clear all saved connections */
+  ipcMain.handle(
+    'store:clear-all-connections',
+    async (): Promise<IPCResponse<null>> => {
+      try {
+        store.set('savedConnections', []);
+        return { success: true, data: null };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to clear connections',
         };
       }
     }
@@ -222,8 +306,8 @@ export function setupStoreHandlers(): void {
           };
         }
         const existing = store.get('migrationHistory', []);
-        // Prepend to display most recent first, keep up to 20
-        const updated = [record, ...existing.filter((r) => r.id !== record.id)].slice(0, 20);
+        // Prepend to display most recent first, keep up to 50
+        const updated = [record, ...existing.filter((r) => r.id !== record.id)].slice(0, 50);
         store.set('migrationHistory', updated);
         return { success: true, data: record };
       } catch (err) {
@@ -234,5 +318,254 @@ export function setupStoreHandlers(): void {
       }
     }
   );
-}
 
+  /** Clear migration history */
+  ipcMain.handle(
+    'store:clear-migration-history',
+    async (): Promise<IPCResponse<null>> => {
+      try {
+        store.set('migrationHistory', []);
+        return { success: true, data: null };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to clear migration history',
+        };
+      }
+    }
+  );
+
+  // ── Schema History ─────────────────────────────────────────────────────────
+
+  /** Get unified schema version history (merging store and schemaStore) */
+  ipcMain.handle(
+    'store:get-schema-history',
+    async (): Promise<IPCResponse<SchemaHistoryItem[]>> => {
+      try {
+        const primary = store.get('schemaHistory', []);
+        const secondary = secondarySchemaStore.get('schemaHistory', []);
+
+        // Combine and deduplicate by item id
+        const map = new Map<string, SchemaHistoryItem>();
+        for (const item of [...secondary, ...primary]) {
+          if (item && item.id) {
+            map.set(item.id, item);
+          }
+        }
+        const sorted = Array.from(map.values()).sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+        return { success: true, data: sorted };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to load schema history',
+        };
+      }
+    }
+  );
+
+  /** Save a schema history item */
+  ipcMain.handle(
+    'store:save-schema-history',
+    async (
+      _event,
+      item: SchemaHistoryItem
+    ): Promise<IPCResponse<SchemaHistoryItem>> => {
+      try {
+        const existing = store.get('schemaHistory', []);
+        const updated = [item, ...existing.filter((h) => h.id !== item.id)].slice(0, 100);
+        store.set('schemaHistory', updated);
+        // Also sync to secondary store
+        const secExisting = secondarySchemaStore.get('schemaHistory', []);
+        secondarySchemaStore.set('schemaHistory', [item, ...secExisting.filter((h) => h.id !== item.id)].slice(0, 100));
+        return { success: true, data: item };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to save schema history item',
+        };
+      }
+    }
+  );
+
+  /** Clear schema history */
+  ipcMain.handle(
+    'store:clear-schema-history',
+    async (): Promise<IPCResponse<null>> => {
+      try {
+        store.set('schemaHistory', []);
+        secondarySchemaStore.set('schemaHistory', []);
+        return { success: true, data: null };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to clear schema history',
+        };
+      }
+    }
+  );
+
+  /** Export schema history as formatted Markdown Changelog */
+  ipcMain.handle(
+    'store:export-schema-changelog',
+    async (): Promise<IPCResponse<{ filePath: string }>> => {
+      try {
+        const primary = store.get('schemaHistory', []);
+        const secondary = secondarySchemaStore.get('schemaHistory', []);
+        const map = new Map<string, SchemaHistoryItem>();
+        for (const item of [...secondary, ...primary]) {
+          if (item && item.id) map.set(item.id, item);
+        }
+        const items = Array.from(map.values()).sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+
+        let md = `# 📜 Database Schema Evolution Changelog\n\n`;
+        md += `**Generated by MigrateIQ** on ${new Date().toLocaleString()}\n`;
+        md += `**Total Recorded Changes:** ${items.length}\n\n---\n\n`;
+
+        if (items.length === 0) {
+          md += `*No schema evolution entries recorded yet.*\n`;
+        } else {
+          for (const item of items) {
+            const dateStr = new Date(item.timestamp).toLocaleString();
+            const statusIcon = item.status === 'applied' ? '✅' : item.status === 'rolled_back' ? '⚠️' : '❌';
+            md += `### ${statusIcon} [${item.operation}] \`${item.tableName}\` — ${dateStr}\n\n`;
+            md += `- **Database:** \`${item.databaseType.toUpperCase()}\` (${maskSensitiveFields(item.databaseName)})\n`;
+            md += `- **Status:** \`${item.status.toUpperCase()}\` | **Duration:** ${item.durationMs || 0}ms\n`;
+            if (item.author) md += `- **Author:** ${item.author}\n`;
+            if (item.errorMessage) md += `- **Error Details:** \`${item.errorMessage}\`\n`;
+            md += `\n**Executed Forward Script:**\n\`\`\`sql\n${item.forwardScript || '-- No script recorded'}\n\`\`\`\n\n`;
+            if (item.rollbackScript) {
+              md += `**Rollback Script:**\n\`\`\`sql\n${item.rollbackScript}\n\`\`\`\n\n`;
+            }
+            md += `---\n\n`;
+          }
+        }
+
+        const saveRes = await dialog.showSaveDialog({
+          title: 'Export Schema Evolution Changelog (Markdown)',
+          defaultPath: `migrateiq-schema-changelog-${Date.now()}.md`,
+          filters: [{ name: 'Markdown Document', extensions: ['md'] }],
+        });
+
+        if (saveRes.canceled || !saveRes.filePath) {
+          return { success: false, error: 'Export canceled by user.' };
+        }
+
+        await fs.writeFile(saveRes.filePath, md, 'utf-8');
+        return { success: true, data: { filePath: saveRes.filePath } };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to export schema changelog',
+        };
+      }
+    }
+  );
+
+  // ── App Settings ───────────────────────────────────────────────────────────
+
+  /** Get application settings */
+  ipcMain.handle(
+    'store:get-settings',
+    async (): Promise<IPCResponse<AppSettings>> => {
+      try {
+        const settings = store.get('appSettings', defaultAppSettings);
+        return { success: true, data: { ...defaultAppSettings, ...settings } };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to load settings',
+        };
+      }
+    }
+  );
+
+  /** Save application settings */
+  ipcMain.handle(
+    'store:save-settings',
+    async (_event, newSettings: Partial<AppSettings>): Promise<IPCResponse<AppSettings>> => {
+      try {
+        const current = store.get('appSettings', defaultAppSettings);
+        const merged: AppSettings = {
+          ...defaultAppSettings,
+          ...current,
+          ...newSettings,
+        };
+        store.set('appSettings', merged);
+        return { success: true, data: merged };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to save settings',
+        };
+      }
+    }
+  );
+
+  /** Export settings to JSON file */
+  ipcMain.handle(
+    'store:export-settings',
+    async (): Promise<IPCResponse<{ filePath: string }>> => {
+      try {
+        const settings = store.get('appSettings', defaultAppSettings);
+        const json = JSON.stringify(settings, null, 2);
+
+        const saveRes = await dialog.showSaveDialog({
+          title: 'Export MigrateIQ Settings (JSON)',
+          defaultPath: `migrateiq-settings-${Date.now()}.json`,
+          filters: [{ name: 'JSON Files', extensions: ['json'] }],
+        });
+
+        if (saveRes.canceled || !saveRes.filePath) {
+          return { success: false, error: 'Export canceled by user.' };
+        }
+
+        await fs.writeFile(saveRes.filePath, json, 'utf-8');
+        return { success: true, data: { filePath: saveRes.filePath } };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to export settings',
+        };
+      }
+    }
+  );
+
+  /** Import settings from JSON file */
+  ipcMain.handle(
+    'store:import-settings',
+    async (): Promise<IPCResponse<AppSettings>> => {
+      try {
+        const openRes = await dialog.showOpenDialog({
+          title: 'Import MigrateIQ Settings (JSON)',
+          filters: [{ name: 'JSON Files', extensions: ['json'] }],
+          properties: ['openFile'],
+        });
+
+        if (openRes.canceled || openRes.filePaths.length === 0) {
+          return { success: false, error: 'Import canceled by user.' };
+        }
+
+        const raw = await fs.readFile(openRes.filePaths[0], 'utf-8');
+        const parsed = JSON.parse(raw) as Partial<AppSettings>;
+
+        const current = store.get('appSettings', defaultAppSettings);
+        const merged: AppSettings = {
+          ...defaultAppSettings,
+          ...current,
+          ...parsed,
+        };
+        store.set('appSettings', merged);
+        return { success: true, data: merged };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to import settings JSON',
+        };
+      }
+    }
+  );
+}
