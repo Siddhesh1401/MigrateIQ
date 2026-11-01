@@ -76,6 +76,11 @@ export interface CollectionMapping {
   indexes?: IndexMapping[];
   childTables?: CollectionMapping[];
   tableAction?: 'drop' | 'append' | 'rename' | 'alter_add_columns';
+  isEmbeddedChild?: boolean;
+  parentTable?: string;
+  foreignKeyColumn?: string;
+  embeddedFieldName?: string;
+  embeddingType?: 'embed_array' | 'embed_object';
 }
 
 export interface TargetIndexPlan {
@@ -323,9 +328,18 @@ export interface Layer2Summary {
   enums: number;
 }
 
+export interface PostgresForeignKeyInfo {
+  constraintName: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+}
+
 export interface PostgresIntrospectionResult {
   tables: PostgresTableInfo[];
   indexes: PostgresIndexInfo[];
+  foreignKeys?: PostgresForeignKeyInfo[];
   layer2Features: Layer2Summary;
   /** True when the connection string looks like a Supabase/Neon/Railway pooler URL */
   isCloudPooler?: boolean;
@@ -1098,3 +1112,85 @@ export interface RescueActionResult {
   droppedTables?: string[];
 }
 
+
+
+// ============================================================================
+// PHASE 10: COMPLETION & EXPORT STUDIO TYPES
+// ============================================================================
+
+export interface BenchmarkCategoryBreakdown {
+  name: string;
+  mongoAvgMs: number;
+  postgresAvgMs: number;
+  speedupFactor: number;
+  queriesRun: number;
+}
+
+export interface Phase10BenchmarkResult extends BenchmarkResult {
+  queryCount: number;
+  categories: BenchmarkCategoryBreakdown[];
+  timestamp: string;
+}
+
+export interface ERDColumn {
+  name: string;
+  type: string;
+  isPrimary: boolean;
+  isForeign: boolean;
+  foreignTable?: string;
+}
+
+export interface ERDTable {
+  name: string;
+  columns: ERDColumn[];
+}
+
+export interface ERDRelation {
+  parentTable: string;
+  childTable: string;
+  parentColumn: string;
+  childColumn: string;
+  relationType: 'one-to-many' | 'one-to-one' | 'many-to-many';
+  label?: string;
+}
+
+export interface ERDData {
+  tables: ERDTable[];
+  relations: ERDRelation[];
+  mermaidCode: string;
+}
+
+export interface SkippedRowRecord {
+  documentId: string;
+  collection: string;
+  reason: string;
+}
+
+export interface RefactoringKitPayload {
+  sourceConfig?: ConnectionConfig;
+  targetConfig?: ConnectionConfig;
+  sourceSchema?: SourceSchema[];
+  collectionMappings?: CollectionMapping[];
+  direction?: 'mongodb-to-postgres' | 'postgres-to-mongo';
+  skippedRows?: SkippedRowRecord[];
+  targetTables?: ERDTable[];
+  targetRelations?: ERDRelation[];
+}
+
+export interface AuditReportPayload {
+  format: 'pdf' | 'html';
+  migrationSummary: {
+    tablesCreated: number;
+    rowsMigrated: number;
+    rowsSkipped: number;
+    durationMs: number;
+    completedAt: string;
+    sourceDb: string;
+    targetDb: string;
+    direction: string;
+  };
+  skippedRows?: SkippedRowRecord[];
+  verificationAudit?: ReconciliationResult;
+  benchmarkResult?: Phase10BenchmarkResult;
+  mermaidDiagram?: string;
+}

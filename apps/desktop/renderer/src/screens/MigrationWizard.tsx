@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type {
   ConnectionConfig,
   SourceSchema,
@@ -17,6 +17,7 @@ import { RiskReport } from './RiskReport';
 import { DryRunScreen } from './DryRunScreen';
 import MigrationProgressScreen from './MigrationProgressScreen';
 import { DataVerificationScreen } from './DataVerificationScreen';
+import { MigrationCompleteScreen } from './MigrationCompleteScreen';
 import { RescueCenterModal } from '../components/RescueCenterModal';
 import { generate1To1Markdown, generateExecutiveHtml } from '../utils/reportGenerator';
 import '../styles/wizard.css';
@@ -409,6 +410,7 @@ const Layer2Banner: React.FC<Layer2BannerProps> = ({ result }) => {
 
 export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const wizardStore = useWizardStore();
 
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
@@ -1948,35 +1950,11 @@ export const MigrationWizard: React.FC<MigrationWizardProps> = () => {
 
         {/* ── Step 9: Migration Complete & Export Studio (Phase 10) ── */}
         {wizardStore.wizardStep >= 9 && (
-          <div className="wizard-step">
-            <h2 className="step-heading">Step 9 of 9: Migration Complete &amp; Export Studio</h2>
-            <p style={{ color: 'var(--text-muted)', marginTop: '1rem', marginBottom: '1.5rem' }}>
-              Migration has executed successfully and 100% data parity has been verified and certified in Step 8! Downloadable code artifacts, Prisma refactoring kits, and visual ERD diagrams will be delivered in Step 9.
-            </p>
-            <div className="wizard-buttons" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-              <button
-                className="btn-secondary"
-                onClick={() => wizardStore.setWizardStep(8)}
-              >
-                ← Back to Verification (Step 8)
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => wizardStore.setWizardStep(7)}
-              >
-                ← Back to Migration (Step 7)
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  wizardStore.reset();
-                  window.electronAPI.invoke('store:clear-wizard-state').catch(() => {});
-                }}
-              >
-                Start New Migration
-              </button>
-            </div>
-          </div>
+          <MigrationCompleteScreen
+            onReturnToDashboard={() => {
+              navigate('/');
+            }}
+          />
         )}
       </div>
     </div>

@@ -10,6 +10,8 @@ import { setupSchemaUpdateHandlers } from './handlers/schemaUpdate';
 import { setupMigrationHandlers } from './handlers/migration';
 import { setupDiagnosticsHandlers } from './handlers/diagnostics';
 import { setupVerificationHandlers } from './handlers/verification';
+import { setupBenchmarkHandlers } from './handlers/benchmark';
+import { setupExportHandlers } from './handlers/export';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -97,6 +99,12 @@ app.whenReady().then(() => {
 
   // Setup IPC handlers for data parity & verification studio (Phase 9B)
   setupVerificationHandlers();
+
+  // Setup IPC handlers for query performance benchmark (Phase 10)
+  setupBenchmarkHandlers();
+
+  // Setup IPC handlers for exports, ERD, and refactoring kit (Phase 10)
+  setupExportHandlers();
 
   createWindow();
 
