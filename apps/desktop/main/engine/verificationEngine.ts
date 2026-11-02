@@ -106,6 +106,20 @@ function resolveDbConfigs(sourceConfig: ConnectionConfig, targetConfig: Connecti
   return { mongoConfig, pgConfig, isReverse };
 }
 
+/** Safely parses any number, string, or BSON Decimal128 object into a primitive number */
+function parseNumericValue(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (typeof val === 'object' && val !== null) {
+    if ('toString' in val) {
+      const parsed = parseFloat(String((val as { toString(): string }).toString()));
+      return isNaN(parsed) ? 0 : parsed;
+    }
+  }
+  const parsed = parseFloat(String(val));
+  return isNaN(parsed) ? 0 : parsed;
+}
+
 /**
  * Executes full Reconciliation Audit across all tables
  */
@@ -391,7 +405,7 @@ export async function runReconciliationAudit(
         if (!isReverse) {
           if (mongoDb) {
             try {
-              const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: number }>([
+              const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: unknown }>([
                 {
                   $group: {
                     _id: null,
@@ -399,7 +413,7 @@ export async function runReconciliationAudit(
                   }
                 }
               ]).toArray();
-              sourceSum = aggRes[0]?.total || 0;
+              sourceSum = parseNumericValue(aggRes[0]?.total);
             } catch {
               sourceSum = 0;
             }
@@ -410,7 +424,7 @@ export async function runReconciliationAudit(
               const sumRes = await pgClient.query<{ total: string }>(
                 `SELECT COALESCE(SUM("${sanitizeIdentifier(numField.targetColumn)}"), 0)::NUMERIC(18, 4) AS total FROM "${targetTableName}"`
               );
-              targetSum = parseFloat(sumRes.rows[0]?.total || '0');
+              targetSum = parseNumericValue(sumRes.rows[0]?.total);
             } catch {
               targetSum = 0;
             }
@@ -423,7 +437,7 @@ export async function runReconciliationAudit(
               const sumRes = await pgClient.query<{ total: string }>(
                 `SELECT COALESCE(SUM("${colName}"), 0)::NUMERIC(18, 4) AS total FROM "${sanitizeIdentifier(primaryColName)}"`
               );
-              sourceSum = parseFloat(sumRes.rows[0]?.total || '0');
+              sourceSum = parseNumericValue(sumRes.rows[0]?.total);
             } catch {
               sourceSum = 0;
             }
@@ -433,16 +447,16 @@ export async function runReconciliationAudit(
             try {
               const mongoFieldName = numField.targetColumn || numField.sourceField;
               if (mapping.isEmbeddedChild && mapping.parentTable && mapping.embeddedFieldName) {
-                const aggRes = await mongoDb.collection(mapping.parentTable).aggregate<{ total: number }>([
+                const aggRes = await mongoDb.collection(mapping.parentTable).aggregate<{ total: unknown }>([
                   { $unwind: `$${mapping.embeddedFieldName}` },
                   { $group: { _id: null, total: { $sum: `$${mapping.embeddedFieldName}.${mongoFieldName}` } } }
                 ]).toArray();
-                targetSum = aggRes[0]?.total || 0;
+                targetSum = parseNumericValue(aggRes[0]?.total);
               } else {
-                const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: number }>([
+                const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: unknown }>([
                   { $group: { _id: null, total: { $sum: `$${mongoFieldName}` } } }
                 ]).toArray();
-                targetSum = aggRes[0]?.total || 0;
+                targetSum = parseNumericValue(aggRes[0]?.total);
               }
             } catch {
               targetSum = 0;
@@ -454,6 +468,9 @@ export async function runReconciliationAudit(
           sourceSum = 1254300.50;
           targetSum = 1254300.50;
         }
+
+        sourceSum = parseNumericValue(sourceSum);
+        targetSum = parseNumericValue(targetSum);
 
         const denom = Math.abs(sourceSum) > 0 ? Math.abs(sourceSum) : 1;
         const driftPercentage = (Math.abs(sourceSum - targetSum) / denom) * 100;
@@ -493,11 +510,11 @@ export async function runReconciliationAudit(
               try {
                 const arrayField = cNumField.sourceField.includes('.') ? cNumField.sourceField.split('.')[0] : child.collectionName;
                 const fieldInArray = cNumField.sourceField.includes('.') ? cNumField.sourceField.split('.').slice(1).join('.') : cNumField.sourceField;
-                const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: number }>([
+                const aggRes = await mongoDb.collection(primaryColName).aggregate<{ total: unknown }>([
                   { $unwind: `$${arrayField}` },
                   { $group: { _id: null, total: { $sum: `$${arrayField}.${fieldInArray}` } } }
                 ]).toArray();
-                childSourceSum = aggRes[0]?.total || 0;
+                childSourceSum = parseNumericValue(aggRes[0]?.total);
               } catch {
                 childSourceSum = 0;
               }
@@ -508,7 +525,7 @@ export async function runReconciliationAudit(
                 const sumRes = await pgClient.query<{ total: string }>(
                   `SELECT COALESCE(SUM("${sanitizeIdentifier(cNumField.targetColumn)}"), 0)::NUMERIC(18, 4) AS total FROM "${childTableSanitized}"`
                 );
-                childTargetSum = parseFloat(sumRes.rows[0]?.total || '0');
+                childTargetSum = parseNumericValue(sumRes.rows[0]?.total);
               } catch {
                 childTargetSum = 0;
               }
@@ -518,6 +535,9 @@ export async function runReconciliationAudit(
               childSourceSum = 45280.00;
               childTargetSum = 45280.00;
             }
+
+            childSourceSum = parseNumericValue(childSourceSum);
+            childTargetSum = parseNumericValue(childTargetSum);
 
             const cDenom = Math.abs(childSourceSum) > 0 ? Math.abs(childSourceSum) : 1;
             const cDrift = (Math.abs(childSourceSum - childTargetSum) / cDenom) * 100;
@@ -1506,7 +1526,12 @@ export async function computeChunkHashes(
               } else if (typeof v === 'number') {
                 clean[k] = Number.isInteger(v) ? v : Number(v.toFixed(4));
               } else if (typeof v === 'string') {
-                clean[k] = v.trim();
+                const nv = parseFloat(v);
+                if (!isNaN(nv) && !isNaN(Number(v)) && v.trim() !== '') {
+                  clean[k] = Number.isInteger(nv) ? nv : Number(nv.toFixed(4));
+                } else {
+                  clean[k] = v.trim();
+                }
               } else if (typeof v === 'boolean') {
                 clean[k] = v;
               } else if (v && typeof v === 'object') {
@@ -1572,6 +1597,9 @@ export async function computeChunkHashes(
                 const vRec = v as Record<string, unknown>;
                 if ('toHexString' in vRec || ('_bsontype' in vRec && vRec._bsontype === 'ObjectId')) {
                   clean[targetKey] = String(v);
+                } else if ('_bsontype' in vRec && vRec._bsontype === 'Decimal128') {
+                  const numVal = parseFloat(String(v));
+                  clean[targetKey] = Number.isInteger(numVal) ? numVal : Number(numVal.toFixed(4));
                 } else {
                   clean[targetKey] = JSON.stringify(v);
                 }
