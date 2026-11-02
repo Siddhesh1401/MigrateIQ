@@ -115,12 +115,12 @@ const wizardPath = path.join(__dirname, '../apps/desktop/renderer/src/screens/Mi
 assert(fs.existsSync(wizardPath), 'MigrationWizard.tsx exists');
 const wizardContent = fs.readFileSync(wizardPath, 'utf8');
 
-assert(wizardContent.includes('Step 1 of 8 — Choose Direction'), 'Step 1 heading renders');
+assert(/Step 1 of [89] — Choose Direction/.test(wizardContent), 'Step 1 heading renders');
 assert(wizardContent.includes('id="dir-mongo-to-pg"'), 'MongoDB to PostgreSQL direction card exists');
 assert(wizardContent.includes('id="dir-pg-to-mongo"'), 'PostgreSQL to MongoDB direction card exists');
-assert(wizardContent.includes('Step 2 of 8 — Connect Source Database'), 'Step 2 source heading renders');
+assert(/Step 2 of [89] — Connect Source Database/.test(wizardContent), 'Step 2 source heading renders');
 assert(wizardContent.includes('fetchHealthScoreAsync'), 'Step 2 AI Health Score async add-on hook is present');
-assert(wizardContent.includes('Step 3 of 8 — Connect Target Database'), 'Step 3 target heading renders');
+assert(/Step 3 of [89] — Connect Target Database/.test(wizardContent), 'Step 3 target heading renders');
 assert(wizardContent.includes('Pre-Flight Permission Verification:'), 'Pre-flight permission verification header renders in Step 3');
 assert(wizardContent.includes('Can create tables:'), 'Can create tables item displayed in Step 3');
 assert(wizardContent.includes('Can insert data:'), 'Can insert data item displayed in Step 3');

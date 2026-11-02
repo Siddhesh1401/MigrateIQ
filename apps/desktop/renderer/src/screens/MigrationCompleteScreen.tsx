@@ -193,42 +193,122 @@ export const MigrationCompleteScreen: React.FC<MigrationCompleteScreenProps> = (
     };
   }, [targetConfig, schemaMapping]);
 
-  // Helper to convert SVG to PNG Base64
+  // Helper to convert SVG to PNG Base64 with robust XML sanitization and dimension parsing
   const rasterizeSvgToPng = (svgStr: string): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(svgBlob);
-
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const scale = 2; // 2x high resolution
-        canvas.width = Math.max(800, (img.width || 1000)) * scale;
-        canvas.height = Math.max(500, (img.height || 600)) * scale;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          URL.revokeObjectURL(url);
-          reject(new Error('Failed to create canvas 2D context'));
-          return;
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(svgStr, 'image/svg+xml');
+        const svgEl = doc.querySelector('svg');
+        if (!svgEl) {
+          throw new Error('Invalid SVG markup received');
         }
 
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.scale(scale, scale);
-        ctx.drawImage(img, 0, 0);
+        // Ensure mandatory XML namespaces so Chromium can parse the SVG image
+        if (!svgEl.getAttribute('xmlns')) {
+          svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        }
+        if (!svgEl.getAttribute('xmlns:xlink')) {
+          svgEl.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+        }
 
-        const dataUrl = canvas.toDataURL('image/png');
-        URL.revokeObjectURL(url);
-        resolve(dataUrl);
-      };
+        // Determine explicit pixel dimensions from viewBox or attributes
+        let width = 1200;
+        let height = 800;
 
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('Failed to render SVG onto image canvas'));
-      };
+        const viewBox = svgEl.getAttribute('viewBox');
+        if (viewBox) {
+          const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+          if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+            width = parts[2];
+            height = parts[3];
+          }
+        } else {
+          const attrW = parseFloat(svgEl.getAttribute('width') || '');
+          const attrH = parseFloat(svgEl.getAttribute('height') || '');
+          if (!isNaN(attrW) && attrW > 0) width = attrW;
+          if (!isNaN(attrH) && attrH > 0) height = attrH;
+        }
 
-      img.src = url;
+        // Explicit width/height prevent canvas rendering bugs in Chromium
+        svgEl.setAttribute('width', `${width}`);
+        svgEl.setAttribute('height', `${height}`);
+        svgEl.style.maxWidth = 'none';
+
+        const serialized = new XMLSerializer().serializeToString(svgEl);
+        const svgBlob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const scale = 2; // 2x high resolution
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              URL.revokeObjectURL(url);
+              reject(new Error('Failed to create canvas 2D context'));
+              return;
+            }
+
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+
+            // Clean white background
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw scaled SVG onto canvas
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            URL.revokeObjectURL(url);
+
+            const dataUrl = canvas.toDataURL('image/png');
+            resolve(dataUrl);
+          } catch (canvasErr) {
+            URL.revokeObjectURL(url);
+            reject(canvasErr);
+          }
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          // Fallback: try base64 Data URI if Blob URL fails
+          try {
+            const dataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized);
+            const fallbackImg = new Image();
+            fallbackImg.onload = () => {
+              const canvas = document.createElement('canvas');
+              const scale = 2;
+              canvas.width = Math.round(width * scale);
+              canvas.height = Math.round(height * scale);
+              const ctx = canvas.getContext('2d');
+              if (!ctx) {
+                reject(new Error('Canvas 2D context unavailable'));
+                return;
+              }
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(fallbackImg, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/png'));
+            };
+            fallbackImg.onerror = () => {
+              reject(new Error('Failed to render SVG onto image canvas'));
+            };
+            fallbackImg.src = dataUri;
+          } catch {
+            reject(new Error('Failed to render SVG onto image canvas'));
+          }
+        };
+
+        img.src = url;
+      } catch (err) {
+        reject(err);
+      }
     });
   };
 
@@ -249,6 +329,8 @@ export const MigrationCompleteScreen: React.FC<MigrationCompleteScreenProps> = (
       });
       if (res.success && res.data) {
         showToast(`✅ ERD diagram saved: ${res.data.filePath}`);
+      } else if (!res.success && res.error && !res.error.toLowerCase().includes('cancel')) {
+        showToast(`❌ Failed to save ERD: ${res.error}`);
       }
     } catch (err) {
       showToast(`❌ Failed to export ERD: ${(err as Error).message}`);

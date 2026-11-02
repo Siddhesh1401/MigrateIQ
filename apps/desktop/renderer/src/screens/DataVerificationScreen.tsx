@@ -170,9 +170,17 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
         if (!diffRes.data.sourceDoc && !diffRes.data.targetRow) {
           setSearchError(`No document or row found with ID "${targetId || diffRes.data.recordId}" in collection "${table}" or target database.`);
         } else if (!diffRes.data.sourceDoc) {
-          setSearchError(`Record "${targetId || diffRes.data.recordId}" exists in PostgreSQL table "${table}" but is missing from MongoDB.`);
+          if (wizardStore.direction === 'postgres-to-mongo') {
+            setSearchError(`Record "${targetId || diffRes.data.recordId}" exists in PostgreSQL table "${table}" but is missing from MongoDB.`);
+          } else {
+            setSearchError(`Document "${targetId || diffRes.data.recordId}" is missing from MongoDB collection "${table}".`);
+          }
         } else if (!diffRes.data.targetRow) {
-          setSearchError(`Document "${targetId || diffRes.data.recordId}" exists in MongoDB collection "${table}" but is missing from PostgreSQL.`);
+          if (wizardStore.direction === 'postgres-to-mongo') {
+            setSearchError(`Document exists in MongoDB but is missing from PostgreSQL table "${table}".`);
+          } else {
+            setSearchError(`Document "${targetId || diffRes.data.recordId}" exists in MongoDB collection "${table}" but is missing from PostgreSQL.`);
+          }
         } else {
           setSearchError(null);
         }
@@ -641,6 +649,7 @@ export const DataVerificationScreen: React.FC<DataVerificationScreenProps> = ({
               currentRecordIndex={currentRecordIdx}
               totalRecords={browseData?.totalRows || 100}
               searchError={searchError}
+              direction={wizardStore.direction}
             />
           )}
 

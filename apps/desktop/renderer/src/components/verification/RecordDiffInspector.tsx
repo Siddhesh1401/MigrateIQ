@@ -16,6 +16,7 @@ export interface RecordDiffInspectorProps {
   currentRecordIndex: number;
   totalRecords: number;
   searchError?: string | null;
+  direction?: 'mongodb-to-postgres' | 'postgres-to-mongo' | string | null;
 }
 
 export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
@@ -33,9 +34,12 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
   currentRecordIndex,
   totalRecords,
   searchError,
+  direction,
 }) => {
   const [searchInput, setSearchInput] = useState('');
   const [selectedChunk, setSelectedChunk] = useState<number | null>(null);
+
+  const isReverse = direction === 'postgres-to-mongo';
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,40 +187,67 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
       ) : (
         <>
           <div className="diff-split-view">
-            {/* Left: Source MongoDB Document */}
+            {/* Left Panel: Source */}
             <div className="diff-panel">
               <div className="diff-panel-header">
-                <span>🍃 Source: MongoDB Document ({selectedTable})</span>
+                <span>{isReverse ? `🐘 Source: PostgreSQL Row (${selectedTable})` : `🍃 Source: MongoDB Document (${selectedTable})`}</span>
                 <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#2563EB' }}>
-                  _id: {String(recordDiff.sourceDoc?._id ?? recordDiff.targetRow?.id ?? recordDiff.recordId)}
+                  {isReverse
+                    ? `id: ${String(recordDiff.targetRow?.id ?? recordDiff.targetRow?._id ?? recordDiff.recordId)}`
+                    : `_id: ${String(recordDiff.sourceDoc?._id ?? recordDiff.targetRow?.id ?? recordDiff.recordId)}`}
                 </span>
               </div>
               <div className="diff-code-body">
-                {recordDiff.sourceDoc ? (
-                  <pre style={{ margin: 0 }}>
-                    {JSON.stringify(recordDiff.sourceDoc, null, 2)}
-                  </pre>
+                {isReverse ? (
+                  recordDiff.targetRow ? (
+                    <pre style={{ margin: 0 }}>
+                      {JSON.stringify(recordDiff.targetRow, null, 2)}
+                    </pre>
+                  ) : (
+                    <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#DC2626' }}>
+                      <p style={{ fontWeight: 600, fontSize: '0.9375rem', margin: '0 0 0.5rem 0' }}>❌ Row not found in PostgreSQL</p>
+                      <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0 }}>
+                        This document exists in MongoDB, but no corresponding row was found in PostgreSQL table "{selectedTable}".
+                      </p>
+                    </div>
+                  )
                 ) : (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#DC2626' }}>
-                    <p style={{ fontWeight: 600, fontSize: '0.9375rem', margin: '0 0 0.5rem 0' }}>❌ Document not found in MongoDB</p>
-                    <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0 }}>
-                      This row exists in PostgreSQL, but no corresponding document was found in MongoDB collection "{selectedTable}".
-                    </p>
-                  </div>
+                  recordDiff.sourceDoc ? (
+                    <pre style={{ margin: 0 }}>
+                      {JSON.stringify(recordDiff.sourceDoc, null, 2)}
+                    </pre>
+                  ) : (
+                    <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#DC2626' }}>
+                      <p style={{ fontWeight: 600, fontSize: '0.9375rem', margin: '0 0 0.5rem 0' }}>❌ Document not found in MongoDB</p>
+                      <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0 }}>
+                        This row exists in PostgreSQL, but no corresponding document was found in MongoDB collection "{selectedTable}".
+                      </p>
+                    </div>
+                  )
                 )}
               </div>
             </div>
 
-            {/* Right: Target PostgreSQL Relational Row */}
+            {/* Right Panel: Target */}
             <div className="diff-panel">
               <div className="diff-panel-header">
-                <span>🐘 Target: PostgreSQL Row ({selectedTable})</span>
-                <span className={!recordDiff.targetRow ? 'v-badge-danger' : recordDiff.isIdentical ? 'v-badge-success' : 'v-badge-danger'}>
-                  {!recordDiff.targetRow ? '❌ Missing in Target' : recordDiff.isIdentical ? '✓ 100% Identical' : '⚠ Discrepancy Found'}
+                <span>{isReverse ? `🍃 Target: MongoDB Document (${selectedTable})` : `🐘 Target: PostgreSQL Row (${selectedTable})`}</span>
+                <span className={
+                  (isReverse ? !recordDiff.sourceDoc : !recordDiff.targetRow)
+                    ? 'v-badge-danger'
+                    : recordDiff.isIdentical
+                    ? 'v-badge-success'
+                    : 'v-badge-danger'
+                }>
+                  {(isReverse ? !recordDiff.sourceDoc : !recordDiff.targetRow)
+                    ? '❌ Missing in Target'
+                    : recordDiff.isIdentical
+                    ? '✓ 100% Identical'
+                    : '⚠ Discrepancy Found'}
                 </span>
               </div>
               <div className="diff-code-body">
-                {recordDiff.targetRow ? (
+                {(isReverse ? recordDiff.sourceDoc : recordDiff.targetRow) ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     {recordDiff.fields.map((f) => (
                       <div
@@ -230,16 +261,22 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
                         }`}
                       >
                         <div>
-                          <strong>{f.targetColumnName}: </strong>
+                          <strong>{isReverse ? (f.fieldName || f.targetColumnName) : f.targetColumnName}: </strong>
                           <span style={{ color: '#1E293B' }}>
-                            {f.targetValue === null || f.targetValue === undefined
-                              ? '<NULL>'
-                              : typeof f.targetValue === 'object'
-                              ? JSON.stringify(f.targetValue)
-                              : String(f.targetValue)}
+                            {isReverse
+                              ? (f.sourceRawValue === null || f.sourceRawValue === undefined
+                                ? '<NULL>'
+                                : typeof f.sourceRawValue === 'object'
+                                ? JSON.stringify(f.sourceRawValue)
+                                : String(f.sourceRawValue))
+                              : (f.targetValue === null || f.targetValue === undefined
+                                ? '<NULL>'
+                                : typeof f.targetValue === 'object'
+                                ? JSON.stringify(f.targetValue)
+                                : String(f.targetValue))}
                           </span>
                           <span style={{ fontSize: '0.6875rem', color: '#64748B', marginLeft: '0.5rem' }}>
-                            ({f.targetSqlType})
+                            ({isReverse ? (f.sourceType?.toUpperCase() || 'BSON') : f.targetSqlType})
                           </span>
                         </div>
 
@@ -264,9 +301,13 @@ export const RecordDiffInspector: React.FC<RecordDiffInspectorProps> = ({
                   </div>
                 ) : (
                   <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#DC2626' }}>
-                    <p style={{ fontWeight: 600, fontSize: '0.9375rem', margin: '0 0 0.5rem 0' }}>❌ Row not found in PostgreSQL</p>
+                    <p style={{ fontWeight: 600, fontSize: '0.9375rem', margin: '0 0 0.5rem 0' }}>
+                      {isReverse ? '❌ Document not found in MongoDB' : '❌ Row not found in PostgreSQL'}
+                    </p>
                     <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0 }}>
-                      This document exists in MongoDB, but has not migrated into table "{selectedTable}".
+                      {isReverse
+                        ? `This row exists in PostgreSQL, but has not migrated into MongoDB collection "${selectedTable}".`
+                        : `This document exists in MongoDB, but has not migrated into table "${selectedTable}".`}
                     </p>
                   </div>
                 )}

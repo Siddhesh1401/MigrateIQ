@@ -26,6 +26,17 @@ export function sanitizeIdentifier(name: string | undefined | null, fallback = '
 }
 
 /**
+ * Sanitizes a MongoDB collection or field identifier.
+ * Preserves exact casing (BSON is case-sensitive), strips dangerous quotes and control characters,
+ * and limits identifier length.
+ */
+export function sanitizeMongoIdentifier(name: string | undefined | null, fallback = ''): string {
+  if (!name || typeof name !== 'string') return fallback;
+  const sanitized = name.trim().replace(/[\x00\r\n"\\]/g, '').slice(0, 120);
+  return sanitized.length > 0 ? sanitized : fallback;
+}
+
+/**
  * Injects or updates the target database name inside a connection string URI.
  * Guarantees that PostgreSQL and MongoDB drivers always connect to the intended database.
  */

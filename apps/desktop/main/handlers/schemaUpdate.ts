@@ -28,7 +28,7 @@ import type {
   EvolutionStrategyRecommendation,
   ScriptImportParseResult,
 } from '@migrateiq/shared';
-import { maskSensitiveFields, sanitizeIdentifier } from '../utils';
+import { maskSensitiveFields, sanitizeIdentifier, sanitizeMongoIdentifier } from '../utils';
 import { recordAIUsage } from './aiUsageStore';
 
 // Will be dynamically imported when needed
@@ -318,10 +318,10 @@ COMMIT;`;
 }
 
 export function generateMongoDbScripts(params: SchemaChangeParams): GeneratedScriptResult {
-  const safeTable = sanitizeIdentifier(params.tableName);
-  const safeColumn = params.columnName ? sanitizeIdentifier(params.columnName) : '';
-  const safeNewColumn = params.newColumnName ? sanitizeIdentifier(params.newColumnName) : '';
-  const safeNewTable = params.newTableName ? sanitizeIdentifier(params.newTableName) : '';
+  const safeTable = sanitizeMongoIdentifier(params.tableName, 'collection');
+  const safeColumn = params.columnName ? sanitizeMongoIdentifier(params.columnName) : '';
+  const safeNewColumn = params.newColumnName ? sanitizeMongoIdentifier(params.newColumnName) : '';
+  const safeNewTable = params.newTableName ? sanitizeMongoIdentifier(params.newTableName) : '';
 
   let forward = '';
   let rollback = '';

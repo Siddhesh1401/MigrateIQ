@@ -863,7 +863,7 @@ export async function inspectRecord(
   recordId: string,
   mappings: CollectionMapping[] = []
 ): Promise<RecordDiffResult> {
-  const { mongoConfig, pgConfig } = resolveDbConfigs(sourceConfig, targetConfig);
+  const { mongoConfig, pgConfig, isReverse } = resolveDbConfigs(sourceConfig, targetConfig);
 
   let mongoClient: MongoClient | null = null;
   let pgClient: PgClient | null = null;
@@ -888,7 +888,9 @@ export async function inspectRecord(
       }
     }
     const isChild = Boolean(childMapping) || (targetTbl.includes('_') && !mapping);
-    const sourceCol = mapping ? mapping.collectionName : (parentMapping ? parentMapping.collectionName : tableName);
+    const sourceCol = mapping
+      ? (isReverse ? (mapping.targetTableName || mapping.collectionName) : mapping.collectionName)
+      : (parentMapping ? parentMapping.collectionName : tableName);
 
     let sourceDoc: Record<string, unknown> | null = null;
     let targetRow: Record<string, unknown> | null = null;
@@ -987,32 +989,73 @@ export async function inspectRecord(
 
     if (!sourceDoc && mongoClient) {
       const db = mongoClient.db(mongoConfig.database);
-      const targetColName = sourceCol;
+      let targetColName = sourceCol;
+      try {
+        const collections = await db.listCollections().toArray();
+        const colNames = collections.map(c => c.name);
+        if (!colNames.includes(targetColName)) {
+          const match = colNames.find(c => c.toLowerCase() === targetColName.toLowerCase() || c.toLowerCase() === `${targetColName.toLowerCase()}s` || `${c.toLowerCase()}s` === targetColName.toLowerCase());
+          if (match) targetColName = match;
+        }
+      } catch {}
+
+      const orConditions: Record<string, unknown>[] = [];
+
+      // Add conditions based on effectiveId
       if (effectiveId) {
-        try {
-          if (ObjectId.isValid(effectiveId)) {
-            sourceDoc = (await db.collection(targetColName).findOne({ _id: new ObjectId(effectiveId) })) as Record<string, unknown> | null;
-          }
-        } catch {}
-        if (!sourceDoc) {
-          sourceDoc = (await db.collection(targetColName).findOne({ _id: effectiveId as unknown as ObjectId })) as Record<string, unknown> | null;
+        if (ObjectId.isValid(effectiveId)) {
+          try { orConditions.push({ _id: new ObjectId(effectiveId) }); } catch {}
         }
-        if (!sourceDoc) {
-          sourceDoc = (await db.collection(targetColName).findOne({ id: effectiveId })) as Record<string, unknown> | null;
+        orConditions.push({ _id: effectiveId });
+        orConditions.push({ id: effectiveId });
+        const numId = Number(effectiveId);
+        if (!isNaN(numId)) {
+          orConditions.push({ id: numId });
+          orConditions.push({ _id: numId });
         }
-      } else if (targetRow) {
-        const tid = String(targetRow.id || targetRow._id || '');
-        if (tid) {
-          try {
-            if (ObjectId.isValid(tid)) {
-              sourceDoc = (await db.collection(targetColName).findOne({ _id: new ObjectId(tid) })) as Record<string, unknown> | null;
+      }
+
+      // Add conditions based on targetRow attributes (id, _id, or any identifier)
+      if (targetRow) {
+        for (const [k, v] of Object.entries(targetRow)) {
+          if (v === null || v === undefined) continue;
+          if (k === 'id' || k === '_id' || k.endsWith('_id') || k.endsWith('_code')) {
+            orConditions.push({ [k]: v });
+            if (typeof v === 'number') {
+              orConditions.push({ [k]: String(v) });
+              orConditions.push({ id: v });
+              orConditions.push({ id: String(v) });
+            } else if (typeof v === 'string') {
+              const nv = Number(v);
+              if (!isNaN(nv)) {
+                orConditions.push({ [k]: nv });
+                orConditions.push({ id: nv });
+              }
+              if (ObjectId.isValid(v)) {
+                try {
+                  orConditions.push({ [k]: new ObjectId(v) });
+                  orConditions.push({ _id: new ObjectId(v) });
+                } catch {}
+              }
             }
-          } catch {}
-          if (!sourceDoc) {
-            sourceDoc = (await db.collection(targetColName).findOne({ _id: tid as unknown as ObjectId })) as Record<string, unknown> | null;
           }
         }
-      } else {
+      }
+
+      if (orConditions.length > 0) {
+        try {
+          sourceDoc = (await db.collection(targetColName).findOne({ $or: orConditions })) as Record<string, unknown> | null;
+        } catch {
+          for (const cond of orConditions) {
+            try {
+              sourceDoc = (await db.collection(targetColName).findOne(cond)) as Record<string, unknown> | null;
+              if (sourceDoc) break;
+            } catch {}
+          }
+        }
+      }
+
+      if (!sourceDoc && !effectiveId) {
         sourceDoc = (await db.collection(targetColName).findOne({})) as Record<string, unknown> | null;
       }
     }
@@ -1127,13 +1170,21 @@ export async function inspectRecord(
         let sourceFieldName = colName;
 
         if (colName === 'id') {
-          sourceFieldName = '_id';
-          rawSrcVal = sourceDoc?._id !== undefined ? String(sourceDoc._id) : undefined;
+          if (sourceDoc && (sourceDoc as Record<string, unknown>).id !== undefined) {
+            sourceFieldName = 'id';
+            rawSrcVal = (sourceDoc as Record<string, unknown>).id;
+          } else {
+            sourceFieldName = '_id';
+            rawSrcVal = sourceDoc?._id !== undefined ? String(sourceDoc._id) : undefined;
+          }
         } else if (mapping) {
-          const directMatch = mapping.fields.find(f => f.targetColumn === colName);
-          if (directMatch?.sourceField) {
+          const directMatch = mapping.fields.find(f => f.targetColumn === colName || f.sourceField === colName);
+          if (directMatch?.sourceField && sourceDoc && (sourceDoc as Record<string, unknown>)[directMatch.sourceField] !== undefined) {
             sourceFieldName = directMatch.sourceField;
             rawSrcVal = getNestedValue(sourceDoc, directMatch.sourceField);
+          } else if (directMatch?.targetColumn && sourceDoc && (sourceDoc as Record<string, unknown>)[directMatch.targetColumn] !== undefined) {
+            sourceFieldName = directMatch.targetColumn;
+            rawSrcVal = getNestedValue(sourceDoc, directMatch.targetColumn);
           }
         }
 
@@ -1585,7 +1636,7 @@ export async function runBenchmark(
   sourceConfig: ConnectionConfig,
   targetConfig: ConnectionConfig,
   queryCount = 100,
-  concurrency = 10
+  _concurrency = 10
 ): Promise<BenchmarkResult> {
   const { mongoConfig, pgConfig } = resolveDbConfigs(sourceConfig, targetConfig);
 
@@ -1615,39 +1666,34 @@ export async function runBenchmark(
       } catch {}
     }
 
-    // Run parallel queries in batches of `concurrency`
-    const batches = Math.ceil(queryCount / concurrency);
+    // Run queries sequentially over the connection to measure clean latency
+    // without triggering node-postgres single-client concurrent query deprecation warnings
+    for (let i = 0; i < queryCount; i++) {
+      // Mongo query measurement
+      const mStart = performance.now();
+      if (mongoDb) {
+        try {
+          await mongoDb.collection(firstCol).find({}).limit(1).toArray();
+          mongoLatencies.push(performance.now() - mStart);
+        } catch {}
+      } else {
+        const simMongo = Math.random() * 6 + 15; // 15ms - 21ms typical document scan
+        await new Promise(r => setTimeout(r, 2));
+        mongoLatencies.push(simMongo);
+      }
 
-    for (let b = 0; b < batches; b++) {
-      const tasks = Array.from({ length: concurrency }).map(async () => {
-        // Mongo query measurement
-        const mStart = performance.now();
-        if (mongoDb) {
-          try {
-            await mongoDb.collection(firstCol).find({}).limit(1).toArray();
-            mongoLatencies.push(performance.now() - mStart);
-          } catch {}
-        } else {
-          const simMongo = Math.random() * 6 + 15; // 15ms - 21ms typical document scan
-          await new Promise(r => setTimeout(r, 2));
-          mongoLatencies.push(simMongo);
-        }
-
-        // Postgres real query measurement
-        const pStart = performance.now();
-        if (pgClient) {
-          try {
-            await pgClient.query(`SELECT * FROM "${sanitizeIdentifier(targetTableName)}" LIMIT 1`);
-            pgLatencies.push(performance.now() - pStart);
-          } catch {}
-        } else {
-          const simPg = Math.random() * 1.5 + 3.5; // 3.5ms - 5.0ms typical index lookup
-          await new Promise(r => setTimeout(r, 1));
-          pgLatencies.push(simPg);
-        }
-      });
-
-      await Promise.all(tasks);
+      // Postgres real query measurement
+      const pStart = performance.now();
+      if (pgClient) {
+        try {
+          await pgClient.query(`SELECT * FROM "${sanitizeIdentifier(targetTableName)}" LIMIT 1`);
+          pgLatencies.push(performance.now() - pStart);
+        } catch {}
+      } else {
+        const simPg = Math.random() * 1.5 + 3.5; // 3.5ms - 5.0ms typical index lookup
+        await new Promise(r => setTimeout(r, 1));
+        pgLatencies.push(simPg);
+      }
     }
 
     const calcMetrics = (latencies: number[]): BenchmarkMetrics => {
